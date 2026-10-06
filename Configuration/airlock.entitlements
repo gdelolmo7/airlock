@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  NOT sandboxed: we need ps/lsof, a Unix socket,
+	  and to read ~/.claude and ~/.codex — all impossible under App Sandbox.
+	  These entitlements matter under the hardened runtime:
+	  - automation.apple-events: send Apple events (Spotify/Music control,
+	    terminal jump-back via osascript).
+	  - personal-information.calendars: EventKit calendar access.
+	  - device.audio-input: the microphone, for dictation, AND the Core Audio
+	    process tap behind the reactive now-playing wave. Under the hardened
+	    runtime a missing entitlement means TCC shows NO DIALOG AT ALL — the
+	    request just returns denied — so the symptom is a feature that silently
+	    does nothing rather than a permission the user can grant. The tap also
+	    needs NSAudioCaptureUsageDescription in the plist; without the string
+	    the same silent-denial shape applies.
+	-->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

@@ -1,0 +1,89 @@
+agentic-notch bundles third-party source. Their licences follow.
+
+================================================================================
+DynamicNotchKit — Sources/DynamicNotchKit/
+https://github.com/MrKai77/DynamicNotchKit
+
+Vendored (copied in rather than fetched) so the notch surface itself can be
+modified: upstream hardcodes an opaque black background, which makes real
+translucency impossible for anything drawn inside it. Local changes are marked
+with "agentic-notch:" comments.
+
+MIT permits this without affecting our own licensing. The notice below must
+stay with the code.
+================================================================================
+
+MIT License
+
+Copyright (c) 2025 Kai Azim
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+LOCAL MODIFICATIONS TO THE VENDORED DynamicNotchKit
+---------------------------------------------------
+Five, all small, all marked at the line with a comment saying so. A
+re-vendoring must re-apply them or three fixed bugs come back, one becomes
+undiagnosable again, and the island vanishes from a monitor with the lid shut.
+
+1. `DynamicNotch.state` is `public private(set)` rather than internal.
+   The host's own presentation log and the screen disagreed for six commits and
+   there was no way to tell which was right: the controller records what it
+   INTENDED, and this is what actually happened. Diagnostic only.
+
+2. `NotchView.compactContent()` gives the two shoulders `.transition(.identity)`,
+   EXPLICITLY — not a deleted modifier, which was tried and reverts to SwiftUI's
+   default `.opacity` insertion and changes nothing.
+   A transition here can be INTERRUPTED and leave the shoulder stranded: laid
+   out, reporting its real width, and drawn at opacity 0. That is a window that
+   is visible at alpha 1.00, in the right state, at the right size, with real
+   content, and blank — which is what "the notch hides" turned out to be. It
+   strands when the shoulder's content is LIVE during the conversion inserting
+   it — a playing track's 20fps wave, an async artwork load — which is why only
+   spoken media commands triggered it. `.blur + .scale + .opacity`, `.opacity`
+   alone, and the default all strand; the fault is the interruption, not the
+   effect. `.identity` is the only spelling with no wrapper to interrupt.
+
+3. `DynamicNotch.onCompactGeometry`, a nil-by-default host hook called from
+   `NotchView`'s two `onGeometryChange` modifiers.
+   The island's shape follows its shoulder widths, which live in `NotchView`'s
+   private `@State`. A conversion and a content change happening together moves
+   the width target while the shape is in flight, and nothing outside the kit
+   could observe it. Diagnostic only; costs nothing when unset.
+
+4. `DynamicNotchPanel` is `public` and its `canBecomeKey` consults a new
+   `refusesKeyStatus` switch (default false, so upstream behaviour is
+   unchanged until the host raises it).
+   Upstream hardcodes `canBecomeKey` to true, which makes the panel volunteer
+   for every automatic key reassignment — so any attempt to hand the keyboard
+   back invisibly (key to an off-screen sink, sink orders out) bounces
+   straight back to the panel, and the only remaining release is ordering the
+   PANEL out, a visible blink at any moment. The switch makes the panel
+   ineligible for exactly the instant of the hand-back. `becomesKeyOnlyIfNeeded`
+   cannot do this: it feeds the default `canBecomeKey` this override replaces,
+   and was measured changing nothing.
+
+5. `DynamicNotch.notchlessCutout`, a nil-by-default host hook read in
+   `effectiveStyle(for:)` and `initializeWindow(screen:)`.
+   Upstream's `.auto` turns a screen without a notch into `.floating`, and
+   floating has no compact form: `compact(on:)` hides it. With the lid shut and
+   the island allowed on a monitor, it therefore showed nothing until something
+   expanded it. A size from the host makes that screen use the notch style
+   around a cutout of that size. Screens with a real notch never consult it, and
+   unset it changes nothing.

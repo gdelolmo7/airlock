@@ -1,0 +1,30 @@
+.DS_Store
+/.build
+/.swiftpm
+/Packages
+xcuserdata/
+*.xcodeproj
+DerivedData/
+.netrc
+/output
+
+# Apple's documentation, mirrored locally for grounding UI and API work
+# (docs/reference/apple/README.md explains the shape and how to extend it).
+# It is Apple's copyright, ~12MB of it, and this repo is meant to ship — so the
+# mirror stays on disk and out of history, where a later removal would mean a
+# rewrite rather than a delete. Regenerate it with docs/reference/apple/tools/.
+docs/reference/
+
+# Screen recordings staged for the landing page. 12MB of binaries that nothing
+# in site/ references yet — the stills under site/assets/shots/ ARE tracked and
+# are what the pages actually use. Git handles a re-encoded video by storing
+# another whole copy, so a few passes at a demo reel outweighs the entire source
+# tree. If one of these is ever embedded in a page, host it somewhere built for
+# video rather than un-ignoring it here.
+site/assets/videos/
+
+# Build cache from wrangler, not source.
+worker/.wrangler/
+
+# The KYB demo video. 15 MB of binary would be permanent history in a repo of text.
+Resources/airlock_demo.mp4
