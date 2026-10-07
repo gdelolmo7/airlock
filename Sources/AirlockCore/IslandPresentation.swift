@@ -68,6 +68,11 @@ public enum IslandPresentation: Comparable, Sendable, CaseIterable {
         /// gesture props it up, and it must survive focus going to the app
         /// being guided — that is where the user is supposed to be looking.
         public static let guiding = Holds(rawValue: 1 << 7)
+        /// A new version's "what's new" card is up (`WhatsNew`). The one other
+        /// hold no gesture props up: the card opens the panel by itself at
+        /// launch, when nobody is pointing at it, and has to stay until it is
+        /// read — "Got it" or an explicit collapse releases it.
+        public static let notes = Holds(rawValue: 1 << 8)
     }
 
     /// `hasContent` means there is something worth showing compact — a session,

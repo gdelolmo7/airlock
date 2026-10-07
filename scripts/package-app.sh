@@ -24,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${AIRLOCK_VERSION:-1.0.17}"
+VERSION="${AIRLOCK_VERSION:-1.0.18}"
 BUILD_NUM="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 BUNDLE_ID="${AIRLOCK_BUNDLE_ID:-com.airlock.app}"
 

@@ -51,6 +51,12 @@ enum GalleryIsland {
             compact("I13a", "Compact: on a WhatsApp call (icon + timer)",
                     input(call: OngoingCall(bundleID: "net.whatsapp.WhatsApp", appName: "WhatsApp",
                                             startedAt: now.addingTimeInterval(-134)))),
+            compact("I13b", "Compact: on a Meet call in Chrome (icon + timer)",
+                    input(call: OngoingCall(bundleID: "com.google.Chrome", appName: "Google Chrome",
+                                            startedAt: now.addingTimeInterval(-1_412), site: .googleMeet))),
+            compact("I13c", "Compact: on a call in Chrome, not Meet (icon + timer)",
+                    input(call: OngoingCall(bundleID: "com.google.Chrome", appName: "Google Chrome",
+                                            startedAt: now.addingTimeInterval(-307)))),
 
             GalleryState("I14", area, "Top bar: Claude usage figures (tooltip not drawn)") {
                 topBar(usage: freshUsage) { tabStrip }

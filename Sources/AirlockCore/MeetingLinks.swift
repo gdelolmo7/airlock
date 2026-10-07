@@ -9,7 +9,7 @@ import Foundation
 public struct MeetingLink: Equatable, Hashable, Sendable {
     /// Who hosts the call. `.unknown` is a real, joinable outcome and not a
     /// failure: see `MeetingLinks.looksLikeARoom` for what earns it.
-    public enum Provider: String, Equatable, Hashable, Sendable, CaseIterable {
+    public enum Provider: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
         case zoom
         case googleMeet
         case teams

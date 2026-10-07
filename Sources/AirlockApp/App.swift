@@ -13,6 +13,8 @@ enum AgenticNotchMain {
     static func main() {
         // First, before anything can log (see `OwnerLogs`).
         OwnerLogs.open(Launch())
+        // Asked by the release script, which wants the notes and not the app.
+        if WhatsNewLaunch.printHTMLIfAsked(CommandLine.arguments) { return }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

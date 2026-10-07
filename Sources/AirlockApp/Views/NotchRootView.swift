@@ -138,9 +138,23 @@ struct NotchExpandedView: View {
             // In practice the two rarely meet — the hooks that produce gates
             // are what this step is installing — but "rarely" is not a reason
             // to hide the one card with an agent waiting on it.
-            if let onboarding = uiState.onboarding {
+            // Also while it is leaving, and then no longer clickable: setup
+            // is over, and its buttons would act on a finished wizard. See
+            // `NotchUIState.onboardingLeaving`.
+            if let onboarding = uiState.onboarding ?? uiState.onboardingLeaving {
                 PanelOnboardingView(maxContentHeight: maxSectionHeight, tabs: registry.visibleTabs())
                     .environment(onboarding)
+                    .allowsHitTesting(uiState.onboarding != nil)
+                    .transition(.opacity)
+            }
+
+            // A new version's card takes the panel the same way, once, and
+            // yields to setup and to a gate for the same reasons.
+            // Also while it is leaving: what shrinks away is the card, not
+            // Home. See `NotchUIState.whatsNewLeaving`.
+            if let card = uiState.whatsNew ?? uiState.whatsNewLeaving,
+               uiState.onboarding == nil, uiState.onboardingLeaving == nil {
+                WhatsNewCard(card: card, onDismiss: uiState.dismissWhatsNew)
                     .transition(.opacity)
             }
 
@@ -148,7 +162,7 @@ struct NotchExpandedView: View {
             // card (layout B) and the sentence it leaves when it stops on its
             // own — and yields to a gate the same way, via `stackContent`.
             #if AIRLOCK_GUIDE
-            if guideHasPanel, uiState.onboarding == nil {
+            if guideHasPanel, !panelIsTaken {
                 GuidePanelView()
                     .transition(.opacity)
             }
@@ -334,7 +348,7 @@ struct NotchExpandedView: View {
             // letting go of the key, and it would take height from the
             // transcript that is the only thing you are looking at.
             if uiState.selectedTab == .agents, !dictationOwnsPanel, !assistant.isPresenting,
-               !uiState.holdAnswerThroughCollapse, uiState.onboarding == nil,
+               !uiState.holdAnswerThroughCollapse, !panelIsTaken,
                !assistant.isCommandBarOpen, !notice.isBlocking, stackContent != .attentionOnly {
                 QuickPromptBar().environment(model)
             }
@@ -419,7 +433,7 @@ struct NotchExpandedView: View {
         PanelStackContent.resolve(dictating: dictationOwnsPanel,
                                   answering: assistant.isPresenting || uiState.holdAnswerThroughCollapse,
                                   demandsAttention: registry.demandsAttention,
-                                  onboarding: uiState.onboarding != nil,
+                                  onboarding: panelIsTaken,
                                   guiding: guideHasPanel,
                                   typing: showsCommandBar,
                                   askingYou: focusesQuestions)
@@ -432,7 +446,7 @@ struct NotchExpandedView: View {
     private var dictationOwnsPanel: Bool {
         dictation.showsIndicator
             || (uiState.holdDictationThroughCollapse && !assistant.isPresenting
-                && !guideHasPanel && uiState.onboarding == nil)
+                && !guideHasPanel && !panelIsTaken)
     }
 
     /// The panel is open on the Agents tab because an agent is asking. Read by
@@ -445,7 +459,14 @@ struct NotchExpandedView: View {
     /// by the bar's own `if`, so the two cannot disagree about an empty notch.
     private var showsCommandBar: Bool {
         assistant.isCommandBarOpen && !dictationOwnsPanel && !notice.isBlocking
-            && uiState.onboarding == nil
+            && !panelIsTaken
+    }
+
+    /// Setup or a new version's card owns the panel: the widget stack, the
+    /// guide and the typing bars all stand aside for either.
+    private var panelIsTaken: Bool {
+        uiState.onboarding != nil || uiState.onboardingLeaving != nil
+            || uiState.whatsNew != nil || uiState.whatsNewLeaving != nil
     }
 
     private var leadingSections: [(id: String, view: AnyView)] {
@@ -1498,15 +1519,16 @@ struct EmptyTabView: View {
     }
 }
 
-/// The call rung: the calling app's icon and how long the call has run, the
-/// timer in the green macOS gives a microphone in use, so it reads as "you are
-/// live" at a glance. The icon says which app; the phone glyph stands in when
-/// the app has none to give.
+/// The call rung: the calling app's logo and how long the call has run, both in
+/// the grey of every other compact glyph (the owner, 2026-10-07: "maybe all in
+/// grey"; the timer was the microphone-in-use green until then). The logo
+/// says which app (`CallGlyph`); the phone glyph stands in for an app it has
+/// no logo for.
 ///
-/// **The icon is grey, like every other glyph in the compact island** (the
+/// **The logo is grey, like every other glyph in the compact island** (the
 /// owner, 2026-10-06: "smaller, and grey, same as the rest of the icons"). In
 /// colour it was the loudest thing in the menu bar; the logo's shape still
-/// says which app, and the green timer says it is live.
+/// says which app, and a ticking timer says it is live.
 ///
 /// The timer is its own `TimelineView`, ticking once a second only while a call
 /// is on screen — never the island's clock, which would redraw everything.
@@ -1515,33 +1537,34 @@ struct CallPill: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            if let icon = CallMonitor.icon(for: call.bundleID) {
-                // Cropped to a circle from the middle of the artwork: an icon
-                // file carries a margin and the rounded-square plate, and at
-                // this size the plate's corners read as a box. 80% of the
-                // canvas is the plate on Apple's icon grid, so drawing it at
-                // 11 ÷ 0.8 and clipping to 11 keeps only the plate. 11 is the
-                // height the cup and tray glyphs beside it draw at; greyscale
-                // dimmed to 0.7 lands near `textSecondary` on the black island.
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 13.75, height: 13.75)
-                    .frame(width: 11, height: 11)
-                    .clipShape(Circle())
-                    .grayscale(1)
-                    .opacity(0.7)
-            } else {
-                Image(systemName: "phone.fill")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Theme.textSecondary)
+            switch CallGlyph.kind(for: call) {
+            case .logo(let name):
+                if let logo = CallGlyph.image(name) {
+                    // 11 is the height the cup and tray glyphs beside it draw at.
+                    Image(nsImage: logo)
+                        .renderingMode(.template)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 11, height: 11)
+                        .foregroundStyle(Theme.textSecondary)
+                } else {
+                    symbol("phone.fill")
+                }
+            case .symbol(let name):
+                symbol(name)
             }
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(call.elapsedLabel(at: context.date))
                     .font(Theme.fixed(11, .semibold))  // see the meeting countdown
                     .monospacedDigit()
-                    .foregroundStyle(Theme.done)
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
+    }
+
+    private func symbol(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(Theme.textSecondary)
     }
 }

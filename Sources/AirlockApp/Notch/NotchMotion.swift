@@ -258,6 +258,14 @@ enum MotionEffect {
     }
     static let ringGlide = Animation.smooth(duration: 0.7)
 
+    /// The sparkles round the cloud on the "what's new" card: a quick lift
+    /// and a slower settle, played three times and then never again — a
+    /// flourish, not one of the loops below.
+    static let twinkleUp = Animation.easeInOut(duration: twinkleUpDuration)
+    static let twinkleDown = Animation.easeInOut(duration: twinkleDownDuration)
+    static let twinkleUpDuration: Double = 0.28
+    static let twinkleDownDuration: Double = 0.34
+
     // The guide's ring. It travels across the whole screen rather than inside
     // the island, so its arrival is its own effect; moving to the next button
     // is still a Swap and reaching it a Confirm.

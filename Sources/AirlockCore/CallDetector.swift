@@ -25,11 +25,17 @@ public struct OngoingCall: Codable, Equatable, Sendable {
     /// When the app first took the microphone, not when the call was
     /// believed: the settle wait is ours, the timer is the user's.
     public var startedAt: Date
+    /// The service the call is on, when the app is a browser and its window
+    /// says so (a Meet tab). Set by the app, which can read window titles;
+    /// the detector only ever sees which app holds the microphone.
+    public var site: MeetingLink.Provider?
 
-    public init(bundleID: String, appName: String, startedAt: Date) {
+    public init(bundleID: String, appName: String, startedAt: Date,
+                site: MeetingLink.Provider? = nil) {
         self.bundleID = bundleID
         self.appName = appName
         self.startedAt = startedAt
+        self.site = site
     }
 
     /// The running timer beside the icon: "0:42", "12:05", then "1h02" past an

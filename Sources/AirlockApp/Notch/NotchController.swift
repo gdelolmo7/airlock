@@ -50,6 +50,8 @@ final class NotchUIState {
     /// keyboard the way the gate hotkey would, so typing lands here and the
     /// keyboard goes back once the card is answered. Set by the controller.
     @ObservationIgnored var takeKeyboardForAnswer: () -> Void = {}
+    /// "Got it" on the new version's card. Set by the controller.
+    @ObservationIgnored var dismissWhatsNew: () -> Void = {}
 
     /// The panel is being rearranged rather than used.
     ///
@@ -70,6 +72,22 @@ final class NotchUIState {
     /// Cleared by `NotchController.endOnboarding()`, which is also the only
     /// place that settles `hasCompletedSetup` for this route.
     var onboarding: OnboardingModel?
+    /// Setup just finished, skipped or closed, kept drawn while the panel
+    /// shrinks away from it, so the closing panel never shows Home. The same
+    /// fix as `whatsNewLeaving` (owner, 2026-10-07: "fix the setup one too"),
+    /// cleared at the same places.
+    var onboardingLeaving: OnboardingModel?
+    /// A new version's "what's new" card (`WhatsNew`), taking the panel the
+    /// way setup does. Non-nil is "the card is up", for the same reason as
+    /// `onboarding`. Set and cleared only by `NotchController.showWhatsNew` /
+    /// `endWhatsNew`.
+    var whatsNew: WhatsNew.Card?
+    /// The card just read, kept drawn while the panel shrinks away from it.
+    /// Without it the full-size panel mounts the Home tab for the moment
+    /// between "Got it" and the collapse starting — reported 2026-10-07 as
+    /// "for a microsecond it expands and I can see the regular home". The
+    /// same fix as `holdAnswerThroughCollapse`, cleared at the same places.
+    var whatsNewLeaving: WhatsNew.Card?
     /// The running guide's compact state, copied from `GuideController` on
     /// every change it reports. Here rather than read from the controller so
     /// the island's one input keeps coming from one place.
@@ -225,6 +243,9 @@ final class NotchController {
     private let uiState = NotchUIState()
     private var notch: DynamicNotch<AnyView, AnyView, AnyView>?
 
+    /// Whether closing the current "what's new" card writes its version down
+    /// as seen. See `showWhatsNew`.
+    private var whatsNewRemembers = true
     /// Pinned open by tap/menu/attention; cleared by collapse or resolution.
     private var stickyExpand = false
     /// Peek while the pointer is on the island; falls back on exit.
@@ -389,6 +410,7 @@ final class NotchController {
         }
         let uiState = self.uiState
         uiState.takeKeyboardForAnswer = { [weak self] in self?.takeKeyboardForAnswer() }
+        uiState.dismissWhatsNew = { [weak self] in self?.endWhatsNew() }
         uiState.tabChanged = { [weak self] in
             guard let self, let applied = self.applied else { return }
             let context = "tab \(self.uiState.selectedTab)"
@@ -1190,6 +1212,7 @@ final class NotchController {
     func beginOnboarding(_ onboarding: OnboardingModel) {
         onboarding.onClose = { [weak self] in self?.endOnboarding() }
         onboarding.settings.refresh()
+        uiState.onboardingLeaving = nil
         uiState.onboarding = onboarding
         // Home, because the wizard replaces the stack and the tab strip above it
         // stays live — landing on a tab the user never chose would make the
@@ -1204,12 +1227,38 @@ final class NotchController {
     /// `OnboardingModel.finish` routes back into it through `onClose`, so it has
     /// to be safe to arrive here twice for the same wizard.
     func endOnboarding() {
-        guard uiState.onboarding != nil else { return }
+        guard let onboarding = uiState.onboarding else { return }
+        // Still drawn through the collapse this causes. See `onboardingLeaving`.
+        uiState.onboardingLeaving = onboarding
         uiState.onboarding = nil
         // Every route out of the wizard is a finished setup — the same rule
         // `OnboardingWindowController.windowWillClose` applies to the window.
         // Without it, skipping means being asked again next launch.
         OnboardingModel.hasCompletedSetup = true
+        apply()
+    }
+
+    /// Open the panel on a new version's card. Held until "Got it" or an
+    /// explicit collapse, the same way setup is.
+    ///
+    /// - Parameter remember: write the version down as seen when the card goes.
+    ///   False for `--whats-new`, so looking at it on purpose does not use up
+    ///   the real one.
+    func showWhatsNew(_ card: WhatsNew.Card, remember: Bool) {
+        whatsNewRemembers = remember
+        uiState.whatsNewLeaving = nil
+        uiState.whatsNew = card
+        apply()
+    }
+
+    /// Take the card off the panel. Idempotent, like `endOnboarding`:
+    /// `collapseExplicitly` calls it unconditionally.
+    func endWhatsNew() {
+        guard let card = uiState.whatsNew else { return }
+        // Still drawn through the collapse this causes. See `whatsNewLeaving`.
+        uiState.whatsNewLeaving = card
+        uiState.whatsNew = nil
+        if whatsNewRemembers { WhatsNewLaunch.markSeen(card.version) }
         apply()
     }
 
@@ -1726,6 +1775,8 @@ final class NotchController {
         // with. Settled here rather than merely hidden, or Escape would mean
         // being greeted by setup again on the very next launch.
         endOnboarding()
+        // Same for the card: closing the panel on it is reading it.
+        endWhatsNew()
         hoverSuppressed = true // don't re-peek until the pointer leaves once
         gateHoldsKeyboard = false
         releaseKeyboard()
@@ -1974,6 +2025,9 @@ final class NotchController {
         // The one hold no gesture is propping up: setup runs in the panel, so
         // the collapse timer would otherwise eat the wizard mid-sentence.
         if uiState.onboarding != nil { holds.insert(.onboarding) }
+        // A new version's card: opened by the app at launch, so no gesture is
+        // holding it either.
+        if uiState.whatsNew != nil { holds.insert(.notes) }
         // The guide's first look, its card (layout B), or why it stopped.
         #if AIRLOCK_GUIDE
         if guide.panel != nil { holds.insert(.guiding) }
@@ -2194,6 +2248,8 @@ final class NotchController {
             // now, because the panel is staying.
             uiState.holdAnswerThroughCollapse = false
             uiState.holdDictationThroughCollapse = false
+            uiState.whatsNewLeaving = nil
+            uiState.onboardingLeaving = nil
             return
         }
         // The panel is about to get SMALLER because we asked it to — a drop
@@ -2550,6 +2606,8 @@ final class NotchController {
             // shows next, it no longer shows the lingering answer.
             self?.uiState.holdAnswerThroughCollapse = false
             self?.uiState.holdDictationThroughCollapse = false
+            self?.uiState.whatsNewLeaving = nil
+            self?.uiState.onboardingLeaving = nil
         }
     }
 

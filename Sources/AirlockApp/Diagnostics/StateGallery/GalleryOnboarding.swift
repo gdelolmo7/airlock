@@ -83,6 +83,16 @@ enum GalleryOnboarding {
             GalleryState("O16", area, "Setup picked up after a quit") {
                 panel(at: .features, resumed: true)
             },
+            GalleryState("O17", area, "After an update: what's new, once") {
+                // The newest entry, so the gallery always shows the card the
+                // next release will open with — as it rests, after arriving.
+                WhatsNewCard(card: WhatsNew.card(for: WhatsNew.catalog[0]), arrives: false)
+            },
+            GalleryState("O18", area, "After skipping an update: folded, newest first") {
+                if let sample = WhatsNewLaunch.sample {
+                    WhatsNewCard(card: sample, arrives: false)
+                }
+            },
         ]
     }
 

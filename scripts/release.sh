@@ -37,7 +37,7 @@ cd "$(dirname "$0")/.."
 # Notarization failed three times that way with `completedParts: []` — it
 # authenticates, opens the multipart upload, and transfers nothing — and worked
 # first time from Terminal.app.
-VERSION="${AIRLOCK_VERSION:-1.0.17}"
+VERSION="${AIRLOCK_VERSION:-1.0.18}"
 PROFILE="${AIRLOCK_NOTARY_PROFILE:-airlock}"
 OUT=output/package
 APP="$OUT/Airlock.app"
@@ -208,6 +208,21 @@ spctl --assess -t open --context context:primary-signature --verbose=2 "$DMG" 2>
 APPCAST_TOOL=".build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 if [[ -f Configuration/sparkle-public-key.txt && -x "$APPCAST_TOOL" ]]; then
   echo "▸ generating appcast"
+  # What's new, for Sparkle's update window: the SAME notes the app shows in
+  # its own card after updating (WhatsNew in AirlockCore), read back out of
+  # the build being shipped, so the two can never say different things.
+  # generate_appcast embeds a fragment it finds beside the DMG under the same
+  # name. A version without notes prints nothing and gets no file, and the
+  # update window then shows only the version, as every release before did.
+  NOTES_HTML="$OUT/Airlock-${VERSION}.html"
+  rm -f "$NOTES_HTML"
+  NOTES="$("$APP/Contents/MacOS/Airlock" --whats-new-html "$VERSION")"
+  if [[ -n "$NOTES" ]]; then
+    print -r -- "$NOTES" > "$NOTES_HTML"
+    echo "  ✓ release notes for $VERSION"
+  else
+    echo "  (no release notes for $VERSION — add them to WhatsNew.catalog)"
+  fi
   # An ARRAY, because this script runs under zsh and zsh does not word-split an
   # unquoted parameter expansion the way bash does. Written as
   # `${VAR:+--download-url-prefix "$VAR"}` it arrived as ONE argument with a

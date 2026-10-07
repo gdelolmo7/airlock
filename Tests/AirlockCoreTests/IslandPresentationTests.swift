@@ -9,7 +9,7 @@ final class IslandPresentationTests: XCTestCase {
     /// the other three — which is the same failure the option set itself exists
     /// to prevent at the call site.
     private static let each: [Holds] = [.pinned, .peeked, .hotkey, .dictating,
-                                        .answering, .scrubbing, .onboarding, .guiding]
+                                        .answering, .scrubbing, .onboarding, .guiding, .notes]
     private static let every: Holds = each.reduce(into: Holds()) { $0.formUnion($1) }
 
     private func resolve(screen: Bool = true,
@@ -160,7 +160,7 @@ final class IslandWithoutAStripTests: XCTestCase {
     /// Anything that needs the owner still opens the panel: every hold expands
     /// exactly as it does over the notch.
     func testEveryHoldStillExpands() {
-        for hold: Holds in [.pinned, .peeked, .hotkey, .dictating, .answering, .scrubbing, .onboarding, .guiding] {
+        for hold: Holds in [.pinned, .peeked, .hotkey, .dictating, .answering, .scrubbing, .onboarding, .guiding, .notes] {
             XCTAssertEqual(resolve(holds: hold), .expanded, "\(hold.rawValue)")
         }
     }

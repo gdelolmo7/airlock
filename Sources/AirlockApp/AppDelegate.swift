@@ -596,7 +596,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // After the windows exist, so "Open Settings" has something to open —
         // and before onboarding, which a migrated install will not see anyway.
         presentPermissionNoticeIfNeeded()
-        presentOnboardingIfNeeded(settingsModel)
+        let firstRun = presentOnboardingIfNeeded(settingsModel)
+        presentWhatsNewIfNeeded(isFirstRun: firstRun)
+    }
+
+    /// A new version's card, once (`WhatsNew`). After setup, which it never
+    /// shows on top of: a new user is told the version is seen instead.
+    /// Forced with `--args --whats-new` or `--whats-new-sample`, which never
+    /// mark it seen.
+    private func presentWhatsNewIfNeeded(isFirstRun: Bool) {
+        guard !Self.isDemoMode else { return }
+        let forced = WhatsNewLaunch.forcedCard
+        guard let card = forced ?? WhatsNewLaunch.cardForLaunch(isFirstRun: isFirstRun) else { return }
+        // No panel to open (a shut lid with the monitor fallback off): left
+        // unseen, so the next launch with a panel shows it.
+        guard NotchScreen.target != nil else { return }
+        notch?.showWhatsNew(card, remember: forced == nil)
     }
 
     /// Sample sessions instead of live ones, and no first-run wizard in the way.
@@ -690,9 +705,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// Skipped under demo mode, which exists for screenshots and dev runs where
     /// a wizard is purely in the way.
-    private func presentOnboardingIfNeeded(_ settingsModel: SettingsModel) {
+    /// - Returns: whether setup or the welcome opened.
+    @discardableResult
+    private func presentOnboardingIfNeeded(_ settingsModel: SettingsModel) -> Bool {
         let process = ProcessInfo.processInfo
-        guard !Self.isDemoMode else { return }
+        guard !Self.isDemoMode else { return false }
         settingsModel.refresh()
         // Forced two ways because the honest path to seeing this window is to be
         // a new user, and the developer never is. The argument form is the one
@@ -705,7 +722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //   open output/package/Airlock.app --args --welcome
         let forcedWelcome = process.arguments.contains("--welcome")
         guard forced || forcedWelcome || OnboardingModel.shouldPresentAtLaunch(settings: settingsModel)
-        else { return }
+        else { return false }
         // While the guide is on, a first run is the welcome and its practice
         // rather than the hooks wizard; "Yes, I do" reaches the wizard after.
         // Unless the wizard itself was left halfway (reached from the
@@ -713,7 +730,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if forcedWelcome || (!forced && !OnboardingModel.wizardLeftHalfway
                              && WelcomePlan.applies(guideEnabled: GuideSwitch.isOn)) {
             welcome?.show()
-            return
+            return true
         }
         // Falls back to the window if there is no panel to run in — a shut lid
         // with the external-display fallback off leaves nowhere to draw, and a
@@ -724,6 +741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             onboarding?.show()
         }
+        return true
     }
 
     /// "Yes, I do" in the welcome: the setup wizard, straight to connecting

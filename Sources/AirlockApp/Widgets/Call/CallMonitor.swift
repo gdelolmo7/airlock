@@ -28,6 +28,7 @@ final class CallMonitor {
     /// Samples since the call was last saved, so it is written every few
     /// seconds rather than every second.
     @ObservationIgnored private var unsavedSamples = 0
+    @ObservationIgnored private var samplesSinceSiteCheck = 0
     /// Daemon bundle IDs already logged once, so an unrecognised one is
     /// visible in the log without a line a second.
     @ObservationIgnored private var reportedUnowned: Set<String> = []
@@ -39,6 +40,7 @@ final class CallMonitor {
     /// anything about who is on the call.
     private static let savedCallKey = "call.inProgress"
     private static let saveEvery = 5
+    private static let siteCheckEvery = 5
 
     func start() {
         guard timer == nil else { return }
@@ -87,44 +89,6 @@ final class CallMonitor {
         return true
     }
 
-    /// The calling app's icon IN COLOUR, or nil to draw the plain phone glyph.
-    /// `CallPill` greys it since 2026-10-06, but greying the designer's artwork
-    /// still keeps the logo's shape; greying the system's glass square does not.
-    ///
-    /// **Read from the app's own icon file, not asked of macOS.** Since macOS
-    /// 26 the system hands out every icon in the user's chosen style — on the
-    /// owner's Mac "Clear, dark", so WhatsApp came back as a grey glass square
-    /// that said nothing in a 13pt slot. The file inside the bundle is still the
-    /// designer's colour artwork, and colour is the only way a logo that small
-    /// can be told apart. The system's version is the fallback, for an app that
-    /// ships its icon only in an asset catalog.
-    static func icon(for bundleID: String) -> NSImage? {
-        if let cached = icons[bundleID] { return cached }
-        let icon = bundleIcon(for: bundleID) ?? systemIcon(for: bundleID)
-        icons[bundleID] = icon
-        return icon
-    }
-
-    /// One read per app per launch: the view asks on every redraw.
-    private static var icons: [String: NSImage] = [:]
-
-    private static func bundleIcon(for bundleID: String) -> NSImage? {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
-              let bundle = Bundle(url: url),
-              let name = bundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String
-        else { return nil }
-        let file = (name as NSString).pathExtension.isEmpty ? name + ".icns" : name
-        return NSImage(contentsOf: url.appendingPathComponent("Contents/Resources/\(file)"))
-    }
-
-    private static func systemIcon(for bundleID: String) -> NSImage? {
-        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first,
-           let icon = app.icon { return icon }
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
-        else { return nil }
-        return NSWorkspace.shared.icon(forFile: url.path)
-    }
-
     private func sample() {
         let wasPending = detector.isResumePending
         let change = detector.observe(micUsers(), at: Date())
@@ -146,10 +110,55 @@ final class CallMonitor {
         case nil:
             unsavedSamples += 1
             if detector.call != nil, unsavedSamples >= Self.saveEvery { saveCall() }
+            refreshSiteIfDue()
             return
         }
         call = detector.call
+        samplesSinceSiteCheck = 0
+        if let current = call { call?.site = Self.site(of: current) }
         onChange?()
+    }
+
+    /// Looks again every few seconds until the call's site is known, because
+    /// the first look can come before Meet has titled its tab, or while its
+    /// tab is behind another. Once known it STAYS for the rest of the call:
+    /// the Meet tab going behind another tab changes its window's title, not
+    /// the call, which is still the same microphone hold.
+    private func refreshSiteIfDue() {
+        guard let current = call, current.site == nil else { return }
+        samplesSinceSiteCheck += 1
+        guard samplesSinceSiteCheck >= Self.siteCheckEvery else { return }
+        samplesSinceSiteCheck = 0
+        guard let site = Self.site(of: current) else { return }
+        Self.log.log("site \(site.rawValue, privacy: .public)")
+        call?.site = site
+    }
+
+    /// The service a browser call is on, read from the browser's window
+    /// titles: the Mac reports a Meet call as Chrome holding the microphone,
+    /// and only the tab's title says Meet. Needs Accessibility, which
+    /// dictation's typing already asks for; without it the browser's own logo
+    /// shows. Every window is read, but only the tab showing in each has a
+    /// title, so a Meet tab behind another tab is found only once it has been
+    /// seen (see `refreshSiteIfDue`). Titles are never logged: a meeting's
+    /// name can be in one.
+    private static func site(of call: OngoingCall) -> MeetingLink.Provider? {
+        guard CallGlyph.isBrowser(call.bundleID), AXIsProcessTrusted(),
+              let app = NSRunningApplication.runningApplications(withBundleIdentifier: call.bundleID).first
+        else { return nil }
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        // A hung browser must not hang the notch: Accessibility waits 6 s by default.
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        var windows: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &windows) == .success,
+              let list = windows as? [AXUIElement] else { return nil }
+        let titles = list.compactMap { window -> String? in
+            var title: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &title) == .success
+            else { return nil }
+            return title as? String
+        }
+        return CallGlyph.site(inWindowTitles: titles)
     }
 
     private static func isResume(_ change: CallDetector.Change?) -> Bool {

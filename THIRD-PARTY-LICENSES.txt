@@ -87,3 +87,14 @@ undiagnosable again, and the island vanishes from a monitor with the lid shut.
    expanded it. A size from the host makes that screen use the notch style
    around a cutout of that size. Screens with a real notch never consult it, and
    unset it changes nothing.
+
+================================================================================
+Simple Icons — Sources/AirlockApp/Widgets/Call/CallGlyph.swift
+https://simpleicons.org
+
+The call pill's app logos (WhatsApp, Discord, Slack, Telegram, Signal, Google
+Meet, and the Chrome, Safari, Firefox, Arc, Brave, Opera and Vivaldi browsers)
+are the path data from Simple Icons 16.34.0, released under CC0 1.0 Universal: no
+notice is required, and this one is a courtesy. The logos themselves remain
+trademarks of their owners and are used only to say which app a call is in.
+================================================================================
