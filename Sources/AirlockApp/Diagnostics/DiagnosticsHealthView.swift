@@ -25,20 +25,20 @@ struct DiagnosticsHealthView: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(health.rows.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { Divider().opacity(0.4) }
+                    if index > 0 { Rectangle().fill(SettingsLook.rowStroke).frame(height: 1) }
                     self.row(row)
                 }
             }
 
             HStack(spacing: 8) {
                 Text(summary)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(Theme.chrome(10.5))
+                    .foregroundStyle(Theme.textTertiary)
                 Spacer(minLength: 8)
                 // Available even when nothing is wrong: a bug report from a
                 // healthy install is still a bug report, and "it all looks fine
                 // to me" is exactly the thing worth attaching.
-                Button(health.isHealthy ? "Copy anyway" : "Copy the report", action: onCopy)
+                LookButton(health.isHealthy ? "Copy anyway" : "Copy the report", action: onCopy)
             }
         }
     }
@@ -51,11 +51,11 @@ struct DiagnosticsHealthView: View {
     private var healthyHeader: some View {
         VStack(alignment: .leading, spacing: 2) {
             Label("Nothing to report", systemImage: "checkmark.circle.fill")
-                .font(.headline)
-                .foregroundStyle(.green)
+                .font(Theme.chrome(12.5, .semibold))
+                .foregroundStyle(SettingsLook.on)
             Text(health.healthySummary)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -65,11 +65,11 @@ struct DiagnosticsHealthView: View {
             Label(health.faults.count == 1 ? "One thing needs attention"
                   : "\(health.faults.count) things need attention",
                   systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
-                .foregroundStyle(.orange)
+                .font(Theme.chrome(12.5, .semibold))
+                .foregroundStyle(Theme.needs)
             Text("Everything else checked out.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
         }
     }
 
@@ -78,16 +78,17 @@ struct DiagnosticsHealthView: View {
         let content = HStack(spacing: 9) {
             dot(row.severity)
             Text(row.title)
-                .font(.callout)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textPrimary)
             Spacer(minLength: 8)
             Text(row.detail)
-                .font(.callout)
-                .foregroundStyle(row.severity == .fault ? .orange : .secondary)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(row.severity == .fault ? Theme.needs : Theme.textSecondary)
                 .multilineTextAlignment(.trailing)
             if row.remedy != nil {
                 Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
             }
         }
         .padding(.vertical, 6)
@@ -108,14 +109,14 @@ struct DiagnosticsHealthView: View {
         Group {
             switch severity {
             case .fact:
-                Circle().fill(Color.green)
+                Circle().fill(SettingsLook.on)
             case .fault:
-                Circle().fill(Color.orange)
+                Circle().fill(Theme.needs)
             case .unknown:
                 // Hollow, deliberately. A filled grey dot reads as a fourth
                 // state nobody defined; an outline reads as "no answer", which
                 // is exactly what it is.
-                Circle().strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1.2)
+                Circle().strokeBorder(Theme.textTertiary, lineWidth: 1.2)
             }
         }
         .frame(width: 8, height: 8)

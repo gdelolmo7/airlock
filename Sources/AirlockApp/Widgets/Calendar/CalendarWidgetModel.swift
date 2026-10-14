@@ -259,6 +259,48 @@ final class CalendarWidgetModel {
         )
     }
 
+    // MARK: - Call notes
+
+    /// The event a call that started at `start` belongs to, so its notes can
+    /// carry the meeting's name and, on a one-to-one call, the other person's
+    /// (`CallEventMatch` decides which event, if any).
+    ///
+    /// Only reads a calendar the person already lets Airlock read: the start
+    /// of a call is no moment for a permission prompt. Names stay in memory
+    /// and in the notes; nothing here logs them.
+    func callEvent(near start: Date, site: MeetingLink.Provider?) -> MeetingEvent? {
+        guard !isPreview, EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return nil }
+        let reach: TimeInterval = 20 * 60
+        let candidates = fetch(from: start.addingTimeInterval(-reach), to: start.addingTimeInterval(reach))
+            .map { event in
+                CallEventMatch.Candidate(
+                    title: event.title ?? "",
+                    start: event.startDate,
+                    end: event.endDate,
+                    isAllDay: event.isAllDay,
+                    link: MeetingLinks.detect(url: event.url?.absoluteString,
+                                              location: event.location, notes: event.notes)?.provider,
+                    invited: event.attendees?.count ?? 0,
+                    others: Self.others(in: event))
+            }
+        return CallEventMatch.pick(candidates, callStart: start, site: site)
+    }
+
+    /// The people on an invite other than you, by name: no rooms, no
+    /// projectors, no bare addresses. The organiser counts when the calendar
+    /// left them off the attendee list, as some do for the person who sent it.
+    private static func others(in event: EKEvent) -> [String] {
+        var people = event.attendees ?? []
+        if let organizer = event.organizer, !people.contains(where: { $0.url == organizer.url }) {
+            people.append(organizer)
+        }
+        var seen = Set<String>()
+        return people
+            .filter { !$0.isCurrentUser && ($0.participantType == .person || $0.participantType == .unknown) }
+            .compactMap { CallEventMatch.displayName($0.name) }
+            .filter { seen.insert($0.lowercased()).inserted }
+    }
+
     /// What the last request turned out to be, so the UI can offer the remedy
     /// that matches it rather than the one that matches the status.
     private(set) var lastOutcome: CalendarAccessOutcome?

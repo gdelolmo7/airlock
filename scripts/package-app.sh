@@ -24,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${AIRLOCK_VERSION:-1.0.18}"
+VERSION="${AIRLOCK_VERSION:-1.0.19}"
 BUILD_NUM="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 BUNDLE_ID="${AIRLOCK_BUNDLE_ID:-com.airlock.app}"
 
@@ -109,6 +109,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/AirlockApp"     "$APP/Contents/MacOS/Airlock"
 cp "$BIN/airlock-hook"  "$APP/Contents/MacOS/airlock-hook"
 cp "$BIN/airlock-setup" "$APP/Contents/MacOS/airlock-setup"
+
+# The notices that have to travel with the code they cover. Sentry's crash
+# reporter is compiled into the executable, so its MIT notice goes in the
+# bundle as well as in the source.
+cp THIRD-PARTY-LICENSES.txt "$APP/Contents/Resources/"
 
 # ── Sparkle.framework. UNCONDITIONAL, whatever the keys below say.
 #
@@ -201,13 +206,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Airlock transcribes what you say into text. Audio is processed on your Mac and never leaves it.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Airlock reads the audio your music player is producing so the wave beside the notch follows the music. Only that player is tapped, nothing is recorded or stored, and this is off unless you turn it on.</string>
+	<string>Airlock reads the audio your music player is producing so the wave beside the notch follows the music, and, if you turn on call notes, your call app's sound so the other side can be written down as text. Only that one app is tapped, no audio is ever recorded or stored, and both are off unless you turn them on.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Airlock turns your speech into text on-device, so dictation works offline and nothing is sent anywhere.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Airlock shows your next meetings in the notch with one-click join links.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>No telemetry. Airlock looks at your screen only when you ask, and keeps no copy of what it saw.</string>
+	<string>No analytics. Crash reports are sent only if you say yes, with nothing personal in them. Airlock looks at your screen only when you ask, and keeps no copy of what it saw.</string>
 </dict>
 </plist>
 PLIST
@@ -258,6 +263,25 @@ if [[ -n "${AIRLOCK_LICENSE_API_URL:-}" ]]; then
   echo "  licensing: activation and renewal via $AIRLOCK_LICENSE_API_URL"
 else
   echo "  licensing: no licence server (only hand-issued keys will work)"
+fi
+
+# Crash reports (Sentry). The DSN says where reports go and is public by
+# design, but it is still injected rather than committed: a build without one
+# never starts the crash handler and never offers the choice, which is right
+# for a dev build, for anyone building the public source, and for this script
+# run without it. With one, nothing is sent until the person says yes.
+#
+# https only, like the licence server: a report posted over plain http is one
+# a network in between can read.
+if [[ -n "${AIRLOCK_SENTRY_DSN:-}" ]]; then
+  if [[ "$AIRLOCK_SENTRY_DSN" != https://*@*/* ]]; then
+    echo "✗ AIRLOCK_SENTRY_DSN must look like https://<key>@<host>/<project>" >&2
+    exit 1
+  fi
+  /usr/libexec/PlistBuddy -c "Add :ALSentryDSN string $AIRLOCK_SENTRY_DSN" "$APP/Contents/Info.plist"
+  echo "  crash reports: available, sent only after the person says yes"
+else
+  echo "  crash reports: no DSN (the crash handler never starts in this build)"
 fi
 
 SPARKLE_KEY_FILE="Configuration/sparkle-public-key.txt"

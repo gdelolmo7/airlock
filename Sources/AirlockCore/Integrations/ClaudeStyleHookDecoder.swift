@@ -22,6 +22,12 @@ enum ClaudeStyleHookDecoder {
     /// `SessionCardText.terminalAsk` takes it apart again for the card.
     static let terminalAskPrefix = "Approve in terminal · "
 
+    /// How Claude's Notification begins while its own permission prompt is on
+    /// screen: "Claude needs your permission to use Bash". It reaches the row
+    /// as a line like any other; `SessionCardText.pillStatus` reads it as
+    /// Claude waiting on you.
+    static let permissionNoticePrefix = "Claude needs your permission"
+
     /// The row's line while Claude summarises the conversation to make room.
     static let compactingLine = "Summarising the conversation so far…"
 
@@ -162,10 +168,20 @@ enum ClaudeStyleHookDecoder {
             let tool = (root["tool_name"] as? String) ?? "tool"
             let input = root["tool_input"] as? [String: Any]
             let summary = ToolPhrase.phrase(tool: tool, input: input, .finished)
+            // Work left running, or stopped, changes when the agent is done.
+            var tasks: [AgentEvent.Kind] = []
+            if let task = BackgroundTask.launched(tool: tool, input: input, response: root["tool_response"],
+                                                  callID: root["tool_use_id"] as? String,
+                                                  at: context.receivedAt) {
+                tasks.append(.backgroundTaskStarted(task))
+            }
+            if let stopped = BackgroundTask.stopped(tool: tool, input: input) {
+                tasks.append(.backgroundTaskStopped(taskID: stopped))
+            }
             // Non-gating: the terminal prompt we surfaced is over — clear it.
             return gatesPermissions
-                ? made([.activity(summary: summary)])
-                : made([.questionAnswered(answer: ""), .activity(summary: summary)])
+                ? made([.activity(summary: summary)] + tasks)
+                : made([.questionAnswered(answer: ""), .activity(summary: summary)] + tasks)
 
         case "Notification":
             // Written by the agent, not by us, so it can name a tool the way the

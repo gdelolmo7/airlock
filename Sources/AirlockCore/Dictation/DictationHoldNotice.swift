@@ -208,11 +208,11 @@ public enum DictationHoldNotice: Equatable, Sendable {
 
     /// "English (United States)" for `en_US`; "your language" when there is no
     /// identifier or nothing can name it — an empty string or a code in the
-    /// middle of a sentence is worse than the vaguer phrase.
+    /// middle of a sentence is worse than the vaguer phrase. The Mac's own
+    /// `en_US@rg=eszzzz` is named too (`SpokenLanguages.plain`).
     public static func languageName(_ identifier: String, displayLocale: Locale = .current) -> String {
-        guard !identifier.isEmpty,
-              let name = displayLocale.localizedString(forIdentifier: identifier),
-              !name.isEmpty, name != identifier else { return "your language" }
+        guard let name = SpokenLanguages.name(identifier, displayLocale: displayLocale),
+              name != identifier else { return "your language" }
         return name
     }
 }

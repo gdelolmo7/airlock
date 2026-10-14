@@ -52,6 +52,9 @@ final class NotchUIState {
     @ObservationIgnored var takeKeyboardForAnswer: () -> Void = {}
     /// "Got it" on the new version's card. Set by the controller.
     @ObservationIgnored var dismissWhatsNew: () -> Void = {}
+    /// A button on the crash-reports question: true is "Send reports".
+    /// Set by the controller.
+    @ObservationIgnored var answerCrashQuestion: (Bool) -> Void = { _ in }
 
     /// The panel is being rearranged rather than used.
     ///
@@ -88,6 +91,14 @@ final class NotchUIState {
     /// "for a microsecond it expands and I can see the regular home". The
     /// same fix as `holdAnswerThroughCollapse`, cleared at the same places.
     var whatsNewLeaving: WhatsNew.Card?
+    /// The one question after a run that ended unexpectedly: may crash
+    /// reports be sent (`CrashReporter`). Takes the panel the way the
+    /// "what's new" card does, and is set and cleared only by
+    /// `NotchController.showCrashQuestion` / `endCrashQuestion`.
+    var crashQuestion = false
+    /// The question just answered, kept drawn while the panel shrinks away
+    /// from it, for the reason `whatsNewLeaving` gives.
+    var crashQuestionLeaving = false
     /// The running guide's compact state, copied from `GuideController` on
     /// every change it reports. Here rather than read from the controller so
     /// the island's one input keeps coming from one place.
@@ -345,6 +356,7 @@ final class NotchController {
     private var mediaRetireTask: Task<Void, Never>?
     private var keepAwakeStopTask: Task<Void, Never>?
     private var usageNoticeTask: Task<Void, Never>?
+    private var callNotesReadyTask: Task<Void, Never>?
     private var hoverTask: Task<Void, Never>?
     private var hoverCancellable: AnyCancellable?
     /// Two hover sources, spurious-exit filtering and the anchor, in one tested
@@ -411,6 +423,7 @@ final class NotchController {
         let uiState = self.uiState
         uiState.takeKeyboardForAnswer = { [weak self] in self?.takeKeyboardForAnswer() }
         uiState.dismissWhatsNew = { [weak self] in self?.endWhatsNew() }
+        uiState.answerCrashQuestion = { [weak self] send in self?.endCrashQuestion(send: send) }
         uiState.tabChanged = { [weak self] in
             guard let self, let applied = self.applied else { return }
             let context = "tab \(self.uiState.selectedTab)"
@@ -614,8 +627,10 @@ final class NotchController {
         media.onScrubbingChanged = { [weak self] scrubbing in self?.holdForScrub(scrubbing) }
         calendar.onChange = { [weak self] in self?.apply() }
         battery.onChange = { [weak self] in self?.apply() }
-        // The cutoff letting go is a driver: it brings the island up to say so.
-        systemControls.onAwakeStoppedByCutoff = { [weak self] in self?.apply() }
+        // Keep awake letting go by itself redraws at once, so the cup goes.
+        // The cutoff is also a driver: it brings the island up to say so.
+        // A timer running out is not; its line waits in the open island.
+        systemControls.onAwakeLetGo = { [weak self] in self?.apply() }
         system.onChange = { [weak self] in self?.apply() }
         model.agentsOn = { [weak agents] in agents?.isEnabled ?? false }
         repository.onChange = { [weak self] in self?.apply() }
@@ -629,6 +644,15 @@ final class NotchController {
         audioOutput.onRouteChange = { [weak self] in self?.apply() }
         // A call is a driver: it brings the island up on its own.
         model.calls.onChange = { [weak self] in self?.apply() }
+        // Call notes follow the calls; they do nothing unless switched on.
+        model.calls.onCallChange = { [weak model] in model?.meetings.callChanged($0) }
+        model.meetings.latestCall = { [weak model] in model?.calls.call }
+        // Notes are named after the calendar's meeting when one fits the call.
+        model.meetings.eventNear = { [weak calendar] in calendar?.callEvent(near: $0, site: $1) }
+        // "Writing notes…" and "Notes ready" are drivers: they bring the
+        // island up after the call, like the call did.
+        model.meetings.onChange = { [weak self] in self?.apply() }
+        model.meetings.start()
         model.calls.start()
 
         // Navigation collapses the island: if you're being sent to another app,
@@ -640,6 +664,7 @@ final class NotchController {
         calendar.onNavigateAway = collapseOnNavigation
         tray.onNavigateAway = collapseOnNavigation
         clipboard.onNavigateAway = collapseOnNavigation
+        model.meetings.onNavigateAway = collapseOnNavigation
 
         // The hotkey is the whole point of a clipboard manager: it has to open
         // the panel from anywhere, already on the right tab and with the search
@@ -1262,6 +1287,31 @@ final class NotchController {
         apply()
     }
 
+    /// Open the panel on the question after an unexpected quit: may crash
+    /// reports be sent. Held until a button or an explicit collapse, like the
+    /// "what's new" card.
+    ///
+    /// - Parameter remember: count the question as asked. False for
+    ///   `--crash-question`, so looking at it on purpose does not use up the
+    ///   real one.
+    func showCrashQuestion(remember: Bool) {
+        if remember { CrashReporter.shared.questionShown() }
+        uiState.crashQuestionLeaving = false
+        uiState.crashQuestion = true
+        apply()
+    }
+
+    /// Take the question off the panel. Idempotent, like `endWhatsNew`:
+    /// `collapseExplicitly` calls it unconditionally, with no answer, which
+    /// leaves crash reports off.
+    func endCrashQuestion(send: Bool) {
+        guard uiState.crashQuestion else { return }
+        uiState.crashQuestionLeaving = true
+        uiState.crashQuestion = false
+        if send { CrashReporter.shared.isEnabled = true }
+        apply()
+    }
+
     /// What the clipboard hotkey does. Pressing it lands you on the clipboard
     /// tab from anywhere, including from hidden; pressing it again while you are
     /// already there closes up, so one key is both the way in and the way out.
@@ -1777,6 +1827,8 @@ final class NotchController {
         endOnboarding()
         // Same for the card: closing the panel on it is reading it.
         endWhatsNew()
+        // And for the crash-reports question: closing it is "not now".
+        endCrashQuestion(send: false)
         hoverSuppressed = true // don't re-peek until the pointer leaves once
         gateHoldsKeyboard = false
         releaseKeyboard()
@@ -2028,6 +2080,8 @@ final class NotchController {
         // A new version's card: opened by the app at launch, so no gesture is
         // holding it either.
         if uiState.whatsNew != nil { holds.insert(.notes) }
+        // The crash-reports question opens the panel the same way.
+        if uiState.crashQuestion { holds.insert(.notes) }
         // The guide's first look, its card (layout B), or why it stopped.
         #if AIRLOCK_GUIDE
         if guide.panel != nil { holds.insert(.guiding) }
@@ -2115,12 +2169,14 @@ final class NotchController {
         var mediaRetirement: Date?
         var keepAwakeStop: Date?
         var usageNotice: Date?
+        var callNotesReady: Date?
 
         /// Whether either window still closes in the future of `clock`.
         /// Deliberately the exact negation of `wake`'s `remaining > 0` guard,
         /// so a skipped clock write never skips a wake that was due.
         func anyOpen(at clock: Date) -> Bool {
-            [routeAcknowledgement, mediaRetirement, keepAwakeStop, usageNotice].contains { $0.map { $0 > clock } ?? false }
+            [routeAcknowledgement, mediaRetirement, keepAwakeStop, usageNotice, callNotesReady]
+                .contains { $0.map { $0 > clock } ?? false }
         }
     }
 
@@ -2137,7 +2193,19 @@ final class NotchController {
                 .addingTimeInterval(CompactIsland.keepAwakeStopNotice),
             // Gated like `compactIslandInput`: agents off, nothing to show.
             usageNotice: (agents.isEnabled ? model.usageAlerts.noticeAt : nil)?
-                .addingTimeInterval(CompactIsland.usageNoticeDuration))
+                .addingTimeInterval(CompactIsland.usageNoticeDuration),
+            // Only "Notes ready" (or too little said) runs out; "Writing
+            // notes…" lasts until the notes are written, and that change
+            // redraws by itself.
+            callNotesReady: callNotesReadyAt?
+                .addingTimeInterval(CompactIsland.notesReadyDuration))
+    }
+
+    /// When "Notes ready" was stamped, gated like `compactIslandInput`.
+    private var callNotesReadyAt: Date? {
+        let meetings = model.meetings
+        guard meetings.isEnabled, let glance = meetings.glance, glance != .writing else { return nil }
+        return meetings.glanceAt
     }
 
     /// Wake once, at each island transient's deadline, purely to redraw.
@@ -2198,6 +2266,8 @@ final class NotchController {
         keepAwakeStopTask = wake(at: windows.keepAwakeStop, after: now)
         usageNoticeTask?.cancel()
         usageNoticeTask = wake(at: windows.usageNotice, after: now)
+        callNotesReadyTask?.cancel()
+        callNotesReadyTask = wake(at: windows.callNotesReady, after: now)
     }
 
     private func wake(at deadline: Date?, after now: Date) -> Task<Void, Never>? {
@@ -2249,6 +2319,7 @@ final class NotchController {
             uiState.holdAnswerThroughCollapse = false
             uiState.holdDictationThroughCollapse = false
             uiState.whatsNewLeaving = nil
+            uiState.crashQuestionLeaving = false
             uiState.onboardingLeaving = nil
             return
         }
@@ -2607,6 +2678,7 @@ final class NotchController {
             self?.uiState.holdAnswerThroughCollapse = false
             self?.uiState.holdDictationThroughCollapse = false
             self?.uiState.whatsNewLeaving = nil
+            self?.uiState.crashQuestionLeaving = false
             self?.uiState.onboardingLeaving = nil
         }
     }

@@ -44,7 +44,7 @@ enum GalleryAgents {
                   ])),
             GalleryState("A9", area, "Trial ended, no sessions") {
                 // What `AgentsWidget.panelSection` returns unentitled and empty.
-                LicenseBlockedView(onSubscribe: {}, surface: AgentsWidget.lockedSurface)
+                LicenseBlockedView(onSubscribe: {}, onEnterKey: {}, surface: AgentsWidget.lockedSurface)
             },
             tab("A10", "Session: starting") { story in
                 // Any first event that is not `sessionStarted` creates the row.
@@ -146,6 +146,10 @@ enum GalleryAgents {
                 story.bash("s", "rm -rf ./dist && npm run deploy:prod")
                 story.resolve("s", .deferred)
             },
+            // A live gate no longer reaches this card: after the trial the
+            // bridge hands it straight back (`GateHolding`). The demo's gate
+            // still does, and so does one in the moment before the bridge
+            // lets go of it.
             tab("A25", "Permission card: trial ended", license: .trialExpired) { story in
                 story.start("s", .claudeCode, "storefront", ago: 27)
                 story.hook("s", "UserPromptSubmit", ["prompt": "run the tests and fix what fails"])
@@ -218,7 +222,7 @@ enum GalleryAgents {
                     story.send(id, ago: Double(20 + n), .sessionEnded)
                 }
             },
-            // The figures themselves, frozen and dated, are I15's picture.
+            // The figures themselves, frozen and dated, are W68's picture.
             setup("A33", "Usage taken over by another tool", .hooksInstalled, usageStopped: true),
             GalleryState("A34", area, "Quick prompt fails — the words stay, and why") {
                 inPanel(model: unopenedTerminal) {

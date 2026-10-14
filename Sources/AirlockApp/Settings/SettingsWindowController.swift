@@ -32,6 +32,8 @@ final class SettingsWindowController {
     /// The notch's live picture for The notch page; set once the notch exists.
     var islandPreview: (@MainActor () -> AnyView)?
     private var focusObserver: (any NSObjectProtocol)?
+    /// Takes the cursor out of the search field on a click anywhere else.
+    private var clickMonitor: Any?
 
     init(model: SettingsModel, media: MediaWidgetModel,
          sound: SoundWidgetModel, appVolume: AppVolumeModel,
@@ -88,15 +90,18 @@ final class SettingsWindowController {
                     .environment(license).environment(updater).environment(usage)
                     .environment(controls).environment(usageAlerts)
                     .environment(\.islandPreview, islandPreview)
-                    .environment(\.problemCardLook, .settings))
+                    .environment(\.problemCardLook, .notch))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Airlock"
-            // Plain title bar on purpose. Finder's full-height sidebar needs
-            // `.fullSizeContentView` with a transparent title bar, but SwiftUI's
-            // NavigationSplitView then renders the sidebar as an inset floating
-            // panel rather than filling the column — worse than the standard
-            // chrome it was meant to improve on.
-            window.styleMask = [.titled, .closable, .miniaturizable]
+            // The notch's look reaches the window's edges: the title
+            // bar is see-through over the black ground, with no title drawn,
+            // so the traffic lights sit on black above the pages. Dark aqua so
+            // menus and sheets are dark too.
+            window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.backgroundColor = NSColor(SettingsLook.ground)
+            window.appearance = NSAppearance(named: .darkAqua)
             window.isReleasedWhenClosed = false
             // Lay the SwiftUI content out BEFORE centring. `center()` works off
             // the current frame, and at construction that frame is whatever the
@@ -125,11 +130,27 @@ final class SettingsWindowController {
             ) { [weak model] _ in
                 MainActor.assumeIsolated { model?.refresh() }
             }
+            // A Mac text field keeps the cursor until another field takes it,
+            // and this window has one field. Without this the search box
+            // stayed lit with a blinking cursor after a click on a page.
+            clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak window] event in
+                guard let window, event.window === window,
+                      window.firstResponder is NSText else { return event }
+                let hit = window.contentView?.hitTest(event.locationInWindow)
+                if !(hit is NSText || hit is NSTextField) { window.makeFirstResponder(nil) }
+                return event
+            }
             self.window = window
         }
         model.refresh()
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        // Opens with nothing focused. AppKit hands a newly shown window's
+        // cursor to its first text field, which put it in search every time
+        // Settings opened; ⌘F is how you get there on purpose. Again on the
+        // next turn, because SwiftUI settles its focus after the window is up.
+        window?.makeFirstResponder(nil)
+        DispatchQueue.main.async { [weak window] in window?.makeFirstResponder(nil) }
         let visible = window?.isVisible == true
         Log.app.debug("settings window shown (visible=\(visible, privacy: .public))")
     }

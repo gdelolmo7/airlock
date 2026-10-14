@@ -49,7 +49,7 @@ final class PanelWidthClampTests: XCTestCase {
         let model = NotchAppearanceModel(defaults: defaults)
         _ = model.panelWidth
         _ = model.budget
-        _ = model.widthAdvice(batteryVisible: true, usageVisible: true)
+        _ = model.widthAdvice(batteryVisible: true, agentsTabVisible: true)
 
         XCTAssertEqual(defaults.double(forKey: "notch.panelWidth"), chosen)
     }
@@ -74,5 +74,28 @@ final class PanelWidthClampTests: XCTestCase {
 
         XCTAssertEqual(defaults.double(forKey: "notch.panelWidth"),
                        Double(NotchAppearanceModel.requestedWidthRange.lowerBound))
+    }
+
+    // MARK: - What the trailing gutter holds
+
+    /// The Agents tab sits beside the gear, so the gutter's demand counts it,
+    /// at its widest (a session count beside the sparkle) and only while it
+    /// shows. A fixed frame, so the text size does not change it.
+    func testTheAgentsTabIsCountedInTheTrailingGutter() {
+        // The model's text size is the whole app's: put it back for the
+        // tests after this one.
+        let before = Theme.textScale
+        defer { Theme.setTextScale(before) }
+        let model = NotchAppearanceModel(defaults: suite())
+        XCTAssertEqual(model.trailingGutterDemand(batteryVisible: false, agentsTabVisible: false), 30,
+                       "the gear alone")
+        for scale in [1.0, 1.4] {
+            model.textScale = scale
+            for battery in [false, true] {
+                let without = model.trailingGutterDemand(batteryVisible: battery, agentsTabVisible: false)
+                let with = model.trailingGutterDemand(batteryVisible: battery, agentsTabVisible: true)
+                XCTAssertEqual(with - without, 48 + 8, "battery \(battery), text \(scale)")
+            }
+        }
     }
 }

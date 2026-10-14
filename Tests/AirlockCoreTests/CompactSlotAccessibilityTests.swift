@@ -174,6 +174,7 @@ final class CompactSlotAccessibilityTests: XCTestCase {
             .shelfCount(1), .shelfCount(12),
             .keepingAwake, .keepAwakeStopped(cutoff: 20),
             .usageNotice(.nearLimit(.fiveHour, percent: 90)), .usageNotice(.reset(.sevenDay)),
+            .callNotes(.writing), .callNotes(.ready(todos: 3)), .callNotes(.tooLittleSaid),
         ]
         for slot in slots {
             XCTAssertNotNil(slot.accessibilityLabel, "\(slot)")

@@ -52,13 +52,16 @@ enum StateGallery {
         guideStates + GalleryIsland.states + GalleryAgents.states + GalleryWidgets.states
             + GalleryClipboard.states + GalleryShelf.states + GalleryDictation.states
             + GalleryAssistant.states + GalleryLicence.states + GalleryOnboarding.states
-            + GallerySettings.states + GalleryMotion.states
+            + GallerySettings.states + GalleryMeetings.states + GalleryLiveTranscript.states
+            + GalleryCallNotesPanel.states
+            + GalleryCallAnswers.states
+            + GalleryMotion.states
     }
 
     /// The guide's area, first in the inventory, only in a build that has it.
     private static var guideStates: [GalleryState] {
         #if AIRLOCK_GUIDE
-        GalleryGuide.states
+        GalleryGuide.states + GalleryWelcome.states
         #else
         []
         #endif
@@ -107,6 +110,12 @@ enum StateGallery {
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
+        if state.settles {
+            window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+            window.orderFrontRegardless()
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+        }
+        defer { if state.settles { window.orderOut(nil) } }
         // Measured again once it is in the window: a view that settles in
         // `onAppear` (the calendar folding this morning's rows behind
         // "1 earlier") or reads a preference back into @State (the shelf
@@ -158,6 +167,10 @@ struct GalleryState: Identifiable {
     /// `.compact` only: what sits left of the camera. Nil draws the resting
     /// bloub, which is right for every row about the trailing half.
     var leading: (@MainActor () -> AnyView)?
+    /// Drawn after a moment in a window off screen rather than at once: for a
+    /// view that only settles on a run loop, like a list that opens on its
+    /// newest line.
+    var settles = false
 
     /// The default panel width (`NotchAppearanceModel`'s default), not the
     /// person's own: a gallery picture should look the same on every Mac.

@@ -519,6 +519,9 @@ final class ClipboardWidgetModel {
     /// so plain letters keep typing into the search field and ⌘V keeps pasting
     /// into it.
     fileprivate func handle(_ event: NSEvent) -> Bool {
+        // Typing into the call notes, above the list: Return there keeps a
+        // line in the notes, and must not paste the row under the pointer.
+        if CallNotesTyping.isActive { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // `charactersIgnoringModifiers` and not `characters`: with Option held
         // the keyboard produces π for P and ¡ for 1, so matching on the composed

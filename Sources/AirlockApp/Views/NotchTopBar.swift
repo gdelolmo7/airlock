@@ -11,7 +11,9 @@ struct NotchTopBar: View {
     let reservedWidth: CGFloat
     let gutterWidth: CGFloat
     /// From the registry, not `NotchTab.allCases` — a tab whose widgets are all
-    /// switched off is not offered. See `WidgetRegistry.visibleTabs`.
+    /// switched off is not offered. See `WidgetRegistry.visibleTabs`. Split
+    /// between the two gutters by `NotchTab.topBarSides`: Agents on the right,
+    /// the rest on the left.
     let tabs: [NotchTab]
     var onClear: (() -> Void)?
     var onCollapse: () -> Void
@@ -19,7 +21,6 @@ struct NotchTopBar: View {
 
     @Environment(AppModel.self) private var model
     @Environment(BatteryWidgetModel.self) private var battery
-    @Environment(AgentsWidgetModel.self) private var agents
     @Environment(NotchUIState.self) private var uiState
     @Environment(NotchAppearanceModel.self) private var appearance
     @Environment(DictationModel.self) private var dictation
@@ -37,11 +38,20 @@ struct NotchTopBar: View {
         false
         #endif
     }
+    /// A mode has the band: dictating, guiding or typing. There is no tab on
+    /// screen then, so nothing that acts on one is offered.
+    private var inAMode: Bool {
+        dictation.isActive || guiding || assistant.isCommandBarOpen
+    }
+
     /// The selected tab's capsule is ONE shape that slides from tab to tab
-    /// (owner, 2026-10-04), not five that blink on and off.
+    /// (owner, 2026-10-04), not five that blink on and off. That holds across
+    /// the camera too: to Agents on the right it slides over, as it does
+    /// along the strip.
     @Namespace private var tabHighlight
 
     var body: some View {
+        let sides = NotchTab.topBarSides(tabs)
         HStack(spacing: 0) {
             // Tabs hug the OUTER edge. Nothing sits near the inner edge — that
             // is what the camera eats first, as the collapse chevron found out.
@@ -65,16 +75,13 @@ struct NotchTopBar: View {
                     typingBadge
                     iconButton("chevron.up", tint: Theme.textSecondary, label: "Collapse", action: onCollapse)
                 } else {
-                    ForEach(tabs) { tab in
+                    ForEach(sides.leading) { tab in
                         tabButton(tab)
                     }
-                    // Scoped to the strip: the stack below has its own fade
+                    // Scoped to the tabs: the stack below has its own fade
                     // (`NotchRootView`), and the panel's resize is the kit's.
                     .animation(Motion.swap.animation(reduceMotion: reduceMotion),
                                value: uiState.selectedTab)
-                    if let onClear, uiState.selectedTab == .agents {
-                        iconButton("xmark.circle", tint: Theme.textTertiary, label: "Clear all sessions", action: onClear)
-                    }
                     iconButton("chevron.up", tint: Theme.textSecondary, label: "Collapse", action: onCollapse)
                 }
                 Spacer(minLength: 0)
@@ -86,21 +93,26 @@ struct NotchTopBar: View {
 
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                // Two switches, and both have to be on. The rate-limit figures
-                // are Claude's, so on a Mac with the agent surfaces off they are
-                // a KPI for a product the user does not run — and the empty
-                // state is worse than the numbers, being a "set up" pill
-                // advertising it.
-                // Not while typing: the typed notch is the plain one, and a
-                // Claude rate-limit readout (or its "set up" pill) beside a
-                // question field is developer chrome the owner called out.
-                if appearance.showsUsageInGutter, agents.isEnabled, !assistant.isCommandBarOpen {
-                    UsageGutterView(usage: model.usage)
+                // Agents sits here, beside the gear, so Calls has its place in
+                // the strip and the strip still fits beside the camera. Its
+                // "clear all" stays next to it, on the inner side, where it
+                // was next to the tab in the strip.
+                if !inAMode {
+                    if let onClear, uiState.selectedTab == .agents {
+                        iconButton("xmark.circle", tint: Theme.textTertiary, label: "Clear all sessions", action: onClear)
+                    }
+                    ForEach(sides.trailing) { tab in
+                        tabButton(tab)
+                    }
+                    // The strip's animation, so the capsule slides over to
+                    // here in the same Swap rather than appearing.
+                    .animation(Motion.swap.animation(reduceMotion: reduceMotion),
+                               value: uiState.selectedTab)
                 }
                 // Arrange lives beside the gear, not inside it: it acts on
                 // this tab, and the tab is what you are looking at. Not while
                 // typing, dictating or guiding: there is no tab on screen then.
-                if !assistant.isCommandBarOpen, !dictation.isActive, !guiding {
+                if !inAMode {
                 iconButton(uiState.isArranging ? "checkmark" : "rectangle.on.rectangle",
                            tint: uiState.isArranging ? Theme.running : Theme.textSecondary,
                            label: uiState.isArranging ? "Done arranging" : "Arrange this tab") {
@@ -260,112 +272,6 @@ struct RecordingBadge: View {
         .onAppear { recordingPulse = true }
         .onDisappear { recordingPulse = false }
         .accessibilityLabel("Recording. Release the key to insert the text.")
-    }
-}
-
-/// Both rate-limit windows on one line — the gutter has the width for it, and
-/// a KPI you have to wait for is not a KPI.
-///
-/// Numbers here are only refreshed by a TERMINAL Claude session rendering its
-/// status line; the desktop app runs headless and never does. So the display
-/// has to be honest about age or it quietly reports a window that has since
-/// rolled — which is exactly what it did before this: 0% on screen against a
-/// real 90%, from a snapshot eight hours old. How old is too old, and the
-/// words, are `UsageReadout`'s.
-///
-/// Internal rather than private only so the state gallery can draw it.
-struct UsageGutterView: View {
-    let usage: UsageSnapshot?
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let now = context.date
-            switch UsageReadout.freshness(capturedAt: usage?.capturedAt, now: now) {
-            case .none:
-                // Nothing, where a "set up" pill used to teach where the numbers
-                // come from. The owner read it as clutter on every tab
-                // (2026-10-01): a minimal notch does not advertise a developer
-                // setup step to everyone. The explanation lives in Settings.
-                EmptyView()
-            case .current:
-                if let usage {
-                    cluster(usage, now: now, age: nil)
-                        .help(UsageReadout.currentHelp)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(spoken(usage, now: now, age: nil))
-                }
-            case .old(let age):
-                // Only clickable while old. As an unconditional button, reading
-                // a perfectly current number and clicking it launched a terminal
-                // — a readout shouldn't do that. The age is DRAWN: grey numbers
-                // and a refresh mark were all that said these were hours old,
-                // and the why was in a tooltip.
-                if let usage {
-                    Button { model.openTerminalForClaudeLogin() } label: {
-                        cluster(usage, now: now, age: age)
-                    }
-                    .buttonStyle(.plain)
-                    .clickable()
-                    .help(UsageReadout.oldHelp(age))
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(spoken(usage, now: now, age: age))
-                }
-            }
-        }
-    }
-
-    /// A rolled window is spoken as unknown, as it is drawn.
-    private func spoken(_ usage: UsageSnapshot, now: Date, age: String?) -> String {
-        func percent(_ window: RateLimitWindow?) -> Int? {
-            guard let window, !window.hasRolled(at: now) else { return nil }
-            return Int(window.usedPercentage.rounded())
-        }
-        return UsageReadout.spoken(fiveHour: percent(usage.fiveHour), weekly: percent(usage.sevenDay), age: age)
-    }
-
-    private func cluster(_ usage: UsageSnapshot, now: Date, age: String?) -> some View {
-        let stale = age != nil
-        return HStack(spacing: 5) {
-            Image(systemName: stale ? "arrow.clockwise" : "sparkle")
-                .font(.system(size: stale ? 9 : 8, weight: .bold))
-                .foregroundStyle(stale ? Theme.textTertiary : Theme.claudeCoral)
-            if let window = usage.fiveHour { windowView("5h", window, now: now, stale: stale) }
-            if usage.fiveHour != nil, usage.sevenDay != nil {
-                Text("·").font(Theme.gutter(10)).foregroundStyle(Theme.textTertiary)
-            }
-            if let window = usage.sevenDay { windowView("7d", window, now: now, stale: stale) }
-            if let age {
-                Text(age)
-                    .font(Theme.gutter(10, .medium))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-        }
-        .fixedSize()
-        .contentShape(Rectangle())
-    }
-
-    /// A rolled window shows a dash, not a number. Reporting 0% for a period
-    /// that has ended is worse than admitting we don't know.
-    private func windowView(_ label: String, _ window: RateLimitWindow, now: Date, stale: Bool) -> some View {
-        let rolled = window.hasRolled(at: now)
-        return HStack(spacing: 3) {
-            Text(label)
-                .font(Theme.gutter(10, .medium))
-                .foregroundStyle(Theme.textTertiary)
-            Text(rolled ? "—" : "\(Int(window.usedPercentage.rounded()))%")
-                .font(Theme.gutter(11, .bold))
-                .foregroundStyle(rolled || stale ? Theme.textTertiary : colour(window.usedPercentage))
-                .monospacedDigit()
-        }
-    }
-
-    private func colour(_ percent: Double) -> Color {
-        switch percent {
-        case ..<70: return Theme.textPrimary
-        case ..<90: return Theme.needs
-        default: return Theme.danger
-        }
     }
 }
 

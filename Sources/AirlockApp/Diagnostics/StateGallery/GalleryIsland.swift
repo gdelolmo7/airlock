@@ -12,9 +12,9 @@ import AirlockCore
 ///
 /// **The top bar is restated**, the way `TypingBarSnapshot` restates it:
 /// `NotchTopBar` reads eight models, two of which own a microphone and a screen
-/// reader. The pieces in the band are the real ones (`UsageGutterView`,
-/// `BatteryGutterView`, `RecordingBadge`, `AirlockMark`); only the band holding
-/// them, the tab strip and the plain glyph buttons are drawn here. Tooltips are
+/// reader. The pieces in the band are the real ones (`BatteryGutterView`,
+/// `RecordingBadge`, `AirlockMark`); only the band holding them, the tab strip
+/// and the plain glyph buttons are drawn here. Tooltips are
 /// not drawn at all — a picture has no pointer.
 @MainActor
 enum GalleryIsland {
@@ -58,29 +58,31 @@ enum GalleryIsland {
                     input(call: OngoingCall(bundleID: "com.google.Chrome", appName: "Google Chrome",
                                             startedAt: now.addingTimeInterval(-307)))),
 
-            GalleryState("I14", area, "Top bar: Claude usage figures (tooltip not drawn)") {
-                topBar(usage: freshUsage) { tabStrip }
+            // The usage figures left the band for the Agents tab (W67–W69),
+            // so these two are the right gutter at its two widths without them.
+            GalleryState("I14", area, "Top bar: Agents, arrange, gear and battery (no usage figures)") {
+                topBar(agents: 2) { tabStrip(.home) }
             },
-            GalleryState("I15", area, "Top bar: usage figures 2 h old, dated") {
-                topBar(usage: staleUsage) { tabStrip }
+            GalleryState("I15", area, "Top bar: on the Agents tab, Clear all beside it") {
+                topBar(agents: 2, onAgents: true) { tabStrip(nil) }
             },
             GalleryState("I16", area, "Top bar: battery, low and charging") {
                 VStack(spacing: 10) {
-                    topBar(usage: nil, battery: lowBattery) { tabStrip }
-                    topBar(usage: nil, battery: chargingBattery) { tabStrip }
+                    topBar(battery: lowBattery, agents: 2) { tabStrip(.home) }
+                    topBar(battery: chargingBattery, agents: 2) { tabStrip(.home) }
                 }
             },
             GalleryState("I17", area, "Top bar badge: Recording (dot starts bright)") {
-                topBar(usage: nil, arrange: false) { RecordingBadge(isListening: true) }
+                topBar(arrange: false) { RecordingBadge(isListening: true) }
             },
             GalleryState("I17a", area, "Top bar badge: Guiding") {
-                topBar(usage: nil, arrange: false) {
+                topBar(arrange: false) {
                     AirlockMark(title: "Guiding")
                     glyph("chevron.up")
                 }
             },
             GalleryState("I17b", area, "Top bar badge: Airlock (typing)") {
-                topBar(usage: nil, arrange: false) {
+                topBar(arrange: false) {
                     AirlockMark()
                     glyph("chevron.up")
                 }
@@ -144,12 +146,11 @@ enum GalleryIsland {
     /// at fixed values: a picture has nothing to toggle.
     private static func notchScreenSection(followsMainDisplay: Bool, showsOnExternalWhenClosed: Bool,
                                            canSeeFullScreen: Bool) -> some View {
-        Form {
+        LookColumn {
             NotchScreenSection(followsMainDisplay: .constant(followsMainDisplay),
                                showsOnExternalWhenClosed: .constant(showsOnExternalWhenClosed),
                                canSeeFullScreen: canSeeFullScreen)
         }
-        .formStyle(.grouped)
     }
 
     // MARK: - Compact island
@@ -191,8 +192,16 @@ enum GalleryIsland {
     /// facts are taken from the same input, as `NotchCompactLeadingView`
     /// derives them, so the bloub cannot disagree with the slot beside it.
     /// The 4pt either side is the live views' own padding.
-    private static func compact(_ id: String, _ name: String, _ input: CompactIslandInput,
-                                meetingStart: Date? = nil) -> GalleryState {
+    ///
+    /// Internal so other areas' rows (the call notes, K) draw the island the
+    /// same way. `notesMark` is what `NotchCompactTrailingView` hands the call
+    /// pill from the notes model, which a row has no copy of. Read when the
+    /// row is drawn, not when the list is made, so a countdown in it starts
+    /// from the top however late in an export its row comes.
+    static func compact(_ id: String, _ name: String, _ input: CompactIslandInput,
+                        area: String = GalleryIsland.area, meetingStart: Date? = nil,
+                        notesMark: @escaping @MainActor () -> MeetingNotesFlow.PillMark = { .none })
+        -> GalleryState {
         let ambient = BloubFace.Ambient(batteryCritical: input.batteryCritical,
                                         meetingSoon: input.meetingSoon, guide: input.guide)
         var state = GalleryState(id, area, name, ground: .compact) {
@@ -200,6 +209,7 @@ enum GalleryIsland {
             // there is usually no audio tap.
             CompactTrailingGlyph(slot: CompactIsland.trailing(input),
                                  meetingStart: { meetingStart }, waveLevels: { [] })
+                .environment(\.callNotesMark, notesMark())
                 .padding(.horizontal, 4)
         }
         state.leading = {
@@ -214,9 +224,11 @@ enum GalleryIsland {
     // MARK: - Top bar
 
     /// The band beside the camera: whatever stands in the left gutter, the
-    /// reserved centre, and the right gutter's usage, arrange, gear and battery
-    /// in `NotchTopBar`'s order. Internal so the typed-bar rows can sit under
-    /// the same band.
+    /// reserved centre, and the right gutter's Clear all, Agents tab, arrange,
+    /// gear and battery in `NotchTopBar`'s order. Internal so the typed-bar
+    /// rows can sit under the same band. `agents` is the Agents tab's session
+    /// count, nil for no Agents tab (agents off, or a mode has the band);
+    /// `onAgents` selects it, which is when Clear all is offered.
     ///
     /// Measured as the default panel lays it out: 640 wide, a 190pt centre
     /// (roughly a 14-inch housing — the real figure is the person's own
@@ -226,8 +238,8 @@ enum GalleryIsland {
     /// The gallery's ground is the panel's 640; the island the kit draws is
     /// 60pt wider (`IslandChrome`), so the end items sitting hard against the
     /// ground's edge is the picture's, not the app's.
-    static func topBar<Left: View>(usage: UsageSnapshot?, battery: BatteryState = halfBattery,
-                                   arrange: Bool = true,
+    static func topBar<Left: View>(battery: BatteryState = halfBattery,
+                                   arrange: Bool = true, agents: Int? = nil, onAgents: Bool = false,
                                    @ViewBuilder left: () -> Left) -> some View {
         let gutter = GutterBudget(panelWidth: NotchAppearanceModel.defaultPanelWidth, notchWidth: 190)
         return HStack(spacing: 0) {
@@ -242,8 +254,9 @@ enum GalleryIsland {
 
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                if let usage {
-                    UsageGutterView(usage: usage)
+                if let agents {
+                    if onAgents { glyph("xmark.circle", tint: Theme.textTertiary) }
+                    tab(.agents, selected: onAgents, count: agents)
                 }
                 if arrange { glyph("rectangle.on.rectangle") }
                 glyph("gear")
@@ -255,45 +268,51 @@ enum GalleryIsland {
         .frame(height: 32)
         // The panel ground's own inset would take 28pt the real band has.
         .frame(width: NotchAppearanceModel.defaultPanelWidth - 28)
-        // Read only by the stale figures' click, which a picture never makes.
-        .environment(AppModel())
     }
 
-    /// Home selected, the other tabs grey, the agents tab carrying its count.
-    /// Every tab, as `registry.visibleTabs()` gives them with every widget on;
-    /// the strip's own tests cover which ones drop out.
-    private static var tabStrip: some View {
+    /// `selected` drawn selected, the other tabs grey; nil when the selected
+    /// tab is Agents, on the right. Every tab on the left, as
+    /// `registry.visibleTabs()` gives them with every widget on and call notes
+    /// on, split as `NotchTopBar` splits them: Agents is on the right
+    /// (`topBar(agents:)`). The strip's own tests cover which ones drop out.
+    private static func tabStrip(_ selected: NotchTab?) -> some View {
         HStack(spacing: 3) {
-            ForEach(NotchTab.allCases) { tab in
-                HStack(spacing: 3) {
-                    if tab == .home {
-                        BloubView(expression: .attentive, tint: Theme.running)
-                            .frame(width: 18, height: 15)
-                    } else {
-                        Image(systemName: tab.symbol)
-                            .font(.system(size: 13, weight: .semibold))
-                    }
-                    if tab == .agents {
-                        Text("2")
-                            .font(Theme.gutter(11, .bold))
-                            .monospacedDigit()
-                    }
-                }
-                .foregroundStyle(tab == .home ? Theme.textPrimary : Theme.textTertiary)
-                .frame(width: tab == .agents ? 48 : 36, height: 26)
-                .background {
-                    if tab == .home { Capsule().fill(Color.white.opacity(0.16)) }
-                }
+            ForEach(NotchTab.topBarSides(NotchTab.allCases).leading) { tab in
+                self.tab(tab, selected: tab == selected)
             }
             glyph("chevron.up")
         }
     }
 
+    /// `NotchTopBar.tabButton`'s look, without the button: the cloud for
+    /// Home, the symbol otherwise, and a session count when there is one.
+    private static func tab(_ tab: NotchTab, selected: Bool, count: Int? = nil) -> some View {
+        HStack(spacing: 3) {
+            if tab == .home {
+                BloubView(expression: .attentive, tint: selected ? Theme.running : Theme.textTertiary)
+                    .frame(width: 18, height: 15)
+            } else {
+                Image(systemName: tab.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            if let count {
+                Text("\(count)")
+                    .font(Theme.gutter(11, .bold))
+                    .monospacedDigit()
+            }
+        }
+        .foregroundStyle(selected ? Theme.textPrimary : Theme.textTertiary)
+        .frame(width: count == nil ? 36 : 48, height: 26)
+        .background {
+            if selected { Capsule().fill(Color.white.opacity(0.16)) }
+        }
+    }
+
     /// `NotchTopBar.iconButton`'s glyph, without the button.
-    static func glyph(_ symbol: String) -> some View {
+    static func glyph(_ symbol: String, tint: Color = Theme.textSecondary) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Theme.textSecondary)
+            .foregroundStyle(tint)
             .frame(width: 22, height: 22)
     }
 
@@ -303,15 +322,6 @@ enum GalleryIsland {
                                                  isPluggedIn: false, minutesRemaining: 38)
     private static let chargingBattery = BatteryState(percentage: 81, isCharging: true, isCharged: false,
                                                       isPluggedIn: true, minutesRemaining: nil)
-
-    private static let freshUsage = UsageSnapshot(
-        fiveHour: RateLimitWindow(usedPercentage: 42, resetsAt: now.addingTimeInterval(3 * 3600)),
-        sevenDay: RateLimitWindow(usedPercentage: 76, resetsAt: now.addingTimeInterval(4 * 86400)),
-        capturedAt: now.addingTimeInterval(-2 * 60))
-    private static let staleUsage = UsageSnapshot(
-        fiveHour: RateLimitWindow(usedPercentage: 42, resetsAt: now.addingTimeInterval(3 * 3600)),
-        sevenDay: RateLimitWindow(usedPercentage: 76, resetsAt: now.addingTimeInterval(4 * 86400)),
-        capturedAt: now.addingTimeInterval(-2 * 3600))
 
     // MARK: - Panel
 

@@ -158,6 +158,18 @@ struct NotchExpandedView: View {
                     .transition(.opacity)
             }
 
+            // The question after an unexpected quit, the same way, and after
+            // both of the above: the controller only puts it while neither has
+            // the panel, so this is a guard against a race, not a queue.
+            // Unclickable while leaving, so a late click cannot answer twice.
+            if uiState.crashQuestion || uiState.crashQuestionLeaving,
+               uiState.onboarding == nil, uiState.onboardingLeaving == nil,
+               uiState.whatsNew == nil, uiState.whatsNewLeaving == nil {
+                CrashQuestionCard(onAnswer: uiState.answerCrashQuestion)
+                    .allowsHitTesting(uiState.crashQuestion)
+                    .transition(.opacity)
+            }
+
             // The guide takes the panel the same way, for its first look, its
             // card (layout B) and the sentence it leaves when it stops on its
             // own — and yields to a gate the same way, via `stackContent`.
@@ -196,6 +208,10 @@ struct NotchExpandedView: View {
                     // every state except the last days of a trial and a
                     // subscription that is genuinely overdue.
                     LicenseNoticeBanner(notice: notice, tally: model.tally?.tally ?? UsageTally())
+                    // Call notes: the ask, the running notes, "Notes ready".
+                    // Nothing at all unless the hidden switch is on and a call
+                    // is or was just on.
+                    MeetingNotesBanner(meetings: model.meetings)
 
                     // **The widgets ARE gated again**, on the owner's decision
                     // (2026-08-21). This branch previously drew the stack
@@ -213,8 +229,10 @@ struct NotchExpandedView: View {
                     // responding cannot be told from one that crashed.
                     if !license.entitlement.allowsUse {
                         LicenseBlockedView(onSubscribe: { license.showPurchase() },
+                                           onEnterKey: { license.showLicence(keyField: true) },
                                            surface: LicenseBlockedView.panel,
-                                           subscribedBefore: license.hasSubscribedBefore)
+                                           subscribedBefore: license.hasSubscribedBefore,
+                                           agentsAsk: model.agentsOn())
                             .transition(.opacity)
                     } else if uiState.isArranging {
                         // REPLACES the stack rather than overlaying it. The
@@ -462,11 +480,12 @@ struct NotchExpandedView: View {
             && !panelIsTaken
     }
 
-    /// Setup or a new version's card owns the panel: the widget stack, the
-    /// guide and the typing bars all stand aside for either.
+    /// Setup, a new version's card or the crash-reports question owns the
+    /// panel: the widget stack, the guide and the typing bars all stand aside.
     private var panelIsTaken: Bool {
         uiState.onboarding != nil || uiState.onboardingLeaving != nil
             || uiState.whatsNew != nil || uiState.whatsNewLeaving != nil
+            || uiState.crashQuestion || uiState.crashQuestionLeaving
     }
 
     private var leadingSections: [(id: String, view: AnyView)] {
@@ -656,16 +675,28 @@ extension View {
     }
 }
 
-/// The agents widget's panel block: the session list (attention-sorted,
-/// capped so the island never becomes a column) or the empty-state hint.
+/// The agents widget's panel block: Claude's usage figures, then the session
+/// list (attention-sorted, capped so the island never becomes a column) or the
+/// empty-state hint.
 struct AgentSessionsSectionView: View {
     @Environment(AppModel.self) private var model
     @Environment(AgentsWidgetModel.self) private var agents
+    @Environment(\.showsOnlyWaitingSessions) private var onlyWaiting
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Above the sessions: the figures it is about sit over every tab,
-            // frozen, and this is the only place that says why.
+            // First, and only while nothing waits on you. The top of this
+            // tab is a gate's place, and anything over one pushes it towards
+            // the bottom, which is where the panel clips; the rule suggestion
+            // goes under the sessions for the same reason. Inset to line up
+            // with what is written inside the cards.
+            if UsageReadout.showsLine(wanted: agents.wantsUsage(),
+                                      somethingWaits: onlyWaiting || model.attentionCount > 0) {
+                UsageLineView(usage: model.usage)
+                    .padding(.horizontal, 12)
+            }
+            // Under the figures it is about: they freeze when another tool
+            // takes the link, and this is the only place that says why.
             if agents.usageStopped {
                 ProblemCard(icon: "gauge.with.dots.needle.33percent",
                             sentence: UsageReadout.stoppedSentence,
@@ -822,8 +853,10 @@ struct ShowAllAgentsLink: View {
 }
 
 /// Connected and nothing is running: which agents are connected, and a way to
-/// start one. The green check is what tells it apart from the connect card
-/// at a glance — the two used to share a sparkle and a sentence.
+/// start one. The green cloud is what tells it apart from the connect card
+/// at a glance — the two used to share a sparkle and a sentence. It took the
+/// place of a green check, and kept its colour for that reason: content, not
+/// waiting, because nothing here is waiting on anyone.
 struct AgentsEmptyCard: View {
     /// `AgentsConnection.emptyLine`: which agents, said.
     let line: String
@@ -831,13 +864,8 @@ struct AgentsEmptyCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Theme.done)
+            BloubView(expression: .happy, motion: .breathing, tint: BloubTint.done.color)
                 .frame(width: 30, height: 30)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Theme.done.opacity(0.13)))
-                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("No agents running")
@@ -1066,25 +1094,44 @@ struct NotchCompactTrailingView: View {
     }
 
     var body: some View {
+        let notesMark = model.meetings.pillMark
         CompactTrailingGlyph(slot: slot,
                              meetingStart: { calendar.glanceEvent?.start },
                              waveLevels: { media.waveLevels })
+        .environment(\.callNotesMark, notesMark)
         // Keyed off the RESOLVED slot, never off the input: the input carries a
         // `Date` that moves on every redraw, so keying off it would animate
         // continuously. `CompactSlot` changes when something actually changed.
         // Unanimated while the kit converts, or the swap's transition can
         // strand at opacity 0 — see the leading slot and
-        // `NotchUIState.panelConverting`.
+        // `NotchUIState.panelConverting`. The notes' mark inside the call pill
+        // swaps on the same terms, keyed here rather than in the pill so the
+        // one guard covers both.
         .animation(ui.panelConverting ? nil
                        : Motion.swap.animation(reduceMotion: reduceMotion),
                    value: slot)
+        .animation(ui.panelConverting ? nil
+                       : Motion.swap.animation(reduceMotion: reduceMotion),
+                   value: notesMark)
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
         // On a call, a click goes to the call: the pill's one job is getting
         // you back to the window you are talking in. Anything else, or a call
-        // whose app has gone, opens the panel as before.
+        // whose app has gone, opens the panel as before. Call notes change
+        // that twice: a countdown is tapped away (not now), and a notes offer
+        // opens the panel, where the offer is.
         .onTapGesture {
-            if case .call = slot, model.calls.bringForward() { return }
+            if slot.isCall {
+                switch notesMark {
+                case .startingSoon:
+                    model.meetings.skipCountdown()
+                    return
+                case .ask, .offer:
+                    break
+                case .none, .recording, .muted, .paused:
+                    if model.calls.bringForward() { return }
+                }
+            }
             onTap()
         }
         // `.combine` rather than the leading slot's `.ignore`, and the label is
@@ -1092,9 +1139,39 @@ struct NotchCompactTrailingView: View {
         // from a `TimelineView` clock, so the live "5m" text is a better thing to
         // read than any fixed phrase this level could supply.
         .accessibilityElement(children: .combine)
-        .modifier(SlotLabel(slot.accessibilityLabel))
+        .modifier(SlotLabel(label(notesMark)))
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint(slot.isCall ? "Shows the call" : "Opens the panel")
+        .accessibilityHint(hint(notesMark))
+    }
+
+    /// The slot's label, with the call notes' state after a call's: the mark
+    /// is a dot or a ring, which says nothing aloud.
+    private func label(_ mark: MeetingNotesFlow.PillMark) -> String? {
+        guard slot.isCall, let call = slot.accessibilityLabel else { return slot.accessibilityLabel }
+        switch mark {
+        case .none:
+            return call
+        case .ask, .offer:
+            return "\(call), take notes?"
+        case .startingSoon(let startsAt):
+            let seconds = MeetingNotesBanner.secondsLeft(to: startsAt, at: Date())
+            return "\(call), notes start in \(seconds) \(seconds == 1 ? "second" : "seconds"), tap to skip"
+        case .recording:
+            return "\(call), taking notes"
+        case .muted:
+            return "\(call), muted"
+        case .paused:
+            return "\(call), notes paused"
+        }
+    }
+
+    private func hint(_ mark: MeetingNotesFlow.PillMark) -> String {
+        guard slot.isCall else { return "Opens the panel" }
+        switch mark {
+        case .startingSoon: return "Skips the notes for now"
+        case .ask, .offer: return "Opens the panel"
+        case .none, .recording, .muted, .paused: return "Shows the call"
+        }
     }
 }
 
@@ -1385,6 +1462,9 @@ struct CompactTrailingGlyph: View {
             case .call(let call):
                 CallPill(call: call)
                     .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
+            case .callNotes(let glance):
+                CallNotesGlanceView(glance: glance)
+                    .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
             case let .shelfCount(count):
                 // The lowest rung, drawn like it: this never summoned the
                 // island, it is only filling a slot something else opened.
@@ -1534,9 +1614,42 @@ struct EmptyTabView: View {
 /// is on screen — never the island's clock, which would redraw everything.
 struct CallPill: View {
     let call: OngoingCall
+    @Environment(\.callNotesMark) private var notesMark
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 3) {
+            // Call notes, when the hidden switch is on, in the purple of
+            // everything Airlock itself is doing for you: the ask and the
+            // countdown as words before the logo, then a mark for how the
+            // notes are going. No sound, ever: this sits beside a call.
+            switch notesMark {
+            case .ask:
+                notesWord("Notes?")
+            case .startingSoon(let startsAt):
+                // Its own clock, aligned on the countdown's start so the
+                // numbers turn on the second the notes are counting.
+                TimelineView(.periodic(from: startsAt.addingTimeInterval(-MeetingNotesFlow.countdown),
+                                       by: 1)) { context in
+                    notesWord("Notes in \(MeetingNotesBanner.secondsLeft(to: startsAt, at: context.date))")
+                }
+            case .offer:
+                // Grey once the ask has settled: an offer still open, not
+                // something Airlock is doing.
+                Circle()
+                    .fill(Theme.textSecondary)
+                    .frame(width: 5, height: 5)
+            case .recording:
+                NotesBreathingDot()
+            case .muted:
+                // Hollow: notes are still taken, of the other side only.
+                ring(Theme.assistant)
+            case .paused:
+                // Grey: nothing is being written down.
+                ring(Theme.textSecondary)
+            case .none:
+                EmptyView()
+            }
             switch CallGlyph.kind(for: call) {
             case .logo(let name):
                 if let logo = CallGlyph.image(name) {
@@ -1553,18 +1666,117 @@ struct CallPill: View {
             case .symbol(let name):
                 symbol(name)
             }
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(call.elapsedLabel(at: context.date))
-                    .font(Theme.fixed(11, .semibold))  // see the meeting countdown
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textSecondary)
+            // Muted or paused, the word is the news and the timer can wait:
+            // the island has no room for both.
+            switch notesMark {
+            case .muted:
+                timerWord("Muted")
+            case .paused:
+                timerWord("Paused")
+            default:
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    timerWord(call.elapsedLabel(at: context.date))
+                }
             }
         }
+    }
+
+    private func notesWord(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.fixed(11, .semibold))  // see the meeting countdown
+            .monospacedDigit()
+            .foregroundStyle(Theme.assistant)
+    }
+
+    private func timerWord(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.fixed(11, .semibold))  // see the meeting countdown
+            .monospacedDigit()
+            .foregroundStyle(Theme.textSecondary)
+    }
+
+    private func ring(_ color: Color) -> some View {
+        Circle()
+            .strokeBorder(color, lineWidth: 1.2)
+            .frame(width: 5, height: 5)
     }
 
     private func symbol(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(Theme.textSecondary)
+    }
+}
+
+/// Notes being taken: a purple dot breathing slowly beside the call. Slower
+/// than the red recording dot's pulse, because this is not a live microphone
+/// you must not forget but a quiet "still writing". Still and at full opacity
+/// under Reduce Motion: being seen is the message, the breath is decoration.
+/// The panel's notes line uses the same dot, a little larger.
+struct NotesBreathingDot: View {
+    var size: CGFloat = 5
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathing = false
+
+    var body: some View {
+        Circle()
+            .fill(Theme.assistant)
+            .frame(width: size, height: size)
+            // Starts full and dips, so the first frame says "taking notes".
+            .opacity(reduceMotion ? 1 : (breathing ? 0.5 : 1))
+            .animation(Theme.perpetual(MotionEffect.notesBreath, reduceMotion: reduceMotion),
+                       value: breathing)
+            // Identity, so turning Reduce Motion on mid-call tears the loop
+            // down: `repeatForever` keeps driving the property it was on.
+            .id(reduceMotion)
+            .onAppear { breathing = true }
+    }
+}
+
+/// Call notes after the call: "Writing notes…" while the summary is written,
+/// then "Notes ready", with the to-dos it found, for eight seconds
+/// (`CompactIsland.notesReadyDuration`), or, without its tick, that too
+/// little was said for notes. Wide, and allowed to be only because it is
+/// short-lived; see the ladder in `CompactIsland`.
+struct CallNotesGlanceView: View {
+    let glance: CallNotesGlance
+
+    var body: some View {
+        HStack(spacing: 3) {
+            switch glance {
+            case .writing:
+                Image(systemName: "pencil.line")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.assistant)
+                Text("Writing notes…")
+                    .font(Theme.fixed(11, .semibold))  // see the meeting countdown
+                    .foregroundStyle(Theme.textSecondary)
+            case .ready(let todos):
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.done)
+                Text(Self.ready(todos: todos))
+                    .font(Theme.fixed(11, .semibold))  // see the meeting countdown
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+            case .tooLittleSaid:
+                // No tick: nothing was made. The panel's mark for a stretch
+                // the notes could not be written for.
+                Image(systemName: "text.badge.xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                Text(CallNotesPanel.tooLittleSaid)
+                    .font(Theme.fixed(11, .semibold))  // see the meeting countdown
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+    }
+
+    static func ready(todos: Int) -> String {
+        switch todos {
+        case ...0: return "Notes ready"
+        case 1: return "Notes ready · 1 to-do"
+        default: return "Notes ready · \(todos) to-dos"
+        }
     }
 }

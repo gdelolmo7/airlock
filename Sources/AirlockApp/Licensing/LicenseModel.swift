@@ -13,7 +13,14 @@ import os
 @MainActor
 @Observable
 final class LicenseModel {
-    private(set) var entitlement: Entitlement = .trialing(daysRemaining: TrialClock.length)
+    private(set) var entitlement: Entitlement = .trialing(daysRemaining: TrialClock.length) {
+        didSet { if entitlement != oldValue { onEntitlementChange?(entitlement) } }
+    }
+    /// Raised when the entitlement changes, for what cannot watch it — the
+    /// bridge, which stops holding gates for a card once the trial has ended
+    /// (`GateHolding`). Wired by the app delegate, which also hands over the
+    /// value it starts from.
+    @ObservationIgnored var onEntitlementChange: ((Entitlement) -> Void)?
     /// The stored key, so Settings can show it and let it be replaced.
     private(set) var token: String = ""
     /// Set when a pasted key was refused, so the field can say why rather than
@@ -38,9 +45,20 @@ final class LicenseModel {
     /// Raised when something in the panel asks to buy — the gate's "Subscribe
     /// and approve", the trial card's buttons. Wired by whoever owns the
     /// windows; the panel cannot open one itself and should not try.
-    @ObservationIgnored var onShowPurchase: (() -> Void)?
+    ///
+    /// Carries the plan to open on. Only the last-day card names one: its
+    /// "€3.99 a month" opened the window with yearly picked, so the button
+    /// somebody pressed was not the plan they were about to pay for.
+    @ObservationIgnored var onShowPurchase: ((License.Period) -> Void)?
 
-    func showPurchase() { onShowPurchase?() }
+    func showPurchase(plan: License.Period = .yearly) { onShowPurchase?(plan) }
+
+    /// Raised after every licence that goes in, whichever way it arrived —
+    /// the browser's `airlock://activate` link or a paste in Settings. The
+    /// purchase window listens: it only ever heard about the link, so a key
+    /// pasted in Settings left it saying "Finish up in your browser" over a
+    /// working licence.
+    @ObservationIgnored var onApplied: (() -> Void)?
 
     /// Opens Settings › Licence — from the overdue line, where the answer is
     /// the licence page and not a second subscription — and, with `keyField`,
@@ -95,6 +113,25 @@ final class LicenseModel {
             return URL(string: "https://useairlock.lemonsqueezy.com/checkout/buy/93a5fdb0-4670-40cf-9057-827f8ffe454f")
         }
     }
+
+    /// The website's plans, for "Upgrade" once this month's online notes are
+    /// used (`CloudNotesAllowance`): a subscriber already has a plan, so this
+    /// is the page that compares them, not a checkout. Beside the checkout
+    /// links so the store's addresses stay in one place. Unused while
+    /// `CloudNotesAllowance.offersUpgrade` is off.
+    nonisolated static let pricingURL = URL(string: "https://useairlock.app/#price")!
+
+    /// What notes written online need from the licence: where to send them
+    /// and the token that says who is asking. Nil without a licence server
+    /// in this build or without a token; never a model's key, which only
+    /// the server holds.
+    var notesAccess: (endpoint: URL, token: String)? {
+        guard let endpoint = endpoint("notes"), !token.isEmpty else { return nil }
+        return (endpoint, token)
+    }
+
+    /// Whether this build has a licence server at all.
+    var hasServer: Bool { apiBase != nil }
 
     /// The public half of the signing key, compiled in at build time. Without
     /// it nothing can be verified, so every copy is on trial — which is the
@@ -157,14 +194,20 @@ final class LicenseModel {
     /// refused paste or a failed activation, and the returning-customer flag.
     /// `refresh()` is a no-op on this instance, because the licence pane calls
     /// it on appear and it would otherwise start a trial on the way in.
+    ///
+    /// `checkingWith` and `keepingIn` are for tests: with them a pasted token
+    /// signed by that key is taken for real and kept in that suite, so what a
+    /// working paste sets off can be checked without the real trial marker
+    /// or a licence server.
     init(previewing entitlement: Entitlement, token: String = "",
          rejection: LicenseVerdict.Reason? = nil, activationError: String? = nil,
-         hasSubscribedBefore: Bool = false) {
-        publicKey = nil
+         hasSubscribedBefore: Bool = false,
+         checkingWith publicKey: Data? = nil, keepingIn defaults: UserDefaults? = nil) {
+        self.publicKey = publicKey
         apiBase = nil
         // A suite nothing writes to: `refresh()` does nothing on this
         // instance, and reading a suite creates no file.
-        defaults = UserDefaults(suiteName: "com.airlock.state-gallery") ?? .standard
+        self.defaults = defaults ?? UserDefaults(suiteName: "com.airlock.state-gallery") ?? .standard
         isPreview = true
         previewSubscribedBefore = hasSubscribedBefore
         self.token = token
@@ -209,6 +252,14 @@ final class LicenseModel {
     /// path first means a hand-issued key still works with the server down.
     @discardableResult
     func apply(_ candidate: String) async -> Bool {
+        // Announced here, once, rather than by each caller: two callers each
+        // deciding whether to say so is how the Settings paste never did.
+        let accepted = await take(candidate)
+        if accepted { onApplied?() }
+        return accepted
+    }
+
+    private func take(_ candidate: String) async -> Bool {
         let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         rejection = nil
         activationError = nil

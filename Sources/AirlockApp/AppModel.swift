@@ -55,6 +55,8 @@ final class AppModel {
             await bridge.setAutoDecisionHandler { [weak self] gate in
                 Task { @MainActor in self?.record(gate) }
             }
+            // Before it listens, for the same reason as the handler above.
+            await bridge.setGateHolding(gateHolding)
             do {
                 try await bridge.start()
             } catch {
@@ -372,11 +374,18 @@ final class AppModel {
             usageNotice: agents.isEnabled ? usageAlerts.notice : nil,
             usageNoticeAt: agents.isEnabled ? usageAlerts.noticeAt : nil,
             guide: ui.guideCompact,
-            call: calls.call)
+            // A meeting in the room shows as a call while its notes are
+            // taken; a real call, if one starts meanwhile, is the one shown.
+            call: calls.call ?? (meetings.isEnabled ? meetings.inPersonCall : nil),
+            // Behind the hidden switch, like the rest of call notes.
+            callNotes: meetings.isEnabled ? meetings.glance : nil,
+            callNotesAt: meetings.isEnabled ? meetings.glanceAt : nil)
     }
 
     /// Account-wide Claude rate-limit windows, fed by the status-line bridge.
-    private(set) var usage: UsageSnapshot?
+    /// Settable for the state gallery, which draws the Agents tab's line on a
+    /// model of its own.
+    var usage: UsageSnapshot?
 
     /// The heads-up near the limit (card Agents 1), checked on every refresh.
     let usageAlerts = UsageAlertModel()
@@ -384,6 +393,9 @@ final class AppModel {
     /// Whether the user is on a call, for the island's call pill. Started by
     /// `NotchController`, so a model built for a test or a preview never polls.
     let calls = CallMonitor()
+    /// Notes of those calls, behind a hidden switch. Fed by `calls` and
+    /// started by `NotchController`, like it.
+    let meetings = MeetingNotesModel()
     /// Whether agents are switched on, set by the notch controller: the
     /// heads-up is part of them and stays quiet while they are off.
     @ObservationIgnored var agentsOn: () -> Bool = { false }
@@ -569,6 +581,22 @@ final class AppModel {
         declinedSuggestions.insert(suggestion.id)
     }
     @ObservationIgnored private var gateSaveTask: Task<Void, Never>?
+
+    /// What the bridge does with a gate that asks — see `GateHolding`. Kept
+    /// here too so `start()` hands it over before the bridge listens: the
+    /// licence is read later in launch than the bridge is built, and launch is
+    /// when every agent already running sends its next hook.
+    @ObservationIgnored private var gateHolding: GateHolding = .holdForPerson
+
+    /// The licence changed. Once the trial has ended a gate is handed straight
+    /// back to the agent instead of waiting on a card that cannot be answered,
+    /// and anything already held goes back with it.
+    func entitlementChanged(_ entitlement: Entitlement) {
+        let holding = GateHolding(entitlement)
+        guard holding != gateHolding else { return }
+        gateHolding = holding
+        Task { [bridge] in await bridge.setGateHolding(holding) }
+    }
 
     /// Resolve a pending permission. Routes the decision to the waiting hook and
     /// optimistically updates local state so the card dismisses immediately.

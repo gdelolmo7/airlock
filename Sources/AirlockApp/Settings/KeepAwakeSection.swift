@@ -1,53 +1,47 @@
 import AirlockCore
 import SwiftUI
 
-/// Keep-awake's three options, next to the widgets on the notch page: when
-/// it stops on battery, whether the screen may still turn off, and a
-/// shortcut that presses the rail's button from anywhere.
+/// Keep-awake's options, rows on the notch page: when it stops on battery,
+/// whether it holds while an agent works, whether the screen may still turn
+/// off, and a shortcut that presses the rail's button from anywhere.
 struct KeepAwakeSection: View {
     @Bindable var controls: SystemControlsModel
 
     var body: some View {
-        Section("How should keep awake behave?") {
-            Picker(selection: $controls.keepAwakeCutoff) {
-                ForEach(KeepAwakePolicy.cutoffChoices, id: \.self) { level in
-                    Text(level == 0 ? "Never" : "Below \(level)%").tag(level)
+        LookRow("Stop on battery", subtitle: "It turns itself off at this level, and the notch says so") {
+            LookMenu(controls.keepAwakeCutoff == 0 ? "Never" : "Below \(controls.keepAwakeCutoff)%") {
+                Picker("Stop on battery", selection: $controls.keepAwakeCutoff) {
+                    ForEach(KeepAwakePolicy.cutoffChoices, id: \.self) { level in
+                        Text(level == 0 ? "Never" : "Below \(level)%").tag(level)
+                    }
                 }
-            } label: {
-                Text("Stop on battery")
-                Text("Keep awake turns itself off at this level, and the notch says so")
+                .pickerStyle(.inline)
+                .labelsHidden()
             }
-            .settingsAnchor(.keepAwakeCutoff)
+        }
+        .settingsAnchor(.keepAwakeCutoff)
 
-            // Card Awake 1. First, because it is the one that works without
-            // anybody pressing anything.
-            Toggle(isOn: $controls.awakeWhileAgentsWork) {
-                Text("While an agent is working")
-                Text("Keeps the Mac awake while Claude Code or Codex is busy, not while one waits for your answer. The screen can still turn off, and closing the lid still sleeps the Mac")
-            }
+        // Card Awake 1. First of the switches, because it is the one that
+        // works without anybody pressing anything.
+        LookToggleRow("While an agent is working",
+                      subtitle: "While Claude Code or Codex is busy, not while one waits for you",
+                      isOn: $controls.awakeWhileAgentsWork)
             .settingsAnchor(.keepAwakeAgents)
-            Toggle(isOn: $controls.awakeWhileAgentsWorkOnBattery) {
-                Text("Also on battery")
-                Text("Off, it only does this while the Mac is plugged in. The battery stop above still applies")
-            }
+        LookToggleRow("Also on battery", subtitle: "Off, only while the Mac is plugged in",
+                      isOn: $controls.awakeWhileAgentsWorkOnBattery)
             .disabled(!controls.awakeWhileAgentsWork)
 
-            Toggle(isOn: $controls.letsScreenSleep) {
-                Text("Let the screen turn off")
-                Text("The Mac keeps working on downloads, renders and agents while the display sleeps")
-            }
+        LookToggleRow("Let the screen turn off", subtitle: "The Mac keeps working while the display sleeps",
+                      isOn: $controls.letsScreenSleep)
             .settingsAnchor(.keepAwakeScreen)
 
-            Toggle(isOn: $controls.hotkeyEnabled) {
-                Text("Keyboard shortcut")
-                Text("Turns keep awake on and off from any app")
-            }
+        LookToggleRow("Keyboard shortcut", subtitle: "Turns keep awake on and off from any app",
+                      isOn: $controls.hotkeyEnabled)
             .settingsAnchor(.keepAwakeShortcut)
-            if controls.hotkeyEnabled {
-                HotkeyRecorder(binding: $controls.hotkey, conflict: { _ in nil })
-                if let error = controls.hotkeyError {
-                    ProblemCard(sentence: error, tone: .stopped)
-                }
+        if controls.hotkeyEnabled {
+            HotkeyRecorder("Shortcut", binding: $controls.hotkey, conflict: { _ in nil })
+            if let error = controls.hotkeyError {
+                ProblemCard(sentence: error, tone: .stopped)
             }
         }
     }

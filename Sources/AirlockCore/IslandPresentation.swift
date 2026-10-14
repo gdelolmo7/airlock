@@ -68,10 +68,12 @@ public enum IslandPresentation: Comparable, Sendable, CaseIterable {
         /// gesture props it up, and it must survive focus going to the app
         /// being guided — that is where the user is supposed to be looking.
         public static let guiding = Holds(rawValue: 1 << 7)
-        /// A new version's "what's new" card is up (`WhatsNew`). The one other
-        /// hold no gesture props up: the card opens the panel by itself at
-        /// launch, when nobody is pointing at it, and has to stay until it is
-        /// read — "Got it" or an explicit collapse releases it.
+        /// A card the app opens by itself at launch is up: a new version's
+        /// "what's new" card (`WhatsNew`), or the one question about crash
+        /// reports after a run that ended unexpectedly. No gesture props it
+        /// up: nobody is pointing at the notch when it opens, and it has to
+        /// stay until it is read — its own button or an explicit collapse
+        /// releases it.
         public static let notes = Holds(rawValue: 1 << 8)
     }
 

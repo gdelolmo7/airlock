@@ -9,8 +9,8 @@ import CoreGraphics
 /// resized (deliberately — a window that changes size mid-transition reads as a
 /// second motion on top of the content's own). Anything wider than that window
 /// is CLIPPED by its edge rather than scrolled or wrapped: the island's ears
-/// first, then its body, then the trailing gutter — battery, usage KPI, the
-/// settings gear.
+/// first, then its body, then the trailing gutter — battery, the settings
+/// gear, the Agents tab.
 ///
 /// Half a 14" MacBook Pro is 756pt and half a 13" Air is 735pt, so a slider
 /// topping out at 760 was offering widths neither machine could draw. Pure and

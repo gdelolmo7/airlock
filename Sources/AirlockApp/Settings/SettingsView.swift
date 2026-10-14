@@ -2,83 +2,81 @@ import AVFAudio
 import SwiftUI
 import AirlockCore
 
-/// The settings window content. Deliberately native — system light/dark, a
-/// sidebar and grouped forms — unlike the always-dark obsidian notch surface.
+/// The settings window content, in the notch's look: the island's
+/// near-black, the pages in a column down the left with search at its top.
 ///
-/// Sidebar rather than tabs: three tabs fitted, seven do not, and each new group
-/// made the remaining tabs narrower and the panes longer.
+/// It was a native sidebar and grouped forms, system light or dark. The owner
+/// asked for Settings to look like the notch it configures: Voice was drawn in
+/// the new rows (`SettingsLook`) first, approved on the real screen, and every
+/// page followed. Each is a `LookPage`: one line per setting, the longer
+/// explanations behind More options.
+///
+/// A column rather than tabs across the top: the owner tried both on
+/// 2026-10-07 and chose the column. Nine pages filled the top row, and the
+/// icons make a page easier to spot than a word in a line of words.
 struct SettingsView: View {
     @Environment(SettingsModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// What is typed in the sidebar's search field (card Settings 3).
+    /// What is typed in the search field (card Settings 3).
     @State private var query = ""
+    /// Bumped by ⌘F, which puts the cursor in the search field.
+    @State private var searchRequest = 0
     /// The last reveal that was scrolled to (`land`).
     @State private var landedSerial: UUID?
 
     var body: some View {
-        @Bindable var model = model
-        NavigationSplitView {
-            Group {
-                if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    paneList
-                } else {
-                    SettingsSearchResults(query: query)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 194, ideal: 204, max: 240)
-        } detail: {
+        HStack(spacing: 0) {
+            LookSidebar(pages: SettingsPane.sidebar(),
+                        selection: Binding(get: { model.pane.resolved }, set: { model.pane = $0; query = "" }),
+                        query: $query,
+                        focusRequest: searchRequest)
             ScrollViewReader { proxy in
                 Group {
-                    // `resolved`, so a deep link to a folded pane lands where its
-                    // contents actually went rather than on a room that no longer
-                    // exists.
-                    switch model.pane.resolved {
-                    case .general: GeneralPane()
-                    case .appearance: NotchPane()
-                    case .clipboard: ClipboardPane()
-                    case .voice: DictationPane()
-                    case .agents: AgentsPane()
-                    case .permissions: PermissionsPane()
-                    case .license: LicensePane()
-                    #if AIRLOCK_GUIDE
-                    case .guide: GuidePane()
-                    case .privacy: PrivacyPane()
-                    #else
-                    // The guide's two panes, never in the sidebar without it.
-                    case .guide, .privacy: EmptyView()
-                    #endif
-                    // `resolved` never returns these; they are listed so the switch
-                    // stays exhaustive if a case is ever un-folded.
-                    case .widgets, .policy, .tray, .about: EmptyView()
+                    if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                        SettingsSearchResults(query: query) { query = "" }
+                    } else {
+                        page
                     }
                 }
+                .padding(.top, 2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task(id: model.revealRequest) { await land(model.revealRequest, proxy: proxy) }
             }
-            .navigationTitle(model.pane.resolved.title)
         }
-        .searchable(text: $query, placement: .sidebar, prompt: "Search")
-        .frame(width: 780, height: 540)
+        .frame(width: 760, height: 600)
+        .background(SettingsLook.ground)
+        .environment(\.colorScheme, .dark)
+        .background {
+            // ⌘F, from anywhere in the window.
+            Button("Search settings") { searchRequest += 1 }
+                .keyboardShortcut("f")
+                .hidden()
+        }
         .onAppear { model.refresh() }
     }
 
-    private var paneList: some View {
-        @Bindable var model = model
-        // The nine, not `allCases` — `tray` and `about` survive as cases
-        // only so stored preferences and deep links still decode.
-        return List(SettingsPane.sidebar(), selection: $model.pane) { entry in
-            NavigationLink(value: entry) {
-                Label {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(entry.title)
-                        Text(entry.blurb)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: entry.symbol)
-                }
-                .padding(.vertical, 2)
-            }
+    @ViewBuilder private var page: some View {
+        // `resolved`, so a deep link to a folded pane lands where its
+        // contents actually went rather than on a room that no longer
+        // exists.
+        switch model.pane.resolved {
+        case .general: GeneralPane()
+        case .appearance: NotchPane()
+        case .clipboard: ClipboardPane()
+        case .voice: DictationPane()
+        case .agents: AgentsPane()
+        case .permissions: PermissionsPane()
+        case .license: LicensePane()
+        #if AIRLOCK_GUIDE
+        case .guide: GuidePane()
+        case .privacy: PrivacyPane()
+        #else
+        // The guide's two panes, never in the column without it.
+        case .guide, .privacy: EmptyView()
+        #endif
+        // `resolved` never returns these; they are listed so the switch
+        // stays exhaustive if a case is ever un-folded.
+        case .widgets, .policy, .tray, .about: EmptyView()
         }
     }
 
@@ -102,38 +100,46 @@ struct SettingsView: View {
     }
 }
 
-/// The sidebar while something is typed in the search field: matching
+/// What is shown while something is typed in the search field: matching
 /// settings, best first, each with the page it is on. Choosing one opens that
 /// page on that row.
 private struct SettingsSearchResults: View {
     let query: String
+    var onChoose: () -> Void
     @Environment(SettingsModel.self) private var model
     @Environment(AgentsWidgetModel.self) private var agents
-    @State private var chosen: SettingsAnchor?
 
     var body: some View {
         let results = SettingsAnchor.search(query, agentsOn: agents.isEnabled)
-        if results.isEmpty {
-            ContentUnavailableView.search(text: query)
-        } else {
-            List(results, selection: $chosen) { anchor in
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(anchor.title)
-                    Text(anchor.pane.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        ScrollView {
+            VStack(spacing: SettingsLook.rowSpacing) {
+                if results.isEmpty {
+                    Text("Nothing called \u{201C}\(query)\u{201D}")
+                        .font(Theme.chrome(12))
+                        .foregroundStyle(Theme.textSecondary)
+                        .padding(.top, 40)
+                } else {
+                    ForEach(results) { anchor in
+                        Button {
+                            model.reveal(anchor)
+                            onChoose()
+                        } label: {
+                            LookRow(anchor.title) {
+                                Text(anchor.pane.title)
+                                    .font(Theme.chrome(11))
+                                    .foregroundStyle(Theme.textTertiary)
+                            }
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .clickable()
+                    }
                 }
-                .padding(.vertical, 2)
-                .tag(anchor)
             }
-            .onChange(of: chosen) { _, anchor in
-                guard let anchor else { return }
-                model.reveal(anchor)
-                // Let go of it, so choosing the same row again is a change and
-                // lands again after scrolling away.
-                chosen = nil
-            }
-            .onChange(of: query) { chosen = nil }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
         }
     }
 }
@@ -170,109 +176,137 @@ struct PaneReference: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // A row: the sentence on the left, the way there on the right.
+        HStack(spacing: 12) {
             // Optional, because the sentence is only worth saying once. Where
             // the row above already states the fact, repeating it here just
             // makes VoiceOver read it twice — the button's own label carries
             // the destination.
             if let text {
                 Text(text)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(Theme.chrome(11.5))
+                    .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 8)
             // A real button, not a tappable phrase: the label says where it
             // goes, so VoiceOver reads the destination rather than "link".
-            Button(label ?? "Open \(pane.title)") {
+            LookButton(label ?? "Open \(pane.title)") {
                 if let anchor { model.reveal(anchor) } else { model.pane = pane }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .lookRowBox()
     }
 }
 
 // MARK: - General
 
+extension SoundLevel {
+    /// What the level plays, in words. The guide's two sounds are named only
+    /// in a copy that has the guide.
+    func explanation(guide: Bool) -> String {
+        switch self {
+        case .off:
+            "Airlock makes no sound. The notch still opens when a request needs you."
+        case .important:
+            guide
+                ? "A soft call when a request needs you, and a chime when an agent finishes or the guide reaches your goal. As loud as your Mac's alert sounds."
+                : "A soft call when a request needs you, and a chime when an agent finishes. As loud as your Mac's alert sounds."
+        case .all:
+            guide
+                ? "Also a light tap when you approve a request, and a low note when the guide has to stop. As loud as your Mac's alert sounds."
+                : "Also a light tap when you approve a request. As loud as your Mac's alert sounds."
+        }
+    }
+}
+
 private struct GeneralPane: View {
     @Environment(SettingsModel.self) private var model
     @AppStorage(Ticks.defaultsKey) private var trackpadTicks = true
     @AppStorage(Sounds.levelKey) private var soundLevel: String?
+    @State private var moreOptions = false
+
+    /// Rows that live behind "More options": a link to one opens them first.
+    static let anchorsInMoreOptions: Set<SettingsAnchor> = [.diagnostics]
 
     /// What the chosen level plays, in words.
     private var soundsExplanation: String {
+        Sounds.binding($soundLevel).wrappedValue.explanation(guide: GuideSwitch.isOn)
+    }
+
+    private var soundsName: String {
         switch Sounds.binding($soundLevel).wrappedValue {
-        case .off:
-            "Airlock makes no sound. The notch still opens when a request needs you."
-        case .important:
-            "A soft call when a request needs you, and a chime when an agent finishes or the guide reaches your goal. As loud as your Mac's alert sounds."
-        case .all:
-            "Also a light tap when you approve a request, and a low note when the guide has to stop. As loud as your Mac's alert sounds."
+        case .off: "Off"
+        case .important: "Only important"
+        case .all: "All"
         }
     }
 
     var body: some View {
         @Bindable var model = model
-        Form {
-            Section("When should Airlock start?") {
-                Toggle("Launch at login", isOn: Binding(
-                    get: { model.launchAtLogin },
-                    set: { model.setLaunchAtLogin($0) }
-                ))
+        LookPage("General", subtitle: "Startup, sounds, updates and diagnostics.",
+                 moreOptions: $moreOptions, anchorsInMoreOptions: Self.anchorsInMoreOptions) {
+            LookToggleRow("Launch at login",
+                          subtitle: model.isBundled ? nil : "Only works in the installed Airlock app",
+                          isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 .settingsAnchor(.launchAtLogin)
                 .disabled(!model.isBundled)
-                if !model.isBundled {
-                    Text("Launch at login only works in the installed Airlock app.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                if let note = model.launchAtLoginNote {
-                    LaunchAtLoginProblem(note: note)
-                }
+            if let note = model.launchAtLoginNote {
+                LaunchAtLoginProblem(note: note)
             }
 
             NotchScreenSection(followsMainDisplay: $model.followsMainDisplay,
                                showsOnExternalWhenClosed: $model.showsOnExternalWhenClosed,
                                canSeeFullScreen: TypeService.isTrusted)
 
-            Section("Sound and touch") {
-                Picker("Sounds", selection: Sounds.binding($soundLevel)) {
-                    Text("Off").tag(SoundLevel.off)
-                    Text("Only important").tag(SoundLevel.important)
-                    Text("All").tag(SoundLevel.all)
+            LookRow("Sounds") {
+                LookMenu(soundsName) {
+                    Picker("Sounds", selection: Sounds.binding($soundLevel)) {
+                        Text("Off").tag(SoundLevel.off)
+                        Text("Only important").tag(SoundLevel.important)
+                        Text("All").tag(SoundLevel.all)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
                 }
-                .settingsAnchor(.sounds)
-                Text(soundsExplanation)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Toggle("Trackpad feedback", isOn: $trackpadTicks)
-                Text("A light tap under your finger when you approve or deny a request, switch tabs, drop a file on the shelf, or scroll to the end of a list. Only things you do, never things that happen on their own. Mac trackpads only.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
+            .settingsAnchor(.sounds)
+            LookToggleRow("Trackpad feedback", subtitle: "A light tap under your finger for things you do",
+                          isOn: $trackpadTicks)
 
-            // Version, updates, health and the diagnostics paste. What was the
-            // About pane, where people were already going to look for it.
-            AboutSettings()
-            AdvancedSwitch()
+            // Version and updates. What was the About pane, where people were
+            // already going to look for it.
+            AboutRows()
+            if CrashReporter.shared.isAvailable {
+                CrashReportsSection(isOn: Binding(get: { CrashReporter.shared.isEnabled },
+                                                  set: { CrashReporter.shared.isEnabled = $0 }))
+            }
             #if AIRLOCK_GUIDE
             GuideSettings()
             #endif
+        } more: {
+            LookGroupLabel("Screen")
+            LookNote(NotchScreenSection.explanation(followsMainDisplay: model.followsMainDisplay))
+            LookGroupLabel("Sound and touch")
+            LookNote(soundsExplanation)
+            LookNote("Trackpad feedback is a light tap when you approve or deny a request, switch tabs, drop a file on the shelf, or scroll to the end of a list. Only things you do, never things that happen on their own. Mac trackpads only.")
+            // Updates, crash reports, health, and the diagnostics paste
+            // under the advanced switch.
+            AboutDetails()
+            AdvancedSwitch()
         }
-        .formStyle(.grouped)
         #if AIRLOCK_GUIDE
-        // ⌥ held while General opens reveals the guide prototype's section.
+        // ⌥ held while General opens reveals the guide prototype's rows.
         .onAppear { GuidePreferences.unlockIfOptionHeld() }
         #endif
     }
 }
 
 /// "Which screen is the notch on?" — the placement switches, and the two
-/// cases where the notch cannot do what the paragraph promises.
+/// cases where the notch cannot do what the explanation promises.
 ///
-/// Values in rather than models read, so the state gallery draws this section
-/// as it ships (I21, I23). It changes no placement; it only says what the
+/// Values in rather than models read, so the state gallery draws these rows
+/// as they ship (I21, I23). It changes no placement; it only says what the
 /// placement rules already do.
 struct NotchScreenSection: View {
     @Binding var followsMainDisplay: Bool
@@ -289,29 +323,28 @@ struct NotchScreenSection: View {
     static let lidClosedHidesTheNotch =
         "With this off, the notch has nowhere to show while the lid is closed, so nothing on screen will tell you when something needs you."
 
+    /// The long version, behind "More options" on General.
+    static func explanation(followsMainDisplay: Bool) -> String {
+        followsMainDisplay
+            ? "The notch goes wherever your main display is (the one set as main in System Settings › Displays). On a monitor it sits in the middle of the menu bar and works the same. Dragging files onto it for the Shelf only works on a MacBook's notch. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
+            : "The notch stays on your MacBook. With the lid closed, it can sit in the middle of the menu bar on your main display instead, and works the same. Dragging files onto it for the Shelf only works on the MacBook. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
+    }
+
     var body: some View {
-        Section("Which screen is the notch on?") {
-            Toggle("Show on the main display", isOn: $followsMainDisplay)
-                .settingsAnchor(.displays)
-            if !followsMainDisplay {
-                Toggle("Show on an external display when the lid is closed",
-                       isOn: $showsOnExternalWhenClosed)
-                if !showsOnExternalWhenClosed {
-                    Text(Self.lidClosedHidesTheNotch)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        LookToggleRow("Show on the main display",
+                      subtitle: followsMainDisplay ? "Follows the display set as main" : "Stays on your MacBook",
+                      isOn: $followsMainDisplay)
+            .settingsAnchor(.displays)
+        if !followsMainDisplay {
+            LookToggleRow("Show on an external display when the lid is closed",
+                          isOn: $showsOnExternalWhenClosed)
+            if !showsOnExternalWhenClosed {
+                ProblemCard(sentence: Self.lidClosedHidesTheNotch)
             }
-            Text(followsMainDisplay
-                 ? "The notch goes wherever your main display is (the one set as main in System Settings › Displays). On a monitor it sits in the middle of the menu bar and works the same. Dragging files onto it for the Shelf only works on a MacBook's notch. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
-                 : "The notch stays on your MacBook. With the lid closed, it can sit in the middle of the menu bar on your main display instead, and works the same. Dragging files onto it for the Shelf only works on the MacBook. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            if !canSeeFullScreen {
-                ProblemCard(sentence: Self.fullScreenNeedsAccessibility, button: "Turn it on",
-                            action: { TypeService.openAccessibilitySettings() })
-            }
+        }
+        if !canSeeFullScreen {
+            ProblemCard(sentence: Self.fullScreenNeedsAccessibility, button: "Turn it on",
+                        action: { TypeService.openAccessibilitySettings() })
         }
     }
 }
@@ -320,31 +353,44 @@ struct NotchScreenSection: View {
 
 /// How the notch looks, and what it shows — one pane, because they are one
 /// question. See `SettingsPane` for why the two were merged.
+///
+/// The picture first, then how it looks, what sits beside the camera, and
+/// what shows when it is open. Every paragraph is behind "More options".
 private struct NotchPane: View {
     @Environment(\.islandPreview) private var islandPreview
+    @Environment(SystemControlsModel.self) private var controls
+    @State private var moreOptions = false
 
     var body: some View {
-        Form {
+        LookPage("The notch", subtitle: "What it shows, and how it looks.", moreOptions: $moreOptions) {
             // The island as it is now, redrawn as anything below changes
             // (card Settings 2).
             if let islandPreview {
-                Section { islandPreview() }
+                islandPreview()
+                    .lookRowBox()
+                    .padding(.bottom, 4)
             }
-            NotchLookSections()
-            WidgetSections()
+            NotchLookRows()
+            WidgetRows()
+            LookGroupLabel("Keep awake")
+            KeepAwakeSection(controls: controls)
+        } more: {
+            NotchLookNotes()
+            WidgetNotes()
             AdvancedSwitch()
         }
-        .formStyle(.grouped)
     }
 }
 
-private struct NotchLookSections: View {
-    @AppStorage(AdvancedSwitch.key) private var advanced = false
+/// Background, width, text size, what sits beside the camera, and Claude
+/// usage on the Agents tab.
+private struct NotchLookRows: View {
     @Environment(NotchAppearanceModel.self) private var appearance
     /// Whether the battery is in the gutter at all is the Widgets toggle, and
     /// both the demand figure and the percentage switch depend on it.
     @Environment(BatteryWidgetModel.self) private var battery
-    /// Same again for usage: the rate-limit figures go with the agent surfaces.
+    /// Same again for the Agents tab, which the demand counts, and for usage:
+    /// the rate-limit figures go with the agent surfaces.
     @Environment(AgentsWidgetModel.self) private var agents
     @Environment(UsageConnectionModel.self) private var usage
     /// For the link down to the widget switches, which are on this same page.
@@ -352,202 +398,150 @@ private struct NotchLookSections: View {
 
     var body: some View {
         @Bindable var appearance = appearance
-        // Sections, not a Form: `NotchPane` owns the Form both halves sit in.
-        Group {
-            Section("How should the notch look?") {
+        LookRow("Background") {
+            LookMenu(appearance.surface.label) {
                 Picker("Background", selection: $appearance.surface) {
                     ForEach(NotchSurface.allCases) { surface in
                         Text(surface.label).tag(surface)
                     }
                 }
-                .settingsAnchor(.surface)
-                .pickerStyle(.segmented)
-                Text(surfaceNote)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                .pickerStyle(.inline)
+                .labelsHidden()
             }
+        }
+        .settingsAnchor(.surface)
 
-            Section("How wide is the open notch?") {
-                LabeledContent("Width") {
-                    HStack(spacing: 10) {
-                        // The screen's range, not the product's: half the screen
-                        // is the whole window, the island drawn around the panel
-                        // has to fit in it, and points past it are clipped by
-                        // the window edge rather than scrolled.
-                        Slider(value: $appearance.panelWidth,
-                               in: appearance.widthRange, step: 10)
-                            .frame(width: 220)
-                        // Relative to the default, not in points: "640pt"
-                        // asked people to know what a point is (X9).
-                        Text("\(Int((appearance.panelWidth / NotchAppearanceModel.defaultPanelWidth * 100).rounded()))%")
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 52, alignment: .trailing)
-                    }
-                }
-                .settingsAnchor(.panelWidth)
-                // Width is not a free choice: the gutters flank the camera, and
-                // content wider than its gutter is drawn behind the housing.
-                // Saying so live beats letting it be discovered by eye.
-                if let advice = appearance.widthAdvice(batteryVisible: battery.isEnabled,
-                                                       usageVisible: usageVisible) {
-                    ProblemCard(sentence: advice)
-                } else {
-                    Text(gutterSummary)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                Button("Reset width") {
-                    appearance.panelWidth = NotchAppearanceModel.defaultPanelWidth
-                }
+        // The screen's range, not the product's: half the screen is the whole
+        // window, the island drawn around the panel has to fit in it, and
+        // points past it are clipped by the window edge rather than scrolled.
+        // Relative to the default, not in points: "640pt" asked people to
+        // know what a point is (X9).
+        LookRow("Width") {
+            LookSlider(value: $appearance.panelWidth, range: appearance.widthRange, step: 10,
+                       label: "\(Int((appearance.panelWidth / NotchAppearanceModel.defaultPanelWidth * 100).rounded()))%")
+        }
+        .settingsAnchor(.panelWidth)
+        // Width is not a free choice: the gutters flank the camera, and
+        // content wider than its gutter is drawn behind the housing. Saying
+        // so live beats letting it be discovered by eye.
+        if let advice = appearance.widthAdvice(batteryVisible: battery.isEnabled,
+                                               agentsTabVisible: AgentsWidget.showsTabAtRest(agents)) {
+            ProblemCard(sentence: advice)
+        }
+
+        LookRow("Text size") {
+            LookSlider(value: $appearance.textScale, range: NotchAppearanceModel.textScaleRange, step: 0.1,
+                       label: "\(Int(appearance.textScale * 100))%")
+        }
+        .settingsAnchor(.textSize)
+        if appearance.textScale > 1.2 {
+            // Honest rather than silent: at the top of the range a narrow
+            // panel runs out of width before it runs out of height, and the
+            // fix is the slider directly above.
+            LookNote("At this size a wider notch helps — long lines are cut short before they wrap.")
+        }
+
+        LookGroupLabel("Beside the camera")
+        LookToggleRow("Battery percentage", isOn: $appearance.showsBatteryPercentage)
+            .settingsAnchor(.batteryPercentage)
+            .disabled(!battery.isEnabled)
+
+        // Its own group now that the figures are not beside the camera: they
+        // are one line at the top of the Agents tab, over the sessions.
+        LookGroupLabel("Agents tab")
+        LookToggleRow("Claude usage limits", subtitle: "Your 5-hour and weekly limits, at the top of the Agents tab",
+                      isOn: $appearance.showsClaudeUsage)
+            .settingsAnchor(.usageLimits)
+            .disabled(!agents.isEnabled)
+            // The switch is not only a display choice: with it on, Airlock
+            // keeps itself connected to where the figures come from, and with
+            // it off it disconnects rather than leaving a reader nobody reads.
+            // See `UsageConnection`.
+            .onChange(of: appearance.showsClaudeUsage) { _, on in
+                usage.sync(wantsUsage: on)
             }
-
-            Section("How big is the text?") {
-                LabeledContent("Text size") {
-                    HStack(spacing: 10) {
-                        Slider(value: $appearance.textScale,
-                               in: NotchAppearanceModel.textScaleRange, step: 0.1)
-                            .frame(width: 220)
-                        Text("\(Int(appearance.textScale * 100))%")
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 52, alignment: .trailing)
-                    }
-                }
-                .settingsAnchor(.textSize)
-                Text("Makes the notch's text up to 140% bigger. The strip beside the camera keeps its size — text that grew there would be cut off rather than wrap — and the top bar grows only part way, because it has to stay clear of the camera.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if appearance.textScale > 1.2 {
-                    // Honest rather than silent: at the top of the range a
-                    // narrow panel runs out of width before it runs out of
-                    // height, and the fix is the slider directly above.
-                    Text("At this size a wider notch helps — long lines are cut short before they wrap.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Button("Reset text size") { appearance.textScale = 1 }
-            }
-
-            Section("What shows beside the camera?") {
-                Toggle("Claude usage limits", isOn: $appearance.showsUsageInGutter)
-                    .settingsAnchor(.usageLimits)
-                    .disabled(!agents.isEnabled)
-                    // The switch is not only a display choice: with it on,
-                    // Airlock keeps itself connected to where the figures come
-                    // from, and with it off it disconnects rather than leaving
-                    // a reader nobody reads. See `UsageConnection`.
-                    .onChange(of: appearance.showsUsageInGutter) { _, on in
-                        usage.sync(wantsUsage: on)
-                    }
-                if appearance.showsUsageInGutter, agents.isEnabled { usageConnection }
-                Toggle("Battery percentage", isOn: $appearance.showsBatteryPercentage)
-                    .settingsAnchor(.batteryPercentage)
-                    .disabled(!battery.isEnabled)
-                // Naming the switch that is actually in the way, rather than
-                // leaving a dead control to be poked at. Both of these live in
-                // Widgets, which is not where you are looking when you notice
-                // the thing missing from the top bar — so the sentence carries
-                // the way there rather than leaving you to find it.
-                // The switches are further down this same page, so the way
-                // there scrolls to them rather than "opening" the page you
-                // are already on (X11).
-                if let off = disabledNote {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(off)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Show the switches") { model.reveal(SettingsAnchor.widgets) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("Both sit to the right of the camera. Turning one off frees room there, which is the other way to stop them running behind the camera.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // A slider measured in points, for the space around a camera —
-            // nobody's first question, and a stranger reading it learns that
-            // this app expects them to know what a point is.
-            if advanced {
-                Section("Camera") {
-                    // "Reserved centre" named the mechanism; this names the
-                    // thing being set. The number is how much room the camera
-                    // housing is given, and everyone reading this pane is
-                    // thinking about the housing rather than a reservation.
-                    LabeledContent("Clear space around the camera") {
-                        HStack(spacing: 10) {
-                            Slider(value: $appearance.centreTightening, in: 0...40, step: 2)
-                                .frame(width: 220)
-                            Text("−\(Int(appearance.centreTightening))")
-                                .font(.callout.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 52, alignment: .trailing)
-                        }
-                    }
-                    Text("How much narrower than the camera's measured cutout to keep clear. Anything above zero is space the camera actually covers, so whatever is placed there disappears. Leave it at zero unless you need a little more room beside the camera.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+        if appearance.showsClaudeUsage, agents.isEnabled { usageConnection }
+        // Naming the switch that is actually in the way, rather than leaving
+        // a dead control to be poked at. The switches are further down this
+        // same page, so the way there scrolls to them rather than "opening"
+        // the page you are already on (X11).
+        if let off = disabledNote {
+            LookRow(off) {
+                LookButton("Show the switches") { model.reveal(SettingsAnchor.widgets) }
             }
         }
     }
 
-    /// Whether the figures can reach the gutter at all, said plainly.
+    /// Whether the figures can reach the Agents tab at all, said plainly.
     ///
     /// A switch that is on for something that cannot work is what this pane was
     /// quietly offering: the figures arrive through Claude's status line,
     /// Claude keeps only one, and another tool taking it leaves the switch on
-    /// and the gutter empty for good. So the state is on screen, with the one
-    /// button that fixes it — and, connected or not, the sentence no amount of
-    /// fixing changes: only a session in a terminal ever reports usage.
+    /// and the line frozen for good. So the state is on screen, with the one
+    /// button that fixes it.
     @ViewBuilder
     private var usageConnection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        Group {
             switch usage.state {
             case .connected:
-                Text("Connected. The figures only come from a Claude session in a terminal — the desktop app never reports them, so open one to fill them in.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                LookNote("Connected. The figures come from a Claude session in a terminal; the desktop app never reports them.")
             case .replaced:
-                Text("Not connected, so these figures can't update. Airlock reads them from the line at the bottom of a Claude session, and something else is using it. Connecting puts Airlock back without changing what you see there.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Connect") { usage.connect() }
+                ProblemCard(sentence: "Not connected, so these figures can't update. Something else is using the line at the bottom of a Claude session. Connecting puts Airlock back without changing what you see there.",
+                            button: "Connect", action: { usage.connect() })
             case .hooksMissing:
-                PaneReference("Connect Claude Code first. Claude usage comes from it.",
-                              to: .agents)
-            }
-            if let failure = usage.failure {
-                ProblemCard(sentence: failure, tone: .stopped)
+                PaneReference("Connect Claude Code first. Claude usage comes from it.", to: .agents)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         // Reading it touches the settings file, so it happens when the pane
         // appears rather than on every redraw — and it has to happen at all,
         // because the status line can change while this window is open.
         .onAppear { usage.refresh() }
+        if let failure = usage.failure {
+            ProblemCard(sentence: failure, tone: .stopped)
+        }
     }
-
-    /// What the gutter actually has to hold — the switch here ANDed with the
-    /// Widgets one, which is what the top bar draws against.
-    private var usageVisible: Bool { appearance.showsUsageInGutter && agents.isEnabled }
 
     private var disabledNote: String? {
         switch (agents.isEnabled, battery.isEnabled) {
         case (true, true): return nil
-        case (false, true):
-            return "AI agents are switched off further down this page, so Claude usage isn't beside the camera."
-        case (true, false):
-            return "The battery is switched off further down this page, so it isn't beside the camera."
-        case (false, false):
-            return "AI agents and the battery are both switched off further down this page, so neither shows beside the camera — the settings gear has the space to itself."
+        case (false, true): return "AI agents are off below, so Claude usage isn't shown"
+        case (true, false): return "The battery is off below, so it isn't shown"
+        case (false, false): return "AI agents and the battery are both off below"
+        }
+    }
+}
+
+/// The look's explanations, behind "More options".
+private struct NotchLookNotes: View {
+    @AppStorage(AdvancedSwitch.key) private var advanced = false
+    @Environment(NotchAppearanceModel.self) private var appearance
+
+    var body: some View {
+        @Bindable var appearance = appearance
+        LookGroupLabel("Look")
+        LookNote(surfaceNote)
+        LookNote(gutterSummary)
+        LookNote("Text size makes the notch's text up to 140% bigger. The strip beside the camera keeps its size — text that grew there would be cut off rather than wrap — and the top bar grows only part way, because it has to stay clear of the camera.")
+        LookRow("Width and text size", subtitle: "Back to how they came") {
+            HStack(spacing: 6) {
+                LookButton("Reset width") { appearance.panelWidth = NotchAppearanceModel.defaultPanelWidth }
+                LookButton("Reset text size") { appearance.textScale = 1 }
+            }
+        }
+        LookNote("The battery sits to the right of the camera, beside the Agents tab and the gear. Turning it off frees room there, which is the other way to stop them running behind the camera.")
+
+        // A slider measured in points, for the space around a camera —
+        // nobody's first question, and a stranger reading it learns that
+        // this app expects them to know what a point is.
+        if advanced {
+            LookGroupLabel("Camera")
+            // "Reserved centre" named the mechanism; this names the thing
+            // being set: how much room the camera housing is given.
+            LookRow("Clear space around the camera") {
+                LookSlider(value: $appearance.centreTightening, range: 0...40, step: 2,
+                           label: "−\(Int(appearance.centreTightening))")
+            }
+            LookNote("How much narrower than the camera's measured cutout to keep clear. Anything above zero is space the camera actually covers, so whatever is placed there disappears. Leave it at zero unless you need a little more room beside the camera.")
         }
     }
 
@@ -567,9 +561,9 @@ private struct NotchLookSections: View {
     /// side of the camera for the top bar.
     private var gutterSummary: String {
         guard appearance.centreTightening > 0 else {
-            return "A wider notch leaves more room either side of the camera for the battery and Claude usage."
+            return "A wider notch leaves more room either side of the camera for the tabs and the battery."
         }
-        return "A wider notch leaves more room either side of the camera for the battery and Claude usage. "
+        return "A wider notch leaves more room either side of the camera for the tabs and the battery. "
             + "Some of that room is the clear space set under Camera below."
     }
 }
@@ -578,48 +572,63 @@ private struct NotchLookSections: View {
 
 /// One widget: whether it shows, and where.
 ///
-/// The column popup writes the same `widget.column` the panel's arrange-mode
+/// The column menu writes the same `widget.column` the panel's arrange-mode
 /// drag writes — deliberately, so the two are editors of one setting rather
 /// than two competing sources of layout.
 private struct WidgetRow: View {
     let title: String
+    var subtitle: String?
     let id: String
     @Binding var isOn: Bool
-    /// UserDefaults is invisible to `@Observable`, so the popup needs a nudge
+    /// UserDefaults is invisible to `@Observable`, so the menu needs a nudge
     /// to re-read after it writes.
     @State private var revision = 0
 
-    init(_ title: String, id: String, isOn: Binding<Bool>) {
+    init(_ title: String, subtitle: String? = nil, id: String, isOn: Binding<Bool>) {
         self.title = title
+        self.subtitle = subtitle
         self.id = id
         self._isOn = isOn
     }
 
+    private var column: Binding<WidgetColumn> {
+        Binding(get: { _ = revision; return WidgetArrangement.column(for: id) ?? .full },
+                set: { WidgetArrangement.setColumn($0, for: id); revision += 1 })
+    }
+
+    private static func name(_ column: WidgetColumn) -> String {
+        switch column {
+        case .leading: "Leading"
+        case .trailing: "Trailing"
+        case .full: "Full width"
+        }
+    }
+
     var body: some View {
-        LabeledContent {
+        LookRow(title, subtitle: subtitle) {
             HStack(spacing: 10) {
-                Picker("", selection: Binding(
-                    get: { _ = revision; return WidgetArrangement.column(for: id) ?? .full },
-                    set: { WidgetArrangement.setColumn($0, for: id); revision += 1 })) {
-                    Text("Leading").tag(WidgetColumn.leading)
-                    Text("Trailing").tag(WidgetColumn.trailing)
-                    Text("Full width").tag(WidgetColumn.full)
+                LookMenu(Self.name(column.wrappedValue)) {
+                    Picker(title, selection: column) {
+                        Text("Leading").tag(WidgetColumn.leading)
+                        Text("Trailing").tag(WidgetColumn.trailing)
+                        Text("Full width").tag(WidgetColumn.full)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
                 }
-                .labelsHidden()
-                .fixedSize()
                 // A column for something that is not drawn is a choice with no
                 // effect, so it follows the switch.
                 .disabled(!isOn)
 
-                Toggle("", isOn: $isOn).labelsHidden()
+                Toggle(title, isOn: $isOn)
+                    .toggleStyle(LookSwitchStyle())
+                    .labelsHidden()
             }
-        } label: {
-            Text(title)
         }
     }
 }
 
-private struct WidgetSections: View {
+private struct WidgetRows: View {
     @Environment(MediaWidgetModel.self) private var media
     @Environment(SoundWidgetModel.self) private var sound
     @Environment(AppVolumeModel.self) private var appVolume
@@ -628,10 +637,7 @@ private struct WidgetSections: View {
     @Environment(SystemStatsWidgetModel.self) private var system
     @Environment(AgentsWidgetModel.self) private var agents
     @Environment(RepositoryWidgetModel.self) private var repository
-    @Environment(SystemControlsModel.self) private var controls
-    /// Only for the gate hotkey's conflict check — the two hold keys are what
-    /// a chord can collide with. See `CommandBarChord`.
-    @Environment(DictationModel.self) private var dictation
+    @Environment(TrayModel.self) private var tray
     #if AIRLOCK_GUIDE
     @AppStorage(AskWidget.enabledKey) private var asksOnHome = true
     #endif
@@ -640,158 +646,144 @@ private struct WidgetSections: View {
     private var guideOn: Bool { GuideSwitch.isOn }
 
     var body: some View {
-        // Sections, not a Form: `NotchPane` owns the Form both halves sit in.
-        Group {
-            // Switch AND column on one row. They are the same decision about
-            // the same widget — "show this, there" — and the column popup writes
-            // `widget.column`, which is exactly what arrange mode's drag writes.
-            // One setting, two editors, as the handoff asks.
-            Section("What shows when it's open?") {
-                #if AIRLOCK_GUIDE
-                if SettingsPane.guideIsOn {
-                    Toggle(isOn: $asksOnHome) {
-                        Text("Ask strip on Home")
-                        Text("A line at the top of Home that starts the guide")
-                    }
-                }
-                #endif
-                WidgetRow("Media (Spotify & Apple Music)", id: "media",
-                          isOn: Binding(get: { media.isEnabled },
-                                        set: { media.isEnabled = $0 }))
-                    .settingsAnchor(.widgets)
-                WidgetRow("Sound (output & per-app volume)", id: "sound",
-                          isOn: Binding(get: { sound.isEnabled },
-                                        set: { sound.isEnabled = $0 }))
-                WidgetRow("Calendar", id: "calendar",
-                          isOn: Binding(get: { calendar.isEnabled },
-                                        set: { calendar.isEnabled = $0 }))
-                // No column: it is gutter chrome, drawn beside the housing on
-                // every tab, so there is no slot to place it in.
-                Toggle("Battery", isOn: Binding(
-                    get: { battery.isEnabled }, set: { battery.isEnabled = $0 }))
-                WidgetRow("System (CPU, GPU & Memory)", id: "system",
-                          isOn: Binding(get: { system.isEnabled },
-                                        set: { system.isEnabled = $0 }))
-                WidgetRow("Repository status", id: "repository",
-                          isOn: Binding(get: { repository.isEnabled },
-                                        set: { repository.isEnabled = $0 }))
-                Text("Repository status shows the branch and uncommitted changes for whatever checkout each agent session is working in — so it lives on the Agents tab, and appears only when a session is running in a git repository.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Section("How should the music bars move?") {
-                Toggle("Wave follows the audio", isOn: Binding(
-                    get: { media.reactiveWave }, set: { media.reactiveWave = $0 }))
-                    .settingsAnchor(.reactiveWave)
-                    .disabled(!media.isEnabled)
-                Text(media.isEnabled
-                     ? "The bars beside the notch normally run their own animation. Switched on, they follow the actual audio coming out of Spotify or Music — which means asking macOS for permission to hear the music the first time something plays, and listening while it does. Nothing is recorded, stored or sent anywhere; the only thing computed is how tall to draw five bars."
-                     : "Turn media on above to use this.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let status = media.tapStatus {
-                    WaveTapStatusLine(status: status, isProblem: media.tapStatusIsProblem,
-                                      needsPermission: media.tapStatusNeedsPermission)
-                }
-            }
-
-            Section("Should each app get its own volume?") {
-                Toggle("Per-app volume", isOn: Binding(
-                    get: { appVolume.isEnabled }, set: { appVolume.isEnabled = $0 }))
-                    .settingsAnchor(.perAppVolume)
-                Text("The sound card switches the output device and moves the system level — the things macOS hides behind an Option-click on the menu bar. Per-app volume is the mixer it never shipped: a level and a mute for each app making sound, kept per app and remembered.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Off by default, because it is the one thing here that takes over the audio path: an app you turn down has its sound passed through Airlock, made quieter and played back, which asks macOS for permission to hear system audio the first time. Nothing is recorded, stored or sent anywhere. Leave it off and Airlock never touches the sound.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                // Deliberately NOT disabled by the Sound switch above, unlike
-                // the reactive wave. Hiding the card hides the only mixer, so a
-                // disabled switch would leave the taps running with no way to
-                // stop them; this one has to stay reachable to be revocable.
-                if !sound.isEnabled, appVolume.isEnabled {
-                    ProblemCard(sentence: "Sound is switched off above, so the levels still apply but the mixer isn't in the notch.")
-                }
-            }
-
-            KeepAwakeSection(controls: controls)
-
-            Section(guideOn ? "Developer mode" : "AI agents") {
-                // Reads the SURFACE, not the stored flag. While the answer is
-                // still derived and no hooks exist, the Agents tab is on screen
-                // asking to be set up (`AgentsWidget.isUnconfigured`) — and a
-                // switch reading "off" beside a visible tab is one the user
-                // cannot use to dismiss it, because switching an off switch off
-                // is not a gesture. Flipping it here writes `.chosen(false)`,
-                // which is the explicit no that hides it.
-                Toggle(guideOn ? "Developer mode" : "AI agents", isOn: Binding(
-                    get: { agents.isEnabled || (!guideOn && agents.basis == .noHooksInstalled) },
-                    set: { agents.choose($0) }))
-                    .settingsAnchor(.agentsSwitch)
-                Text(agents.explanation)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if guideOn {
-                    // Card 3.02. The same switch, named for who it is for.
-                    Text("For people who use Claude Code or Codex: the Agents tab and its settings page, connecting them, Claude usage, and handing a question to Claude Code. A request waiting for your answer always shows, whatever this says.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text("Everything for coding agents: the Agents tab and its quick-prompt bar, the agent icons beside the notch, and Claude usage in the top bar. Everything else — clipboard, Shelf, dictation, calendar, media — works the same either way.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            // A row and a sheet, not seven toggles inline. Somebody with seven
-            // calendars was reading a list as long as every other setting on
-            // the pane put together, for a choice they make once — so the pane
-            // states the answer and the sheet holds the switches.
-            Section("Which calendars should it read?") {
-                if !calendar.isEnabled {
-                    // Picking calendars for a widget that isn't shown is a
-                    // control with nothing behind it.
-                    Text("Turn the calendar on above to choose which calendars it reads.")
-                        .settingsAnchor(.calendars)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else if calendar.authStatus == .fullAccess {
-                    if calendar.allCalendars.isEmpty {
-                        Text("No calendars found.").font(.callout).foregroundStyle(.secondary)
-                    } else {
-                        LabeledContent("Reading") {
-                            HStack(spacing: 10) {
-                                Text(calendar.selection.summary(
-                                    amongst: calendar.allCalendars.map(\.id)))
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.trailing)
-                                Button("Choose…") { choosingCalendars = true }
-                            }
-                        }
-                        .settingsAnchor(.calendars)
-                    }
-                } else {
-                    Button("Allow Calendar") { Task { await calendar.requestAccess() } }
-                    if let note = calendar.accessNote {
-                        Text(note).font(.callout).foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            // The shelf is a widget; it does not need a room of its own.
-            TraySettings()
+        // Switch AND column on one row. They are the same decision about the
+        // same widget — "show this, there" — and the column menu writes
+        // `widget.column`, which is exactly what arrange mode's drag writes.
+        LookGroupLabel("When it's open")
+        #if AIRLOCK_GUIDE
+        if SettingsPane.guideIsOn {
+            LookToggleRow("Ask strip on Home", subtitle: "A line at the top of Home that starts the guide",
+                          isOn: $asksOnHome)
         }
+        #endif
+        WidgetRow("Media", subtitle: "Spotify and Apple Music", id: "media",
+                  isOn: Binding(get: { media.isEnabled }, set: { media.isEnabled = $0 }))
+            .settingsAnchor(.widgets)
+        WidgetRow("Sound", subtitle: "Output and per-app volume", id: "sound",
+                  isOn: Binding(get: { sound.isEnabled }, set: { sound.isEnabled = $0 }))
+        WidgetRow("Calendar", id: "calendar",
+                  isOn: Binding(get: { calendar.isEnabled }, set: { calendar.isEnabled = $0 }))
+        WidgetRow("System", subtitle: "CPU, GPU and memory", id: "system",
+                  isOn: Binding(get: { system.isEnabled }, set: { system.isEnabled = $0 }))
+        WidgetRow("Repository status", subtitle: "Branch and changes, on the Agents tab", id: "repository",
+                  isOn: Binding(get: { repository.isEnabled }, set: { repository.isEnabled = $0 }))
+        // No column: it is gutter chrome, drawn beside the housing on every
+        // tab, so there is no slot to place it in.
+        LookToggleRow("Battery", isOn: Binding(get: { battery.isEnabled }, set: { battery.isEnabled = $0 }))
+
+        LookToggleRow("Wave follows the audio", subtitle: "The music bars move with the real sound",
+                      isOn: Binding(get: { media.reactiveWave }, set: { media.reactiveWave = $0 }))
+            .settingsAnchor(.reactiveWave)
+            .disabled(!media.isEnabled)
+        if let status = media.tapStatus {
+            WaveTapStatusLine(status: status, isProblem: media.tapStatusIsProblem,
+                              needsPermission: media.tapStatusNeedsPermission)
+        }
+
+        LookToggleRow("Per-app volume", subtitle: "A level and a mute for each app",
+                      isOn: Binding(get: { appVolume.isEnabled }, set: { appVolume.isEnabled = $0 }))
+            .settingsAnchor(.perAppVolume)
+        // Deliberately NOT disabled by the Sound switch above, unlike the
+        // reactive wave. Hiding the card hides the only mixer, so a disabled
+        // switch would leave the taps running with no way to stop them; this
+        // one has to stay reachable to be revocable.
+        if !sound.isEnabled, appVolume.isEnabled {
+            ProblemCard(sentence: "Sound is switched off above, so the levels still apply but the mixer isn't in the notch.")
+        }
+
+        // Reads the SURFACE, not the stored flag. While the answer is still
+        // derived and no hooks exist, the Agents tab is on screen asking to be
+        // set up (`AgentsWidget.isUnconfigured`) — and a switch reading "off"
+        // beside a visible tab is one the user cannot use to dismiss it,
+        // because switching an off switch off is not a gesture. Flipping it
+        // here writes `.chosen(false)`, which is the explicit no that hides it.
+        LookToggleRow(guideOn ? "Developer mode" : "AI agents",
+                      subtitle: guideOn ? "For people who use Claude Code or Codex" : "Claude Code and Codex in the notch",
+                      isOn: Binding(get: { agents.isEnabled || (!guideOn && agents.basis == .noHooksInstalled) },
+                                    set: { agents.choose($0) }))
+            .settingsAnchor(.agentsSwitch)
+
+        calendarsRow
+
+        // The shelf is a widget; it does not need a page of its own.
+        LookRow("Shelf", subtitle: tray.items.count == 1 ? "1 item" : "\(tray.items.count) items") {
+            HStack(spacing: 6) {
+                LookButton("Open folder") { tray.openFolder() }
+                LookButton("Clear") { tray.clear() }
+                    .disabled(tray.items.isEmpty)
+            }
+        }
+        .settingsAnchor(.shelf)
         .sheet(isPresented: $choosingCalendars) {
             CalendarPickerSheet(calendar: calendar) { choosingCalendars = false }
         }
+    }
+
+    // A row and a sheet, not seven toggles inline. Somebody with seven
+    // calendars was reading a list as long as every other setting on the
+    // pane put together, for a choice they make once — so the page states
+    // the answer and the sheet holds the switches.
+    @ViewBuilder private var calendarsRow: some View {
+        if !calendar.isEnabled {
+            // Picking calendars for a widget that isn't shown is a control
+            // with nothing behind it.
+            LookRow("Calendars", subtitle: "Turn the calendar on above to choose")
+                .opacity(0.45)
+                .settingsAnchor(.calendars)
+        } else if calendar.authStatus == .fullAccess {
+            if calendar.allCalendars.isEmpty {
+                LookRow("Calendars") { LookValue("None found") }
+                    .settingsAnchor(.calendars)
+            } else {
+                LookRow("Calendars",
+                        subtitle: calendar.selection.summary(amongst: calendar.allCalendars.map(\.id))) {
+                    LookButton("Choose…") { choosingCalendars = true }
+                }
+                .settingsAnchor(.calendars)
+            }
+        } else {
+            LookRow("Calendars", subtitle: "Airlock needs your permission to read them") {
+                LookButton("Allow Calendar", prominent: true) { Task { await calendar.requestAccess() } }
+            }
+            .settingsAnchor(.calendars)
+            if let note = calendar.accessNote {
+                LookNote(note)
+            }
+        }
+    }
+}
+
+/// The widgets' explanations, behind "More options".
+private struct WidgetNotes: View {
+    @Environment(MediaWidgetModel.self) private var media
+    @Environment(AgentsWidgetModel.self) private var agents
+    @Environment(TrayModel.self) private var tray
+    private var guideOn: Bool { GuideSwitch.isOn }
+
+    var body: some View {
+        LookGroupLabel("Widgets")
+        LookNote("Repository status shows the branch and uncommitted changes for whatever checkout each agent session is working in — so it lives on the Agents tab, and appears only when a session is running in a git repository.")
+        LookNote(media.isEnabled
+                 ? "The music bars normally run their own animation. With Wave follows the audio on, they follow the actual audio coming out of Spotify or Music — which means asking macOS for permission to hear the music the first time something plays, and listening while it does. Nothing is recorded, stored or sent anywhere; the only thing computed is how tall to draw five bars."
+                 : "Turn media on to make the music bars follow the audio.")
+        LookNote("The sound card switches the output device and moves the system level — the things macOS hides behind an Option-click on the menu bar. Per-app volume is the mixer it never shipped: a level and a mute for each app making sound, kept per app and remembered.")
+        LookNote("Per-app volume is off by default, because it is the one thing here that takes over the audio path: an app you turn down has its sound passed through Airlock, made quieter and played back, which asks macOS for permission to hear system audio the first time. Nothing is recorded, stored or sent anywhere. Leave it off and Airlock never touches the sound.")
+
+        LookGroupLabel(guideOn ? "Developer mode" : "AI agents")
+        LookNote(agents.explanation)
+        if guideOn {
+            // Card 3.02. The same switch, named for who it is for.
+            LookNote("For people who use Claude Code or Codex: the Agents tab and its settings page, connecting them, Claude usage, and handing a question to Claude Code. A request waiting for your answer always shows, whatever this says.")
+        } else {
+            LookNote("Everything for coding agents: the Agents tab with Claude usage and its quick-prompt bar, and the agent icons beside the notch. Everything else — clipboard, Shelf, dictation, calendar, media — works the same either way.")
+        }
+
+        LookGroupLabel("Shelf")
+        LookRow("Kept in") {
+            LookValue(tray.directory.path, monospaced: true)
+                .textSelection(.enabled)
+        }
+        LookNote("Clear moves everything to the Trash, so it is recoverable from there. Dropped files are moved in, so a file leaves the folder you dragged it out of — hold Option while dropping to leave the original where it is. The workspace beside it is where the notch opens a terminal.")
     }
 }
 
@@ -847,65 +839,44 @@ private struct CalendarPickerSheet: View {
     }
 }
 
-// MARK: - Tray
-
-/// The shelf's settings, hosted by the Widgets pane.
-///
-/// It had a room of its own and did not need one: the tray IS a widget, and a
-/// pane holding one switch and a folder path was a sidebar row charging full
-/// price for two facts. Kept as its own view so the sections stay legible —
-/// only its host moved.
-private struct TraySettings: View {
-    @Environment(TrayModel.self) private var tray
-
-    var body: some View {
-        Group {
-            Section("What's on the shelf?") {
-                LabeledContent("Items") {
-                    Text("\(tray.items.count)").foregroundStyle(.secondary)
-                }
-                .settingsAnchor(.shelf)
-                HStack {
-                    Button("Open folder") { tray.openFolder() }
-                    Button("Clear") { tray.clear() }
-                        .disabled(tray.items.isEmpty)
-                }
-                Text("Clear moves everything to the Trash, so it is recoverable from there.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Where are shelf files kept?") {
-                LabeledContent("Location") {
-                    Text(tray.directory.path)
-                        .font(.callout.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                Text("Dropped files are moved in, so a file leaves the folder you dragged it out of — hold Option while dropping to leave the original where it is. The workspace beside it is where the notch opens a terminal.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
 // MARK: - About
 
-/// Version, updates and diagnostics — hosted by General.
+/// Version and updates — rows on General.
 ///
 /// It was its own sidebar row, which put the two things people actually come
 /// looking for (is there an update, and how do I file a bug) one click further
 /// away than "Startup". A version number is a line in General, not a
 /// destination.
-private struct AboutSettings: View {
-    @AppStorage(AdvancedSwitch.key) private var advanced = false
+private struct AboutRows: View {
     @Environment(SettingsModel.self) private var model
     /// `lastCheck` and `canCheck` are stored on the model and kept current by
     /// KVO on Sparkle's own properties, so this page redraws when the check
     /// finishes rather than when the app next becomes active. It has to: the
     /// check and its "You're up to date" sheet are in-process, so the app never
     /// resigns active and a re-read on the way back never happens.
+    @Environment(UpdaterModel.self) private var updater
+
+    var body: some View {
+        @Bindable var updater = updater
+        LookRow("Version") { LookValue(model.versionLabel) }
+        // The whole group, not just the button. Packaging leaves the updater
+        // out entirely when there is no appcast URL or signing key, and
+        // `swift run` has nothing to update either — rows offering to check
+        // are worse than none when nothing can come back.
+        if updater.isAvailable {
+            UpdatesSection(checksAutomatically: $updater.checksAutomatically,
+                           lastCheck: updater.lastCheck,
+                           canCheck: updater.canCheck,
+                           statusLine: updater.statusLine,
+                           onCheck: { updater.checkForUpdates() })
+        }
+    }
+}
+
+/// Health and the diagnostics paste — behind "More options" on General.
+private struct AboutDetails: View {
+    @AppStorage(AdvancedSwitch.key) private var advanced = false
+    @Environment(SettingsModel.self) private var model
     @Environment(UpdaterModel.self) private var updater
     @Environment(LicenseModel.self) private var license
     @Environment(MediaWidgetModel.self) private var media
@@ -925,89 +896,71 @@ private struct AboutSettings: View {
     @State private var copied = false
 
     var body: some View {
-        @Bindable var updater = updater
-        return Group {
-            Section {
-                LabeledContent("Version") { Text(model.versionLabel) }
-                // Support's question, not a customer's: under the advanced
-                // switch with the diagnostics paste, rather than a line of
-                // reverse-DNS on the page everybody lands on.
-                if advanced, model.isBundled, let id = Bundle.main.bundleIdentifier {
-                    LabeledContent("Bundle ID") {
-                        Text(id).font(.callout.monospaced()).foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            // The whole group, not just the button. Packaging leaves the updater
-            // out entirely when there is no appcast URL or signing key, and
-            // `swift run` has nothing to update either — a section offering to
-            // check is worse than no section at all when nothing can come back.
-            if updater.isAvailable {
-                UpdatesSection(checksAutomatically: $updater.checksAutomatically,
-                               lastCheck: updater.lastCheck,
-                               canCheck: updater.canCheck,
-                               statusLine: updater.statusLine,
-                               onCheck: { updater.checkForUpdates() })
-            }
-
-            // Shown before it is copied, not described afterwards. A button
-            // that puts an unseen block of text about your machine on the
-            // clipboard is a button people are right to distrust — and this one
-            // is aimed at a public issue tracker, where the way to find out what
-            // was in it is to have already posted it.
-            // ABOVE the paste. 7c is the better artefact for support and 7d is
-            // the better surface for the user, because it names its own next
-            // step — so the readable one leads and the copyable one follows.
-            Section("Health") {
-                DiagnosticsHealthView(
-                    health: health,
-                    summary: healthSummary,
-                    onCopy: { copyDiagnostics() },
-                    onOpen: { remedy in
-                        switch remedy {
-                        case .agentsSettings: model.pane = .agents
-                        case .permissionsSettings: model.pane = .permissions
-                        case .updateSettings: model.reveal(.updates)
-                        }
-                    })
-                    .settingsAnchor(.diagnostics)
-            }
-
-            // The paste itself is for a bug report, and printing it on the page
-            // everybody lands on made the app look like a debugger. The Health
-            // list above stays: it says what is wrong and offers the fix, which
-            // is the half a customer can act on.
-            if advanced {
-                Section("Diagnostics") {
-                    Text("Everything a bug report needs, and nothing else: no licence key, no file paths, nothing about what you are working on or what your agents are doing. This is exactly what gets copied.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(diagnostics)
-                        .font(.callout.monospaced())
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                        .background(RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .textBackgroundColor)))
-                        .accessibilityLabel("Diagnostics, as they will be copied")
-                    HStack(spacing: 10) {
-                        Button("Copy Diagnostics") { copyDiagnostics() }
-                        if copied {
-                            Label("Copied", systemImage: "checkmark.circle.fill")
-                                .font(.callout)
-                                .foregroundStyle(Color.green)
-                        }
-                    }
-                }
-            }
+        if updater.isAvailable {
+            LookGroupLabel("Updates")
+            ForEach(UpdatesSection.notes, id: \.self) { LookNote($0) }
         }
-        // Re-read on the way in. Permissions and hooks change outside this
-        // process, so a report built once and cached for the life of the window
-        // would eventually describe a machine that no longer exists.
-        .onAppear { rebuildDiagnostics() }
+        // In the order of the rows above: the switch sits under Updates.
+        if CrashReporter.shared.isAvailable {
+            LookGroupLabel("Crash reports")
+            ForEach(CrashReportsSection.notes, id: \.self) { LookNote($0) }
+        }
+
+        // Shown before it is copied, not described afterwards. A button
+        // that puts an unseen block of text about your machine on the
+        // clipboard is a button people are right to distrust — and this one
+        // is aimed at a public issue tracker, where the way to find out what
+        // was in it is to have already posted it.
+        // ABOVE the paste. 7c is the better artefact for support and 7d is
+        // the better surface for the user, because it names its own next
+        // step — so the readable one leads and the copyable one follows.
+        LookGroupLabel("Health")
+        DiagnosticsHealthView(
+            health: health,
+            summary: healthSummary,
+            onCopy: { copyDiagnostics() },
+            onOpen: { remedy in
+                switch remedy {
+                case .agentsSettings: model.pane = .agents
+                case .permissionsSettings: model.pane = .permissions
+                case .updateSettings: model.reveal(.updates)
+                }
+            })
+            .lookRowBox()
+            .settingsAnchor(.diagnostics)
+            // Re-read on the way in. Permissions and hooks change outside this
+            // process, so a report built once and cached for the life of the
+            // window would eventually describe a machine that no longer exists.
+            .onAppear { rebuildDiagnostics() }
+
+        // The paste itself is for a bug report, and printing it on the page
+        // everybody lands on made the app look like a debugger. The Health
+        // list above stays: it says what is wrong and offers the fix, which
+        // is the half a customer can act on.
+        if advanced {
+            LookGroupLabel("Diagnostics")
+            // Support's question, not a customer's: under the advanced
+            // switch with the diagnostics paste, rather than a line of
+            // reverse-DNS on the page everybody lands on.
+            if model.isBundled, let id = Bundle.main.bundleIdentifier {
+                LookRow("Bundle ID") { LookValue(id, monospaced: true) }
+            }
+            LookNote("Everything a bug report needs, and nothing else: no licence key, no file paths, nothing about what you are working on or what your agents are doing. This is exactly what gets copied.")
+            Text(diagnostics)
+                .font(Theme.chrome(11).monospaced())
+                .foregroundStyle(Theme.textSecondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .lookRowBox()
+                .accessibilityLabel("Diagnostics, as they will be copied")
+            HStack(spacing: 10) {
+                LookButton("Copy Diagnostics") { copyDiagnostics() }
+                if copied {
+                    LookStatus(ok: true, text: "Copied")
+                }
+            }
+            .padding(.horizontal, 12)
+        }
     }
 
     /// The same report the paste is built from, read as rows.
@@ -1077,6 +1030,70 @@ struct AgentsPane: View {
     /// with a hold key opens the microphone for as long as you hold it.
     @Environment(DictationModel.self) private var dictation
     @Environment(UsageAlertModel.self) private var usageAlerts
+    @State private var moreOptions: Bool
+
+    init(moreOptions: Bool = false) {
+        _moreOptions = State(initialValue: moreOptions)
+    }
+
+    var body: some View {
+        LookPage(SettingsPane.agents.title,
+                 subtitle: "Coding agents, how their requests reach you, and what they may do without asking.",
+                 moreOptions: $moreOptions, anchorsInMoreOptions: [.givingUp]) {
+            #if AIRLOCK_GUIDE
+            if SettingsPane.guideIsOn { DeveloperModeSection() }
+            #endif
+            if showsAgents { agentRows }
+        } more: {
+            #if AIRLOCK_GUIDE
+            if SettingsPane.guideIsOn { DeveloperModeNotes() }
+            #endif
+            if showsAgents { agentNotes }
+            AdvancedSwitch()
+        }
+    }
+
+    /// With the guide on, the hooks, answering and rules wait behind
+    /// Developer mode; with it off they are the page.
+    private var showsAgents: Bool { !SettingsPane.guideIsOn || agents.isEnabled }
+
+    // Hooks, then how you hear about a prompt, then the rules. Install order,
+    // not alphabetical: nothing below matters until a hook exists above.
+    @ViewBuilder private var agentRows: some View {
+        LookGroupLabel("Connected")
+        ForEach(model.agents) { row in connectionRows(row) }
+
+        answering
+
+        // Rules live here rather than in a room of their own. They are what
+        // an agent may do without stopping to ask, which is meaningless until
+        // there is an agent — and a stranger who opened "Rules" first met a
+        // YAML file and a precedence table.
+        PolicyRows()
+    }
+
+    @ViewBuilder private func connectionRows(_ row: SettingsModel.AgentRow) -> some View {
+        LookRow(row.name, subtitle: caption(for: row.kind)) {
+            HStack(spacing: 10) {
+                StatusBadge(status: row.status)
+                actionButton(row)
+            }
+        }
+        if case .conflict = row.status {
+            // The same card the Agents tab draws (X25): Airlock never edits
+            // lines it didn't write, so the way forward is the file, then a
+            // fresh look.
+            ProblemCard(icon: "exclamationmark.triangle",
+                        sentence: AgentsConnection.blockedSentence(
+                            .init(name: row.name, status: row.status, settingsPath: row.configPath)),
+                        tone: .needs,
+                        button: AgentsEmptyState.showFile,
+                        action: { model.revealConfig(row) })
+        }
+        if let error = row.actionError {
+            ProblemCard(sentence: error, tone: .stopped)
+        }
+    }
 
     /// Everything about being interrupted, gathered.
     ///
@@ -1085,222 +1102,140 @@ struct AgentsPane: View {
     /// how long it waits before handing itself back are all about being
     /// interrupted — the same subject as the hooks above them, and install
     /// order is the order somebody meets them in.
-    private var answering: some View {
-        Group {
-            Section("Answering from the keyboard") {
-                Toggle("Answer with a shortcut", isOn: Binding(
-                    get: { agents.hotkeyEnabled }, set: { agents.hotkeyEnabled = $0 }))
-                    .settingsAnchor(.gateHotkey)
-                // A recorder, not three chords somebody else picked. If all
-                // three were taken on your Mac the gate simply had no reachable
-                // key — and this is the one surface the app cannot afford to
-                // leave unreachable.
-                LabeledContent("Answers the waiting request") {
-                    HotkeyRecorder(binding: Binding(get: { agents.hotkey },
-                                                    set: { agents.hotkey = $0 }),
-                                   conflict: { chord in
-                        CommandBarChord.collision(chord: chord,
-                                                  holdKey: dictation.holdKey,
-                                                  askKey: dictation.askKey)
-                    })
-                }
-                .disabled(!agents.hotkeyEnabled)
+    @ViewBuilder private var answering: some View {
+        LookGroupLabel("Answering")
+        LookToggleRow("Answer with a shortcut", isOn: Binding(
+            get: { agents.hotkeyEnabled }, set: { agents.hotkeyEnabled = $0 }))
+            .settingsAnchor(.gateHotkey)
+        // A recorder, not three chords somebody else picked. If all three were
+        // taken on your Mac the gate simply had no reachable key — and this is
+        // the one surface the app cannot afford to leave unreachable.
+        HotkeyRecorder("Answers the waiting request",
+                       binding: Binding(get: { agents.hotkey }, set: { agents.hotkey = $0 }),
+                       conflict: { chord in
+            CommandBarChord.collision(chord: chord,
+                                      holdKey: dictation.holdKey,
+                                      askKey: dictation.askKey)
+        })
+        .disabled(!agents.hotkeyEnabled)
+        if let error = agents.hotkeyError {
+            ProblemCard(sentence: error)
+        } else if agents.hotkey == .commandShiftA {
+            // The same honesty the clipboard pane gives ⌘⇧C and Maccy: a
+            // global hotkey outranks an app's own menu shortcut, so this
+            // quietly takes one people may already use.
+            LookNote("⇧⌘A is also Finder's Applications folder. A global shortcut wins, so Finder won't see it "
+                     + "while Airlock is running — pick ⌃⌥⌘A above if you'd rather keep it.")
+        }
 
-                if let error = agents.hotkeyError {
-                    ProblemCard(sentence: error)
-                }
-                Text("A request never takes the keyboard by itself — it arrives while you're typing somewhere else, and a keypress meant for your editor would answer something you hadn't read. Press this key and the request becomes answerable; only then does it show its shortcuts. With nothing waiting it opens the Agents tab, and pressing it again closes it. It works even with AI agents switched off in Settings › The notch, because a waiting request is shown either way.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if agents.hotkey == .commandShiftA {
-                    // The same honesty the clipboard pane gives ⌘⇧C and Maccy:
-                    // a global hotkey outranks an app's own menu shortcut, so
-                    // this quietly takes one people may already use.
-                    Text("⇧⌘A is also Finder's Applications folder. A global hotkey wins, so Finder won't see it while Airlock is running — pick ⌃⌥⌘A above if you'd rather keep it.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Section("Knowing a request arrived") {
-                // The same setting as General's Sounds, seen from here: off is
-                // Off, on is Only important unless All was already chosen.
-                Toggle("Play a sound", isOn: Binding(
-                    get: { Sounds.binding($soundLevel).wrappedValue != .off },
-                    set: { on in
-                        let level = Sounds.binding($soundLevel)
-                        if !on { level.wrappedValue = .off } else if level.wrappedValue == .off { level.wrappedValue = .important }
-                    }))
-                    .settingsAnchor(.promptSound)
-                LabeledContent("Sound") {
-                    HStack(spacing: 10) {
-                        Picker("", selection: Binding(
-                            get: { agents.gateSoundName }, set: { agents.gateSoundName = $0 })) {
-                            ForEach(AgentsWidgetModel.gateSoundChoices, id: \.self) { name in
-                                Text(name).tag(name)
-                            }
+        // The same setting as General's Sounds, seen from here: off is Off, on
+        // is Only important unless All was already chosen.
+        LookToggleRow("Play a sound", subtitle: "When a request arrives", isOn: Binding(
+            get: { Sounds.binding($soundLevel).wrappedValue != .off },
+            set: { on in
+                let level = Sounds.binding($soundLevel)
+                if !on { level.wrappedValue = .off } else if level.wrappedValue == .off { level.wrappedValue = .important }
+            }))
+            .settingsAnchor(.promptSound)
+        LookRow("Sound") {
+            HStack(spacing: 6) {
+                LookMenu(agents.gateSoundName) {
+                    Picker("Sound", selection: Binding(
+                        get: { agents.gateSoundName }, set: { agents.gateSoundName = $0 })) {
+                        ForEach(AgentsWidgetModel.gateSoundChoices, id: \.self) { name in
+                            Text(name).tag(name)
                         }
-                        .labelsHidden()
-                        .frame(width: 150)
-                        // A sound picker you cannot hear is a list of words.
-                        Button("Play") { agents.playGateSound() }
                     }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
                 }
-                .disabled(Sounds.binding($soundLevel).wrappedValue == .off)
-                Text("Without a sound, the notch opening is the signal, and that reaches you only if you're looking at the screen. A sound reaches you wherever you are; the spoken announcement reaches VoiceOver users. Settings › General › Sounds turns every Airlock sound on or off.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                // A sound picker you cannot hear is a list of words.
+                LookButton("Play") { agents.playGateSound() }
             }
+        }
+        .disabled(Sounds.binding($soundLevel).wrappedValue == .off)
 
-            // Card Agents 1. Here rather than beside the usage figures on The
-            // notch page: those rows are about what the top bar shows, and this
-            // is about being told something, the subject of this page.
-            Section("Knowing you're near Claude's limit") {
-                Picker(selection: Binding(get: { usageAlerts.level },
-                                          set: { usageAlerts.level = $0 })) {
+        // Card Agents 1. Here rather than beside the usage figures on The
+        // notch page: those rows are about what the top bar shows, and this is
+        // about being told something, the subject of this page.
+        LookRow("Warn me near Claude's limit", subtitle: "When the 5-hour or weekly limit gets this full") {
+            LookMenu(usageAlerts.level == 0 ? "Never" : "At \(usageAlerts.level)%") {
+                Picker("Warn me", selection: Binding(get: { usageAlerts.level },
+                                                     set: { usageAlerts.level = $0 })) {
                     ForEach(UsageAlert.levelChoices, id: \.self) { level in
                         Text(level == 0 ? "Never" : "At \(level)%").tag(level)
                     }
-                } label: {
-                    Text("Warn me")
-                    Text("The notch says so when the 5-hour or the weekly limit gets this full, once each time")
                 }
-                .settingsAnchor(.usageWarning)
-                Toggle(isOn: Binding(get: { usageAlerts.announcesReset },
-                                     set: { usageAlerts.announcesReset = $0 })) {
-                    Text("Say when it resets")
-                    Text("After a warning, the notch says when that limit is back to zero")
-                }
-                .disabled(usageAlerts.level == 0)
-                Text("Claude usage only updates while Claude Code is running in a terminal.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .pickerStyle(.inline)
+                .labelsHidden()
             }
         }
+        .settingsAnchor(.usageWarning)
+        LookToggleRow("Say when it resets", subtitle: "After a warning, once that limit is back to zero",
+                      isOn: Binding(get: { usageAlerts.announcesReset },
+                                    set: { usageAlerts.announcesReset = $0 }))
+            .disabled(usageAlerts.level == 0)
     }
 
-    var body: some View {
-        Form {
-            #if AIRLOCK_GUIDE
-            if SettingsPane.guideIsOn { DeveloperModeSection() }
-            #endif
-            if !SettingsPane.guideIsOn || agents.isEnabled { agentSections }
-        }
-        .formStyle(.grouped)
-    }
-
-    /// The hooks, answering and rules. With the guide on they wait behind
-    /// Developer mode; with it off they are the page.
-    @ViewBuilder private var agentSections: some View {
+    @ViewBuilder private var agentNotes: some View {
+        LookGroupLabel("Connected")
+        LookNote("If Airlock isn't running, your agents carry on as before and ask you in the terminal.")
+        // The file's path is for developers (X24): with Advanced on, or as
+        // the conflict card's "Show the file".
+        if advanced {
             ForEach(model.agents) { row in
-                Section(row.name) {
-                    LabeledContent("Status") { StatusBadge(status: row.status) }
-                    // The file's path is for developers (X24): with Advanced
-                    // on, or as the conflict card's "Show the file".
-                    if advanced {
-                        LabeledContent("Settings file") {
-                            Text(row.configPath)
-                                .font(.callout.monospaced())
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                        }
-                    }
-                    if let note = caption(for: row.kind) {
-                        Text(note).font(.callout).foregroundStyle(.secondary)
-                    }
-                    if case .conflict = row.status {
-                        // The same card the Agents tab draws (X25): Airlock
-                        // never edits lines it didn't write, so the way
-                        // forward is the file, then a fresh look.
-                        ProblemCard(icon: "exclamationmark.triangle",
-                                    sentence: AgentsConnection.blockedSentence(
-                                        .init(name: row.name, status: row.status, settingsPath: row.configPath)),
-                                    tone: .needs,
-                                    button: AgentsEmptyState.showFile,
-                                    action: { model.revealConfig(row) })
-                        Button("Check again") { model.refresh() }
-                    } else {
-                        HStack {
-                            actionButton(row)
-                            if advanced {
-                                Button(AgentsEmptyState.showFile) { model.revealConfig(row) }
-                            }
-                        }
-                    }
-                    if let error = row.actionError {
-                        ProblemCard(sentence: error, tone: .stopped)
-                    }
+                LookRow(row.name, subtitle: row.configPath) {
+                    LookButton(AgentsEmptyState.showFile) { model.revealConfig(row) }
                 }
             }
-            Section {
-                Text("If Airlock isn't running, your agents carry on as before and ask you in the terminal.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+        }
 
-            // Hooks, then how you hear about a prompt, then how long it waits.
-            // Install order, not alphabetical: nothing below matters until a
-            // hook exists above.
-            answering
+        LookGroupLabel("Answering")
+        LookNote("A request never takes the keyboard by itself — it arrives while you're typing somewhere else, "
+                 + "and a keypress meant for your editor would answer something you hadn't read. Press the shortcut "
+                 + "and the request becomes answerable; only then does it show its shortcuts.")
+        LookNote("With nothing waiting it opens the Agents tab, and pressing it again closes it. It works even with "
+                 + "AI agents switched off in Settings › The notch, because a waiting request is shown either way.")
+        LookNote("Without a sound, the notch opening is the signal, and that reaches you only if you're looking at "
+                 + "the screen. A sound reaches you wherever you are; the spoken announcement reaches VoiceOver users. "
+                 + "Settings › General › Sounds turns every Airlock sound on or off.")
+        LookNote("Claude usage only updates while Claude Code is running in a terminal.")
 
-            // Advanced because it is read-only here and edited in a file: a
-            // number you cannot change is not a setting, it is a fact about an
-            // installation, and facts belong with the diagnostics.
-            if advanced {
-                Section("Giving up") {
-                    LabeledContent("Hand the question back after") {
-                        Text(model.policy.askTimeout > 0
-                             ? "\(Int(model.policy.askTimeout)) seconds"
-                             : "never — it waits")
-                            .foregroundStyle(.secondary)
-                    }
-                    .settingsAnchor(.givingUp)
-                    // `ask_timeout` is read from the policy file but it does not
-                    // belong with the rules: rules are about what RUNS, and this is
-                    // about being interrupted — the same subject as the two sections
-                    // above it. It is shown here and edited in the file, which is
-                    // where the value already lives.
-                    Text("An unanswered request goes back to the agent's terminal, which asks you there instead. Waiting never approves or denies anything.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+        // Read-only here and edited in a file: a number you cannot change is
+        // not a setting, it is a fact about an installation. `ask_timeout` is
+        // read from the policy file but it is about being interrupted, not
+        // about what runs, so it sits with answering.
+        LookRow("Hand the question back after") {
+            LookValue(model.policy.askTimeout > 0
+                      ? "\(Int(model.policy.askTimeout)) seconds"
+                      : "never — it waits")
+        }
+        .settingsAnchor(.givingUp)
+        LookNote("An unanswered request goes back to the agent's terminal, which asks you there instead. "
+                 + "Waiting never approves or denies anything.")
 
-            // Rules live here now rather than in a room of their own. They are
-            // what an agent may do without stopping to ask, which is meaningless
-            // until there is an agent — and a stranger who opened "Rules" first
-            // met a YAML file and a precedence table.
-            PolicySections()
-            AdvancedSwitch()
+        PolicyDetails()
     }
 
     @ViewBuilder
     private func actionButton(_ row: SettingsModel.AgentRow) -> some View {
         switch row.status {
         case .installed:
-            Button("Disconnect") { model.toggle(row) }
+            LookButton("Disconnect") { model.toggle(row) }
         case .notInstalled:
-            Button("Connect") { model.toggle(row) }
-                .buttonStyle(.borderedProminent)
+            LookButton("Connect", prominent: true) { model.toggle(row) }
         case .conflict:
-            // Drawn as a problem card above, never as a dead button.
-            EmptyView()
+            // The file is the card below; this is the fresh look after it.
+            LookButton("Check again") { model.refresh() }
         }
     }
 
     private func caption(for kind: AgentKind) -> String? {
         switch kind {
         case .codex:
-            return "You'll see what Codex is doing here. Its requests are still answered in the terminal."
+            return "Shows what Codex is doing. Its requests are still answered in the terminal."
         case .claudeCode:
-            return "Claude Code's requests come to the notch: Approve, Deny or Always, plus your rules."
+            return "Requests come to the notch: Approve, Deny or Always, plus your rules."
         default:
             return nil
         }
@@ -1317,13 +1252,15 @@ private struct SuggestionRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: suggestion.kind == .allow ? "checkmark.circle" : "nosign")
-                .foregroundStyle(suggestion.kind == .allow ? Color.green : Color.red)
+                .foregroundStyle(suggestion.kind == .allow ? Theme.done : Theme.danger)
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 4) {
                 // Plain language first, syntax second — the whole point is that
                 // you should not have to think in rules to get one.
                 Text(headline)
+                    .font(Theme.chrome(13, .medium))
+                    .foregroundStyle(Theme.textPrimary)
                 // A picker only when there is a real choice. One literal
                 // command with nothing safe to widen is not a decision.
                 if suggestion.candidates.count > 1 {
@@ -1333,38 +1270,34 @@ private struct SuggestionRow: View {
                     // reading side by side rather than one at a time.
                     HStack(spacing: 8) {
                         Text(choice)
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.secondary)
+                            .font(Theme.chrome(11.5).monospaced())
+                            .foregroundStyle(Theme.textSecondary)
                             .textSelection(.enabled)
-                        Button("How wide?") { choosingWidth = true }
-                            .buttonStyle(.link)
-                            .font(.callout)
+                        LookButton("How wide?") { choosingWidth = true }
                     }
                 } else {
                     Text(suggestion.ruleText)
-                        .font(.callout.monospaced())
-                        .foregroundStyle(.secondary)
+                        .font(Theme.chrome(11.5).monospaced())
+                        .foregroundStyle(Theme.textSecondary)
                         .textSelection(.enabled)
                 }
                 if let risk = suggestion.riskReason {
                     Label("Flagged as \(risk)", systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
+                        .font(Theme.chrome(11.5))
+                        .foregroundStyle(Theme.needs)
                 }
             }
 
             Spacer(minLength: 8)
 
-            VStack(spacing: 4) {
-                Button(suggestion.kind == .allow ? "Always Allow" : "Always Deny") {
+            VStack(alignment: .trailing, spacing: 6) {
+                LookButton(suggestion.kind == .allow ? "Always Allow" : "Always Deny", prominent: true) {
                     model.addPolicyRule(choice, kind: suggestion.kind)
                 }
-                .buttonStyle(.borderedProminent)
-                Button("Dismiss") { model.dismiss(suggestion) }
-                    .buttonStyle(.borderless)
-                    .font(.callout)
+                LookButton("Dismiss") { model.dismiss(suggestion) }
             }
         }
+        .lookRowBox()
         .onAppear { if choice.isEmpty { choice = suggestion.recommended.text } }
         .sheet(isPresented: $choosingWidth) {
             RuleWidthSheet(suggestion: suggestion,
@@ -1476,7 +1409,8 @@ private struct GateRow: View {
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
                 Text(gate.subject ?? gate.toolName)
-                    .font(.callout.monospaced())
+                    .font(Theme.chrome(11.5).monospaced())
+                    .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 HStack(spacing: 5) {
@@ -1486,8 +1420,8 @@ private struct GateRow: View {
                     }
                     Text("· \(gate.decidedAt.formatted(date: .abbreviated, time: .shortened))")
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.chrome(10.5))
+                .foregroundStyle(Theme.textTertiary)
             }
             Spacer(minLength: 0)
         }
@@ -1504,9 +1438,9 @@ private struct GateRow: View {
 
     private var tint: Color {
         switch gate.outcome {
-        case .allowedOnce, .alwaysAllowed, .autoAllowed: return .green
-        case .denied, .autoDenied: return .red
-        case .deferred: return .secondary
+        case .allowedOnce, .alwaysAllowed, .autoAllowed: return Theme.done
+        case .denied, .autoDenied: return Theme.danger
+        case .deferred: return Theme.textTertiary
         }
     }
 }
@@ -1516,16 +1450,18 @@ private struct StatusBadge: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 8, height: 8)
+            Circle().fill(color).frame(width: 7, height: 7)
             Text(label)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
         }
     }
 
     private var color: Color {
         switch status {
-        case .installed: return .green
-        case .notInstalled: return Color(nsColor: .tertiaryLabelColor)
-        case .conflict: return .orange
+        case .installed: return Theme.done
+        case .notInstalled: return Theme.textTertiary
+        case .conflict: return Theme.needs
         }
     }
 
@@ -1540,272 +1476,134 @@ private struct StatusBadge: View {
 
 // MARK: - Policy
 
-/// Rules, as sections of the Agents pane — see `SettingsPane` for why they no
-/// longer have a pane of their own.
-private struct PolicySections: View {
-    @AppStorage(AdvancedSwitch.key) private var advanced = false
+/// Rules, as rows of the Agents pane — see `SettingsPane` for why they no
+/// longer have a pane of their own. What you decide is here; how it works,
+/// the tester and the history are `PolicyDetails`, behind More options.
+private struct PolicyRows: View {
     @Environment(SettingsModel.self) private var model
     @State private var draft = ""
     @State private var draftKind: PolicyRuleKind = .allow
-    @State private var probeTool = "Bash"
-    @State private var probeSubject = ""
 
     var body: some View {
-        // Sections, not a Form: `AgentsPane` owns the Form these sit in.
-        Group {
-            if !model.suggestions.isEmpty {
-                Section("Suggestions") {
-                    ForEach(model.suggestions) { suggestion in
-                        SuggestionRow(suggestion: suggestion)
-                    }
-                    Text("Offered after the second time you answer the same way. Commands Airlock always asks about, like rm -rf or sudo, are never offered: they would still ask, so the rule would be a promise Airlock can't keep.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+        if !model.suggestions.isEmpty {
+            LookGroupLabel("Suggestions")
+            ForEach(model.suggestions) { suggestion in
+                SuggestionRow(suggestion: suggestion)
             }
+        }
 
-            // ABOVE the sections it governs. A switch that decides which file
-            // every control below writes to, drawn under those controls, is a
-            // switch people read after acting.
-            Section("Rules for") {
-                if model.policyScopeCandidates.isEmpty {
-                    // The normal state on a Monday morning, not an edge case: no
-                    // agent has run, so there is no project to name. A
-                    // one-segment segmented control looks broken and a disabled
-                    // segment is a promise not being kept, so there is no picker
-                    // at all — just the way in.
-                    Text("Project rules live in the folder the agent starts in. Nothing has run yet, so there is only the Everywhere file.")
-                        .settingsAnchor(.rules)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("", selection: Binding(
+        LookGroupLabel("Rules")
+        // ABOVE the lists it governs. A switch that decides which file every
+        // control below writes to, drawn under those controls, is a switch
+        // people read after acting.
+        if model.policyScopeCandidates.isEmpty {
+            // The normal state on a Monday morning, not an edge case: no agent
+            // has run, so there is no project to name, and a menu of one is a
+            // promise not being kept.
+            LookRow("Rules for", subtitle: "Projects appear here once an agent has run in one") {
+                LookValue(PolicyScope.everywhere.label)
+            }
+            .settingsAnchor(.rules)
+        } else {
+            LookRow("Rules for", subtitle: scopeSubtitle) {
+                LookMenu(model.policyScope.label) {
+                    Picker("Rules for", selection: Binding(
                         get: { model.policyScope },
                         set: { model.policyScope = $0 }
                     )) {
-                        Text("Everywhere").tag(PolicyScope.everywhere)
+                        Text(PolicyScope.everywhere.label).tag(PolicyScope.everywhere)
                         ForEach(model.policyScopeCandidates, id: \.self) { scope in
                             Text(scope.label).tag(scope)
                         }
                     }
-                    .settingsAnchor(.rules)
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.inline)
                     .labelsHidden()
-
-                    if case .project = model.policyScope {
-                        // Said once, plainly. Nothing here writes a .gitignore:
-                        // a shared project rule is often exactly what a team
-                        // wants committed, and deciding that for them is not
-                        // this pane's business.
-                        Text("This file is inside your project — it will show up in `git status` as untracked.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
+            .settingsAnchor(.rules)
+        }
 
-            // Where the rules are kept, and the buttons that open it in an
-            // editor. The list above is the same content without the file.
-            if advanced {
-                Section("Policy file") {
-                    LabeledContent("File") {
-                        Text(model.scopedPolicy.path)
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .lineLimit(1)
-                            .truncationMode(.head)
-                    }
-
-                    // Loud, and above everything else: a file that failed to parse
-                    // contributes NO rules, so the lists below would read as
-                    // "nothing configured" when the truth is "nothing is working".
-                    ForEach(model.scopedPolicy.problems, id: \.self) { problem in
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(problem).font(.callout.monospaced())
-                                // The clause that actually matters, and the one the
-                                // mockup leaves out: a file that does not parse is
-                                // ignored ENTIRELY, so the denies written here are
-                                // not in force either. Only the built-in risk floor
-                                // still holds.
-                                Text(model.policyScope == .everywhere
-                                     ? "This file is being ignored entirely, so only Airlock's built-in checks are in effect: risky commands still ask."
-                                     : "This file is being ignored entirely, so this project is running on the Everywhere rules alone — including its Never runs list.")
-                                    .font(.callout)
-                            }
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                        }
-                        .foregroundStyle(.orange)
-                    }
-
-                    HStack {
-                        if model.scopedPolicy.exists {
-                            Button("Open in Editor") { model.openPolicyInEditor() }
-                            Button("Show in Finder") { model.revealPolicy() }
-                        } else {
-                            Button("Create Starter Policy") { model.createStarterPolicy() }
-                                .buttonStyle(.borderedProminent)
-                        }
-                        Button("Reload") { model.refresh() }
-                    }
-                    if let note = model.policyNote {
-                        Text(note).font(.callout).foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Section("Add a rule") {
-                HStack(spacing: 8) {
-                    Picker("", selection: $draftKind) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                LookMenu(draftKind.label) {
+                    Picker("Kind", selection: $draftKind) {
                         ForEach(PolicyRuleKind.allCases) { Text($0.label).tag($0) }
                     }
+                    .pickerStyle(.inline)
                     .labelsHidden()
-                    .fixedSize()
-
-                    TextField("Tool or Tool(pattern)", text: $draft)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(add)
-
-                    Button("Add", action: add)
-                        .buttonStyle(.borderedProminent)
-                        // Refused while the file is broken. `PolicyDocument`
-                        // never parses it, so the insert SUCCEEDS and reports
-                        // "Added" for a rule landing in a file nothing reads —
-                        // and it cannot see the broken line, so adding
-                        // `Bash(git push)` beside a malformed `Bash(git push`
-                        // leaves you with both and the file still broken.
-                        .disabled(parsed == nil || model.scopedPolicy.parseFailed)
                 }
-                Text(draftHelp)
-                    .font(.callout)
-                    .foregroundStyle(draftIsInvalid ? .orange : .secondary)
+                .fixedSize()
+
+                TextField("Tool or Tool(pattern)", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(add)
+
+                LookButton("Add", prominent: true, action: add)
+                    // Refused while the file is broken. `PolicyDocument` never
+                    // parses it, so the insert SUCCEEDS and reports "Added" for
+                    // a rule landing in a file nothing reads — and it cannot
+                    // see the broken line, so adding `Bash(git push)` beside a
+                    // malformed `Bash(git push` leaves you with both and the
+                    // file still broken.
+                    .disabled(parsed == nil || model.scopedPolicy.parseFailed)
             }
-
-            // Deny FIRST. The numbered list below says deny is rule one, and
-            // the pane used to show it second; with two files in play that
-            // ordering is the safety story — a project deny is the thing that
-            // beats an Everywhere allow.
-            rules(.deny)
-            rules(.allow)
-
-            // Precedence as three sentences, not a diagram.
-            //
-            // It is the one thing about this pane that can genuinely surprise
-            // somebody: a rule they wrote sitting in the allow list, visibly
-            // matching, and the notch still asking. The floor is why, and it is
-            // the safety story CLAUDE.md makes non-negotiable, so it is stated
-            // where the rules are rather than in a help page.
-            // A rule tester, a precedence table, a log of recent gates and
-            // a note about a YAML file per project. All of it earns its
-            // place the day something behaves oddly, and none of it belongs
-            // in front of somebody who has just installed the app.
-            if advanced {
-                Section {
-                    Text("Match counts and \u{201c}added by\u{201d} come from the request history, which doesn't record which project a request came from — so they are totals across every project, even under a project scope.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } header: {
-                    // Was a second "Order of precedence" (X27); this one is
-                    // only about the counts.
-                    Text("Match counts")
-                }
-
-                Section("Try it") {
-                    HStack(spacing: 8) {
-                        TextField("Tool", text: $probeTool)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 110)
-                        TextField("Command or file path", text: $probeSubject)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    if !probeSubject.trimmingCharacters(in: .whitespaces).isEmpty {
-                        verdictRow
-                    }
-                    Text("Uses the same check the notch uses for a real request, so this is the answer you would actually get.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("Which rule wins") {
-                    precedence(1, "Deny rules", "auto-denied, and the agent is told which rule.")
-                    precedence(2, "Risky commands", "rm -rf, sudo, force push and the like always ask, whatever the allow list says. Built in, not editable.")
-                    precedence(3, "Allow rules", "auto-approved silently.")
-                    precedence(4, "Otherwise", "the notch asks you.")
-                }
-
-                Section("Recent requests (\(model.recentGates.count))") {
-                    if model.recentGates.isEmpty {
-                        Text("Nothing yet. Every request your agents make — and everything your rules settle without asking — shows up here.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(model.recentGates.prefix(12)) { gate in
-                            GateRow(gate: gate)
-                        }
-                        HStack {
-                            Button("Clear History") { model.clearGateHistory() }
-                            Text("Kept on this Mac only, the latest 500.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("Per-project rules") {
-                    Text("Each project can add `.airlock/policy.yaml`. Project rules merge over Everywhere's, and a project deny always beats an Everywhere allow. Switch scope above to edit one or the other; the Always button in the notch writes to the project file when a session has a working directory.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            Text(draftHelp)
+                .font(Theme.chrome(11))
+                .foregroundStyle(draftIsInvalid ? Theme.needs : Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .lookRowBox()
+
+        // Deny FIRST. Deny is rule one, and with two files in play that
+        // ordering is the safety story — a project deny is the thing that
+        // beats an Everywhere allow.
+        rules(.deny)
+        rules(.allow)
+    }
+
+    /// The project's folder, because the segment title is only its last
+    /// component. Nothing here writes a .gitignore: a shared project rule is
+    /// often exactly what a team wants committed.
+    private var scopeSubtitle: String? {
+        guard case .project = model.policyScope else { return nil }
+        return "Kept inside the project, so git shows it as a new file"
     }
 
     // MARK: - Rule lists
 
-    @ViewBuilder
-    /// Section names say what the rules DO, not which list they are in.
+    /// Headings say what the rules DO, not which list they are in.
     ///
     /// "Allow" and "Deny" are the file's vocabulary and belong in the rule text,
     /// where they are exact. As headings they made someone read a list of
     /// patterns and then work out the consequence; "Runs without asking" is the
     /// consequence, which is the thing being decided.
+    @ViewBuilder
     private func rules(_ kind: PolicyRuleKind) -> some View {
         let items = model.scopedPolicy.rules(kind)
-        // `id: \.self` is safe ONLY because each scope shows one file.
-        // `PolicyRule` hashes over its text, and `Policy.merging` concatenates
-        // without dedup — so a merged list containing `Read` from both files
-        // would have two equal ids and SwiftUI would drop one.
-        return Section(kind == .allow ? "Runs without asking" : "Never runs") {
-            switch model.scopedPolicy.state {
-            case .unreadable:
-                // No list at all, ever, beside a parse failure. An empty list
-                // next to a warning reads as "this file has no rules", and the
-                // truth is "this file is not being read".
-                Text("Can't show the rules — this file didn't parse.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            case .missing:
-                Text(model.policyScope == .everywhere
-                     ? "No policy file yet."
-                     : "No file here yet — this project runs on the Everywhere rules.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            case .empty:
-                Text(emptyRulesCopy(kind))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            case .listing:
-                if items.isEmpty {
-                    Text(emptyRulesCopy(kind))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(items, id: \.self) { rule in
-                        ruleRow(rule, kind: kind)
-                    }
+        LookGroupLabel(kind == .allow ? "Runs without asking" : "Never runs")
+        switch model.scopedPolicy.state {
+        case .unreadable:
+            // No list at all, ever, beside a parse failure. An empty list next
+            // to a warning reads as "this file has no rules", and the truth is
+            // "this file is not being read".
+            ProblemCard(sentence: "Can't show the rules — this file didn't parse.", tone: .stopped)
+        case .missing:
+            LookNote(model.policyScope == .everywhere
+                     ? "No rules yet."
+                     : "No rules here yet — this project runs on the Everywhere rules.")
+        case .empty:
+            LookNote(emptyRulesCopy(kind))
+        case .listing:
+            if items.isEmpty {
+                LookNote(emptyRulesCopy(kind))
+            } else {
+                // `id: \.self` is safe ONLY because each scope shows one file.
+                // `PolicyRule` hashes over its text, and `Policy.merging`
+                // concatenates without dedup — so a merged list containing
+                // `Read` from both files would have two equal ids and SwiftUI
+                // would drop one.
+                ForEach(items, id: \.self) { rule in
+                    ruleRow(rule, kind: kind)
                 }
             }
         }
@@ -1827,12 +1625,15 @@ private struct PolicySections: View {
 
     private func ruleRow(_ rule: PolicyRule, kind: PolicyRuleKind) -> some View {
         let record = model.provenance[rule.canonicalText] ?? .unrecorded
-        return HStack {
+        return HStack(spacing: 9) {
             Image(systemName: kind == .allow ? "checkmark.circle" : "nosign")
-                .foregroundStyle(kind == .allow ? Color.green : Color.red)
+                .foregroundStyle(kind == .allow ? Theme.done : Theme.danger)
             // As written, not canonicalised: this should read back
             // exactly like the line in the file you would go and find.
-            Text(rule.text).font(.callout.monospaced()).textSelection(.enabled)
+            Text(rule.text)
+                .font(Theme.chrome(12).monospaced())
+                .foregroundStyle(Theme.textPrimary)
+                .textSelection(.enabled)
 
             Spacer(minLength: 8)
 
@@ -1841,20 +1642,24 @@ private struct PolicySections: View {
             // Always click wrote are the same line of YAML.
             VStack(alignment: .trailing, spacing: 1) {
                 Text(matchLabel(record))
-                    .foregroundStyle(record.hasNeverMatched ? Color.orange : .secondary)
+                    .foregroundStyle(record.hasNeverMatched ? Theme.needs : Theme.textSecondary)
                 Text(authorLabel(record))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Theme.textTertiary)
             }
-            .font(.caption)
+            .font(Theme.chrome(10.5))
 
             Button {
                 model.removePolicyRule(rule, kind: kind)
             } label: {
                 Image(systemName: "trash")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textSecondary)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .clickable()
             .help("Remove this rule")
         }
+        .lookRowBox()
     }
 
     /// The number that makes a dead rule visible.
@@ -1908,13 +1713,110 @@ private struct PolicySections: View {
         model.addPolicyRule(parsed.canonicalText, kind: draftKind)
         draft = ""
     }
+}
+
+/// The rules' More options: how they combine, a tester, the history and the
+/// file. All of it earns its place the day something behaves oddly, and none
+/// of it belongs in front of somebody who has just installed the app.
+private struct PolicyDetails: View {
+    @AppStorage(AdvancedSwitch.key) private var advanced = false
+    @Environment(SettingsModel.self) private var model
+    @State private var probeTool = "Bash"
+    @State private var probeSubject = ""
+
+    var body: some View {
+        LookGroupLabel("Rules")
+        LookNote("A rule is suggested after the second time you answer the same way. Commands Airlock always asks "
+                 + "about, like rm -rf or sudo, are never suggested: they would still ask, so the rule would be a "
+                 + "promise Airlock can't keep.")
+        // Precedence as four lines, not a diagram. It is the one thing about
+        // rules that can genuinely surprise somebody: a rule they wrote,
+        // visibly matching, and the notch still asking. The floor is why.
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Which rule wins")
+                .font(Theme.chrome(13, .medium))
+                .foregroundStyle(Theme.textPrimary)
+            precedence(1, "Never runs", "auto-denied, and the agent is told which rule.")
+            precedence(2, "Risky commands", "rm -rf, sudo, force push and the like always ask, whatever the other list says. Built in, not editable.")
+            precedence(3, "Runs without asking", "auto-approved silently.")
+            precedence(4, "Otherwise", "the notch asks you.")
+        }
+        .lookRowBox()
+        LookNote("Each project can have its own rules, kept in the project's folder. They add to the Everywhere "
+                 + "rules, and a project's Never runs always beats an Everywhere Runs without asking. The Always "
+                 + "button in the notch writes to the project's rules when the agent was started in a folder.")
+
+        if advanced {
+            LookGroupLabel("Try a request")
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    TextField("Tool", text: $probeTool)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 110)
+                    TextField("Command or file path", text: $probeSubject)
+                        .textFieldStyle(.roundedBorder)
+                }
+                if !probeSubject.trimmingCharacters(in: .whitespaces).isEmpty {
+                    verdictRow
+                }
+            }
+            .lookRowBox()
+            LookNote("Uses the same check the notch uses for a real request, so this is the answer you would actually get.")
+
+            LookGroupLabel("Recent requests (\(model.recentGates.count))")
+            if model.recentGates.isEmpty {
+                LookNote("Nothing yet. Every request your agents make — and everything your rules settle "
+                         + "without asking — shows up here.")
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(model.recentGates.prefix(12)) { gate in
+                        GateRow(gate: gate)
+                    }
+                }
+                .lookRowBox()
+                LookRow("Kept on this Mac only, the latest 500") {
+                    LookButton("Clear History") { model.clearGateHistory() }
+                }
+            }
+            LookNote("Match counts and \u{201c}added by\u{201d} come from the request history, which doesn't record "
+                     + "which project a request came from — so they are totals across every project.")
+
+            LookGroupLabel("Rules file")
+            // Loud: a file that failed to parse contributes NO rules, so the
+            // lists would read as "nothing configured" when the truth is
+            // "nothing is working".
+            ForEach(model.scopedPolicy.problems, id: \.self) { problem in
+                // The clause that actually matters: a file that does not parse
+                // is ignored ENTIRELY, so the denies written in it are not in
+                // force either. Only the built-in risk floor still holds.
+                ProblemCard(icon: "exclamationmark.triangle",
+                            sentence: problem + " " + (model.policyScope == .everywhere
+                                ? "This file is being ignored entirely, so only Airlock's built-in checks are in effect: risky commands still ask."
+                                : "This file is being ignored entirely, so this project is running on the Everywhere rules alone — including its Never runs list."))
+            }
+            LookRow("File", subtitle: model.scopedPolicy.path) {
+                HStack(spacing: 6) {
+                    if model.scopedPolicy.exists {
+                        LookButton("Open in Editor") { model.openPolicyInEditor() }
+                        LookButton("Show in Finder") { model.revealPolicy() }
+                    } else {
+                        LookButton("Create Starter Rules", prominent: true) { model.createStarterPolicy() }
+                    }
+                    LookButton("Reload") { model.refresh() }
+                }
+            }
+            if let note = model.policyNote {
+                LookNote(note)
+            }
+        }
+    }
 
     // MARK: - Tester
 
     private var verdictRow: some View {
         let verdict = model.testPolicy(tool: probeTool, subject: probeSubject)
         return Label {
-            Text(describe(verdict)).font(.callout)
+            Text(describe(verdict)).font(Theme.chrome(11.5))
         } icon: {
             Image(systemName: symbol(verdict))
         }
@@ -1940,24 +1842,27 @@ private struct PolicySections: View {
 
     private func tint(_ verdict: PolicyVerdict) -> Color {
         switch verdict {
-        case .allow: return .green
-        case .deny: return .red
-        case .ask(let risk): return risk == nil ? .secondary : .orange
+        case .allow: return Theme.done
+        case .deny: return Theme.danger
+        case .ask(let risk): return risk == nil ? Theme.textSecondary : Theme.needs
         }
     }
 
     private func precedence(_ step: Int, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
             Text("\(step)")
-                .font(.callout.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(Theme.chrome(11.5, .semibold).monospacedDigit())
+                .foregroundStyle(Theme.textTertiary)
                 .frame(width: 14)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.callout.weight(.medium))
-                Text(detail).font(.callout).foregroundStyle(.secondary)
+                Text(title)
+                    .font(Theme.chrome(12, .medium))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(detail)
+                    .font(Theme.chrome(11.5))
+                    .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
-
 }

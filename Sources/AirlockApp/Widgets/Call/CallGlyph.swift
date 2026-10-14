@@ -1,7 +1,8 @@
 import AirlockCore
 import AppKit
 
-/// The calling app's logo as a one-colour outline, for the call pill.
+/// The calling app's logo as a one-colour outline, for the call pill and the
+/// rows of the Calls tab.
 ///
 /// Drawn from Simple Icons (simpleicons.org, CC0, 16.34.0): each app's own
 /// brand glyph on a 24 × 24 canvas, a single path. Template images, so the
@@ -24,13 +25,35 @@ enum CallGlyph {
     }
 
     static func kind(for call: OngoingCall) -> Kind {
-        if call.site == .googleMeet { return .logo("googlemeet") }
-        return kind(for: call.bundleID)
+        kind(for: call.bundleID, site: call.site)
     }
+
+    /// The same for a call that has ended, from what its notes kept: the
+    /// Calls tab draws a past call the way the pill drew it live.
+    static func kind(for bundleID: String, site: MeetingLink.Provider?) -> Kind {
+        if site == .googleMeet { return .logo("googlemeet") }
+        return kind(for: bundleID)
+    }
+
+    /// A meeting's tile from its record: a waveform when its notes came
+    /// from a recording added afterwards, else its app's.
+    static func kind(for record: MeetingRecord) -> Kind {
+        record.recording != nil ? recording : kind(for: record.bundleID, site: record.site)
+    }
+
+    /// A Calls tab row's tile, as `kind(for:)` a record's.
+    static func kind(for row: CallsCard.Row) -> Kind {
+        row.fromRecording ? recording : kind(for: row.bundleID, site: row.site)
+    }
+
+    /// A recording somebody added: the sound itself, in teal (`CallsLook.recording`).
+    static let recording = Kind.symbol("waveform")
 
     static func kind(for bundleID: String) -> Kind {
         if let name = logoNames[bundleID] { return .logo(name) }
         if bundleID == "us.zoom.xos" { return .symbol("video.fill") }
+        // Notes of a meeting in the room: people, not a phone.
+        if bundleID == OngoingCall.inPersonBundleID { return .symbol("person.2.fill") }
         return .symbol("phone.fill")
     }
 

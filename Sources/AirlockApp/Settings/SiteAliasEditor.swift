@@ -30,7 +30,7 @@ struct SiteAliasEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             yours
-            Divider()
+            Rectangle().fill(SettingsLook.rowStroke).frame(height: 1)
             shipped
         }
         .onAppear(perform: loadOnce)
@@ -41,16 +41,18 @@ struct SiteAliasEditor: View {
     private var yours: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Your phrases")
-                .font(.headline)
+                .font(Theme.chrome(13, .medium))
+                .foregroundStyle(Theme.textPrimary)
             Text("Say \"open\" or \"go to\" and the phrase. Yours override the built-in ones, "
                  + "and an app you have installed still wins over both.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if entries.isEmpty {
                 Text("Nothing yet — the built-in phrases below already cover the common ones.")
-                    .font(.callout)
-                    .foregroundStyle(.tertiary)
+                    .font(Theme.chrome(11.5))
+                    .foregroundStyle(Theme.textTertiary)
                     .padding(.vertical, 4)
             }
 
@@ -59,16 +61,17 @@ struct SiteAliasEditor: View {
                     TextField("what you say", text: $row.phrase)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 170)
-                    Text("→").foregroundStyle(.secondary)
+                    Text("→").foregroundStyle(Theme.textTertiary)
                     TextField("https://…", text: $row.url)
                         .textFieldStyle(.roundedBorder)
                     Button {
                         entries.removeAll { $0.id == row.id }
                         save()
                     } label: {
-                        Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+                        Image(systemName: "minus.circle.fill").foregroundStyle(Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
+                    .clickable()
                     .help("Remove this phrase")
                 }
                 // On commit rather than per keystroke: a half-typed URL is not
@@ -76,17 +79,12 @@ struct SiteAliasEditor: View {
                 .onSubmit(save)
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    entries.append(Row(phrase: "", url: ""))
-                } label: {
-                    Label("Add a phrase", systemImage: "plus")
-                }
-                Button("Save") { save() }
+            HStack(spacing: 8) {
+                LookButton("Add a phrase") { entries.append(Row(phrase: "", url: "")) }
+                LookButton("Save") { save() }
                     .disabled(entries.isEmpty)
                 Spacer()
-                Button("Open the file…") { assistant.siteAliasStore.revealInFinder() }
-                    .buttonStyle(.link)
+                LookButton("Open the file…") { assistant.siteAliasStore.revealInFinder() }
                     .help("The same phrases, as a text file you can keep in version control.")
             }
             .padding(.top, 2)
@@ -112,26 +110,29 @@ struct SiteAliasEditor: View {
     private var shipped: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Built in").font(.headline)
+                Text("Built in")
+                    .font(Theme.chrome(13, .medium))
+                    .foregroundStyle(Theme.textPrimary)
                 Spacer()
                 TextField("Filter", text: $search)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 140)
             }
             Text("\(VoiceSiteAliases.defaults.count) phrases that already work, with nothing to set up.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(filteredDefaults) { alias in
                         HStack(spacing: 8) {
                             Text(alias.phrase)
-                                .font(.callout)
+                                .font(Theme.chrome(12))
+                                .foregroundStyle(Theme.textPrimary)
                                 .frame(width: 170, alignment: .leading)
                             Text(displayURL(alias.url))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
+                                .font(Theme.chrome(12))
+                                .foregroundStyle(Theme.textSecondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }

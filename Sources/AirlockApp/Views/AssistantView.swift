@@ -21,6 +21,7 @@ struct AssistantView: View {
     /// gallery draws this view without a `DictationModel`, which owns a
     /// microphone. The panel always injects it, so shipping reads never see nil.
     @Environment(DictationModel.self) private var dictation: DictationModel?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var copied = false
 
     var body: some View {
@@ -133,8 +134,12 @@ struct AssistantView: View {
         VStack(alignment: .leading, spacing: 8) {
             header
             if let performed = assistant.performed { outcome(performed) } else { answer }
+            if assistant.performed == nil, !assistant.callSources.isEmpty { sources }
             if assistant.performed == nil { actions }
         }
+        // The sources arrive once the answer has finished, and rise in with
+        // Swap rather than jumping the actions down.
+        .animation(Motion.swap.animation(reduceMotion: reduceMotion), value: assistant.callSources)
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.rowFill, in: .rect(cornerRadius: 10))
@@ -190,7 +195,7 @@ struct AssistantView: View {
         } else if assistant.answer.isEmpty {
             // Streaming has started but no token has landed. A blank panel here
             // reads as one that opened for no reason.
-            Text("Thinking…")
+            Text(assistant.answersFromCalls ? "Looking through your calls…" : "Thinking…")
                 .font(Theme.chrome(12))
                 .foregroundStyle(Theme.textTertiary)
         } else {
@@ -210,6 +215,52 @@ struct AssistantView: View {
             .scrollIndicators(.never)
             .scrollBounceBehavior(.basedOnSize)
             .ticksAtScrollEnds()
+        }
+    }
+
+    /// Where a call answer came from, one row per moment it cites. A row
+    /// opens the call's transcript at that moment, with the line lit.
+    private var sources: some View {
+        VStack(spacing: 4) {
+            ForEach(assistant.callSources, id: \.self) { source in
+                Button { assistant.openSource(source) } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Theme.assistant)
+                        // The title gives way first: the day and time are what
+                        // tell two rows from the same call apart.
+                        HStack(spacing: 4) {
+                            Text(source.title)
+                                .font(Theme.chrome(11, .medium))
+                                .foregroundStyle(Theme.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Text("· \(CallSourceText.when(source))")
+                                .font(Theme.chrome(11))
+                                .foregroundStyle(Theme.textSecondary)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.textTertiary)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.05)))
+                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                // `clickable`, not a bare push and pop: a tap closes the panel
+                // under the pointer, and only it pops the hand on the way out.
+                .clickable()
+                .help("Show where this was said")
+                .accessibilityLabel(CallSourceText.spoken(source))
+                .accessibilityHint("Opens the call's notes where this was said")
+                .transition(Motion.swap.transition(reduceMotion: reduceMotion))
+            }
         }
     }
 
@@ -237,8 +288,10 @@ struct AssistantView: View {
 
             // Always offered, never only on failure. The on-device model is
             // ~3B-class — an answer can be complete, confident and too shallow,
-            // and that is not a state the app can detect for you.
-            if assistant.offersAgentHandOff() {
+            // and that is not a state the app can detect for you. Except for an
+            // answer from the calls: Claude Code would take the question off
+            // the Mac, and it cannot hear the calls anyway.
+            if assistant.offersAgentHandOff(), !assistant.answersFromCalls {
                 action("Ask Claude Code", symbol: "terminal", prominent: assistant.failure != nil) {
                     assistant.escalate()
                 }
@@ -294,5 +347,32 @@ struct AssistantView: View {
             // nothing here — the cursor has to be pushed by hand.
             if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+    }
+}
+
+/// How a source row names the moment it opens: the day as the notes window
+/// lists calls ("Today", "Yesterday", "Tue 6 Oct"), and the time it was said.
+enum CallSourceText {
+    /// "Yesterday · 12:04".
+    static func when(_ source: CallSource, now: Date = Date()) -> String {
+        "\(day(source.moment, now: now)) · \(source.moment.formatted(date: .omitted, time: .shortened))"
+    }
+
+    /// "Weekly sync, yesterday at 12:04", for VoiceOver.
+    static func spoken(_ source: CallSource, now: Date = Date()) -> String {
+        let day = day(source.moment, now: now)
+        let lead = day == "Today" || day == "Yesterday" ? day.lowercased() : day
+        return "\(source.title), \(lead) at \(source.moment.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private static func day(_ date: Date, now: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
+        if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        }
+        return date.formatted(.dateTime.day().month(.abbreviated).year())
     }
 }

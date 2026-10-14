@@ -10,7 +10,8 @@
 # WHAT THIS KEY IS. Every Airlock licence is a small JSON payload signed with
 # the private half. The app carries only the public half, compiled into the
 # bundle, and checks the signature on this Mac with nothing sent anywhere. That
-# asymmetry is what lets a paid app keep saying "local-first, no telemetry".
+# asymmetry is what lets a paid app stay local-first, with nothing about what
+# you do sent anywhere (crash reports go out only for people who said yes).
 #
 # WHICH MEANS: back it up somewhere only you can reach.
 #   - Lose it and every licence already issued keeps working — they were signed

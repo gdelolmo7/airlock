@@ -43,7 +43,7 @@ final class MotionTokenTests: XCTestCase {
     /// The loops are what `perpetual` exists for: each one is switched off
     /// under Reduce Motion by passing through it.
     func testLoopsGoUnderReduceMotion() {
-        let loops: [Animation] = [MotionEffect.pulse, MotionEffect.breathe,
+        let loops: [Animation] = [MotionEffect.pulse, MotionEffect.breathe, MotionEffect.notesBreath,
                                   MotionEffect.waiting(dot: 1), MotionEffect.musicBars(bar: 2)]
         for loop in loops {
             XCTAssertNil(Theme.perpetual(loop, reduceMotion: true))

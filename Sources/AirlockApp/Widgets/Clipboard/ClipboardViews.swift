@@ -460,7 +460,10 @@ struct ClipboardSectionView: View {
                     .font(.system(size: 19))
                     .foregroundStyle(Theme.textTertiary)
             } else {
-                BloubView(expression: .unimpressed, motion: .breathing)
+                // Brand blue, the resting mark's colour. It was the untinted
+                // body, which only meant it predated the palette: every other
+                // calm cloud wears the blue.
+                BloubView(expression: .unimpressed, motion: .breathing, tint: BloubTint.working.color)
                     .frame(width: 34, height: 34)
             }
             Text(clipboard.isSearching ? clipboard.filter.searchMissMessage(query: clipboard.query)

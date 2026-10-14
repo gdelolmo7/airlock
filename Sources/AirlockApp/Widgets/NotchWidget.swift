@@ -85,8 +85,13 @@ enum WidgetColumn {
 /// the CPU meters — share ONE `dashboard` tab rather than a tab each, because
 /// the strip lives in the gutter beside the camera and a sixth icon does not
 /// fit there at the default width.
+///
+/// Calls got a tab of its own all the same (the owner's call, 2026-10-08: the
+/// list looked squeezed under the calendar). Agents moved to the other gutter
+/// to make room, beside the settings gear, so the strip on the left still
+/// holds five icons at most (`topBarSides`).
 enum NotchTab: String, CaseIterable, Identifiable {
-    case home, dashboard, tray, clipboard, agents
+    case home, dashboard, tray, clipboard, calls, agents
 
     var id: String { rawValue }
 
@@ -104,6 +109,7 @@ enum NotchTab: String, CaseIterable, Identifiable {
         case .dashboard: return "square.grid.2x2.fill"
         case .tray: return "tray.fill"
         case .clipboard: return "list.clipboard.fill"
+        case .calls: return "phone.fill"
         case .agents: return "sparkle"
         }
     }
@@ -114,8 +120,22 @@ enum NotchTab: String, CaseIterable, Identifiable {
         case .dashboard: return "Dashboard"
         case .tray: return "Shelf"
         case .clipboard: return "Clipboard"
+        case .calls: return "Calls"
         case .agents: return "Agents"
         }
+    }
+
+    /// Whether the tab sits on the right of the top bar, beside the settings
+    /// gear, rather than in the strip on the left. Only Agents: it is the one
+    /// tab an interrupt forces the panel to, and its count reads as well by
+    /// the gear as among the others.
+    var sitsOnTheRight: Bool { self == .agents }
+
+    /// The tabs on show split between the two sides of the top bar, each
+    /// side in the order given. Kept apart from the view so which tab goes
+    /// where is tested, not looked at.
+    static func topBarSides(_ tabs: [NotchTab]) -> (leading: [NotchTab], trailing: [NotchTab]) {
+        (tabs.filter { !$0.sitsOnTheRight }, tabs.filter(\.sitsOnTheRight))
     }
 }
 

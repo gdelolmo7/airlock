@@ -22,7 +22,8 @@ import Foundation
 /// immediately right of the notch. A future claimant that cannot be drawn as one
 /// glyph, or a glyph plus three characters or so, does not belong here; and the
 /// widest thing in the ladder had better also be the shortest-lived, which is
-/// why `.outputRoute` is the one that is allowed to be widest.
+/// why `.outputRoute` is the one that is allowed to be widest, and the call
+/// notes' few words after a call are allowed beside it (see `trailing`).
 public enum CompactSlot: Equatable, Sendable {
     case empty
     /// Nothing to report, but the island is there.
@@ -93,6 +94,23 @@ public enum CompactSlot: Equatable, Sendable {
     /// the green macOS uses for a microphone in use. A driver — it brings the
     /// island up — and clicking it brings the call's window forward.
     case call(OngoingCall)
+    /// Call notes once the call is over: being written, then ready. A driver,
+    /// for as long as it shows, and it only ever brings up the compact island.
+    case callNotes(CallNotesGlance)
+}
+
+/// What the compact island says about call notes after the call. During the
+/// call the call pill carries the notes' mark instead, so this is only the
+/// writing and the result.
+public enum CallNotesGlance: Equatable, Sendable {
+    /// The summary is being written, for as long as that takes.
+    case writing
+    /// Saved, with how many to-dos it found. Shown for
+    /// `CompactIsland.notesReadyDuration`.
+    case ready(todos: Int)
+    /// Saved, but too little was said for notes (`CallNotesPanel.Ready`).
+    /// Shown for as long as `ready`.
+    case tooLittleSaid
 }
 
 public extension CompactSlot {
@@ -216,7 +234,18 @@ public extension CompactSlot {
             // The timer is drawn by a `TimelineView` and read with it; the
             // app is the part only this label can say, since the icon is a
             // picture.
-            return "On a call in \(call.appName)"
+            return call.isInPerson ? "Taking notes of a meeting in person" : "On a call in \(call.appName)"
+
+        case .callNotes(let glance):
+            switch glance {
+            case .writing:
+                return "Writing call notes"
+            case .ready(let todos):
+                if todos <= 0 { return "Call notes ready" }
+                return todos == 1 ? "Call notes ready, 1 to-do" : "Call notes ready, \(todos) to-dos"
+            case .tooLittleSaid:
+                return CallNotesPanel.tooLittleSaid
+            }
         }
     }
 
@@ -318,6 +347,11 @@ public struct CompactIslandInput: Equatable, Sendable {
     public var usageNoticeAt: Date?
     /// The call the user is on, nil when none — see `CallDetector`.
     public var call: OngoingCall?
+    /// Call notes after the call, and when that glance began. Writing shows
+    /// for as long as it lasts; ready only for `notesReadyDuration` from the
+    /// stamp. Nil when there is nothing to say or notes are switched off.
+    public var callNotes: CallNotesGlance?
+    public var callNotesAt: Date?
 
     public init(agentsEnabled: Bool = false, attentionCount: Int = 0,
                 sessionCount: Int = 0, anyRunning: Bool = false,
@@ -333,7 +367,8 @@ public struct CompactIslandInput: Equatable, Sendable {
                 keepAwakeStoppedAt: Date? = nil, keepAwakeCutoff: Int = 0,
                 usageNotice: UsageAlert.Notice? = nil, usageNoticeAt: Date? = nil,
                 guide: GuidePresentation.Compact? = nil,
-                call: OngoingCall? = nil) {
+                call: OngoingCall? = nil,
+                callNotes: CallNotesGlance? = nil, callNotesAt: Date? = nil) {
         self.agentsEnabled = agentsEnabled
         self.attentionCount = attentionCount
         self.sessionCount = sessionCount
@@ -359,6 +394,8 @@ public struct CompactIslandInput: Equatable, Sendable {
         self.usageNoticeAt = usageNoticeAt
         self.guide = guide
         self.call = call
+        self.callNotes = callNotes
+        self.callNotesAt = callNotesAt
     }
 
     /// Agents own the leading slot unless switched off — then sessions are not
@@ -393,6 +430,17 @@ public struct CompactIslandInput: Equatable, Sendable {
         guard let notice = usageNotice, let at = usageNoticeAt else { return nil }
         let elapsed = now.timeIntervalSince(at)
         return elapsed >= 0 && elapsed < CompactIsland.usageNoticeDuration ? notice : nil
+    }
+
+    /// The call notes' glance, if it is still worth showing. Writing is shown
+    /// for as long as it lasts; ready, or too little said, is news, read
+    /// against `now` with the same backwards-clock guard as the others.
+    public var showingCallNotes: CallNotesGlance? {
+        guard let glance = callNotes else { return nil }
+        if case .writing = glance { return glance }
+        guard let at = callNotesAt else { return nil }
+        let elapsed = now.timeIntervalSince(at)
+        return elapsed >= 0 && elapsed < CompactIsland.notesReadyDuration ? glance : nil
     }
 
     /// A track paused long enough that the island has better uses for the slot.
@@ -434,6 +482,12 @@ public enum CompactIsland {
     /// keep-awake one and for its reason: news, not something waiting on you,
     /// and the open island's usage tiles keep the figure afterwards.
     public static let usageNoticeDuration: TimeInterval = 30
+
+    /// How long the island says "Notes ready". Eight seconds, because it is
+    /// one of the widest things the island draws: long enough to be seen as
+    /// the call ends, and the panel keeps the line, with its Show button, for
+    /// anyone who missed it.
+    public static let notesReadyDuration: TimeInterval = 8
 
     public static func leading(_ i: CompactIslandInput) -> CompactSlot {
         if i.showsAgents, i.completionTick { return .completionTick }
@@ -540,6 +594,13 @@ public enum CompactIsland {
     ///   countdown and the wave. It dwells as long as the call, but it is the
     ///   thing the user is doing this minute, which is the opposite of
     ///   background; see the rung itself for each neighbour.
+    /// - **Call notes sit directly under the call**, over the meeting
+    ///   countdown and the wave. They are wide ("Notes ready · 2 to-dos"), and
+    ///   are allowed to be only because they are short-lived: the widest things
+    ///   must be the shortest-lived. "Notes ready" is eight seconds
+    ///   (`notesReadyDuration`); "Writing notes…" lasts as long as the writing,
+    ///   usually under a minute. Under the call because they come after one,
+    ///   and a new call starting meanwhile is what the user is doing now.
     /// - **Keep-awake sits below the wave and above the shelf.** It can be held
     ///   from morning to night, so urgency ÷ dwell time puts it near the bottom,
     ///   under everything with more to say in less time. It outranks the shelf
@@ -586,6 +647,8 @@ public enum CompactIsland {
         // nothing left to say; above the wave, because a call is what the
         // user is doing right now and the music is background to it.
         if let call = i.call { return .call(call) }
+        // Short-lived and wide: see the ladder's note.
+        if let notes = i.showingCallNotes { return .callNotes(notes) }
         if i.meetingSoon { return .meetingCountdown }
         if i.mediaPlaying { return .wave }
         if i.keepingAwake { return .keepingAwake }

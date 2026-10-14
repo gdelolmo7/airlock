@@ -292,6 +292,9 @@ public struct SessionState: Codable, Sendable, Equatable {
             // watching. Restored across a restart it is an account of something
             // you cannot place, timestamped before the app was even running.
             s.questionReceipt = nil
+            // Whatever reported back while the app was not running was missed,
+            // and a task nothing will name again would hold the session open.
+            s.backgroundTasks = nil
             if s.status.wantsAttention || s.status == .starting { s.status = .idle }
             // A cache written before `SubmittedPrompt` existed can hold the
             // host's messages as though they were typed — a task notification
@@ -409,6 +412,13 @@ public struct SessionState: Codable, Sendable, Equatable {
         }
     }
 
+    /// The list without the tasks `matches` picks, nil once it is empty.
+    private static func without(_ tasks: [BackgroundTask]?,
+                                where matches: (BackgroundTask) -> Bool) -> [BackgroundTask]? {
+        let rest = (tasks ?? []).filter { !matches($0) }
+        return rest.isEmpty ? nil : rest
+    }
+
     // MARK: - Transition table
 
     private func mutate(_ s: inout AgentSession, with event: AgentEvent) {
@@ -434,12 +444,24 @@ public struct SessionState: Codable, Sendable, Equatable {
                 // First prompt names the conversation until a real title arrives.
                 if s.title == nil { s.title = Self.promptTitle(text) }
                 s.lastSummary = "Working…"
+                // Somebody typed, so whatever was still out stops holding the
+                // session: the next turn's end is judged on what it starts. A
+                // server left running never reports back, and without this one
+                // would keep every later finish from reading as one.
+                s.backgroundTasks = nil
             case let .taskNotification(outcome):
                 // The host talking, not the person: it never goes after "You:"
                 // and never names the conversation. The agent still answers it,
                 // so the session works — and the exchange on the card stays the
                 // last one somebody actually had.
                 s.lastSummary = outcome.activity
+                // And the task it names is no longer out. A helper agent can
+                // report more than once; the second finds nothing to remove.
+                if let named = SubmittedPrompt.notifiedTask(in: prompt) {
+                    s.backgroundTasks = Self.without(s.backgroundTasks) {
+                        $0.isNamed(taskID: named.taskID, callID: named.callID)
+                    }
+                }
             case .injected:
                 s.lastSummary = "Working…"
             }
@@ -464,7 +486,23 @@ public struct SessionState: Codable, Sendable, Equatable {
             if let message = assistantMessage.map({ Self.displayLine($0) }), !message.isEmpty {
                 s.lastResponse = message
             }
-            s.status = .idle
+            // With work still out the agent has paused, not finished: it
+            // speaks again when that work reports back. Working, and saying
+            // what on — never Done, the chime or the ✓ (`finishedTurn`).
+            if let open = s.backgroundTasks, !open.isEmpty {
+                s.status = .running
+                s.lastSummary = BackgroundTask.waitingLine(open.count)
+            } else {
+                s.status = .idle
+            }
+
+        case let .backgroundTaskStarted(task):
+            if !(s.backgroundTasks ?? []).contains(where: { $0.callID == task.callID }) {
+                s.backgroundTasks = (s.backgroundTasks ?? []) + [task]
+            }
+
+        case let .backgroundTaskStopped(taskID):
+            s.backgroundTasks = Self.without(s.backgroundTasks) { $0.isNamed(taskID: taskID, callID: nil) }
 
         case let .permissionRequested(request):
             if let card = s.pendingPermission, card.id != request.id {
@@ -544,6 +582,7 @@ public struct SessionState: Codable, Sendable, Equatable {
             s.pendingPermission = nil
             s.queuedPermissions = nil
             s.pendingQuestion = nil
+            s.backgroundTasks = nil
             s.status = .done
 
         case .questionReceiptDismissed:

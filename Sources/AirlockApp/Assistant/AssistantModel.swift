@@ -282,6 +282,12 @@ final class AssistantModel {
     /// to this rather than replacing the panel, because "ask Claude Code
     /// instead" is the answer to every one of these.
     private(set) var failure: String?
+    /// The question was answered from the person's calls. Such an answer is
+    /// never offered to Claude Code: what was said on a call stays on the Mac.
+    private(set) var answersFromCalls = false
+    /// Where a call answer came from: the moments its numbers point at, at
+    /// most three, set once it has finished. Empty for every other answer.
+    private(set) var callSources: [CallSource] = []
 
     // Named so the state gallery draws the shipping words.
     static let couldNotAnswer = "Airlock couldn't answer that. Try asking another way."
@@ -303,6 +309,27 @@ final class AssistantModel {
     /// the view's body, so the button follows the switch.
     var offersAgentHandOff: () -> Bool = { true }
     var onCopy: ((String) -> Void)?
+
+    /// Whether call notes are on, which is what lets a question be answered
+    /// from past calls. Off, every question takes the path it always took.
+    var callNotesEnabled: () -> Bool = { MeetingNotesModel.isOn }
+    /// Opens the notes window on a call, at a moment. Wired to
+    /// `MeetingNotesModel`.
+    var onShowCall: ((CallSource) -> Void)?
+
+    /// Where the calls are read from: the meetings folder, or a test's own.
+    @ObservationIgnored var callFolders: () -> any CallFolders = { MeetingStore() }
+    /// Every call, searched in memory. Made on the first question about a
+    /// call, so a Mac whose owner never asks one never has a call read.
+    @ObservationIgnored private var callSearch: CallSearch?
+    private var calls: CallSearch {
+        if let callSearch { return callSearch }
+        // The model that answers reads what the notes writer reads: a
+        // stretch in another language is searched as the take kept beside it.
+        let made = CallSearch(folders: callFolders(), canRead: CallNotesWriter.canRead)
+        callSearch = made
+        return made
+    }
 
     // MARK: - Acting
 
@@ -442,6 +469,8 @@ final class AssistantModel {
         self.origin = origin
         pending = nil
         performed = nil
+        answersFromCalls = false
+        callSources = []
         // Never a silent return. Dropping a question without a word on screen is
         // exactly what "the notch quit and I lost the text" looked like from the
         // outside, and the panel is the only place that can say otherwise.
@@ -490,6 +519,28 @@ final class AssistantModel {
             propose(proposal, from: .grammar)
             return
         }
+        // A question about past calls is answered from them, before the ladder
+        // can offer it to Claude Code or the model is asked what it was: neither
+        // knows what was said on a call, and the ladder would send it off the
+        // Mac. Only with call notes on; off, nothing here runs.
+        if callNotesEnabled() {
+            switch CallQuestion.verdict(trimmed) {
+            case .yes:
+                answerFromCalls(trimmed)
+                return
+            case .ifNamed:
+                answerFromCallsIfSomeoneWasOnOne(trimmed)
+                return
+            case .no:
+                break
+            }
+        }
+        route(trimmed)
+    }
+
+    /// Everything that is not an action or a question about a call: the
+    /// ladder for a typed phrase, the classifier when it is on, and answering.
+    private func route(_ trimmed: String) {
         // The grammar declined, and this was typed. Offer the routes rather
         // than picking one by wording — see `PromptRouting`. A question falls
         // straight through to answering, which is the path it has always taken.
@@ -528,6 +579,102 @@ final class AssistantModel {
             return
         }
         answerNow(trimmed)
+    }
+
+    /// "What did Marta say about the budget?" is about a call only if Marta
+    /// was on one; otherwise it is the news, and answered as it always was.
+    /// The names come from the calls, so this waits for them to be read.
+    private func answerFromCallsIfSomeoneWasOnOne(_ trimmed: String) {
+        beginKeyboardSession()
+        isStreaming = true
+        let calls = self.calls
+        stream = Task { [weak self] in
+            let people = await calls.people()
+            guard let self, !Task.isCancelled else { return }
+            self.isStreaming = false
+            let named = CallQuestion.isAboutPastCalls(trimmed, names: people)
+            dictationLog("  call question by name: \(named ? "someone" : "nobody") "
+                         + "of \(people.count) people")
+            if named { self.answerFromCalls(trimmed) } else { self.route(trimmed) }
+        }
+    }
+
+    /// Answers from the person's calls: the few moments that best fit the
+    /// question, found in memory, then the on-device model told to answer
+    /// from those alone and say which it used. When nothing fits, that is
+    /// said without asking the model, which could only make something up.
+    ///
+    /// The log gets counts and timings only. The question, the answer and
+    /// every word of the calls stay out of it, whatever the debug switch says.
+    private func answerFromCalls(_ trimmed: String) {
+        answersFromCalls = true
+        beginKeyboardSession()
+        isStreaming = true
+        let calls = self.calls
+        let calendar = Calendar.current
+        let query = CallQuery(trimmed, now: Date(), calendar: calendar)
+        let language = CallAnswer.language(of: trimmed)
+        stream = Task { [weak self] in
+            let started = ContinuousClock.now
+            let (chunks, refresh) = await calls.search(query, limit: CallAnswer.excerptLimit)
+            guard let self, !Task.isCancelled else { return }
+            dictationLog("  calls: \(chunks.count) excerpts from \(refresh.calls) calls "
+                         + "(\(refresh.read) read, \(refresh.dropped) gone), \(query.terms.count) terms, "
+                         + "day=\(query.range != nil), \(Self.milliseconds(since: started)) ms")
+            guard !chunks.isEmpty else {
+                // A call in a language the model can't read, with nothing
+                // kept beside it, says so rather than "nothing found".
+                let unreadable = refresh.calls == 0 ? nil : await calls.unreadable(for: query)
+                self.isStreaming = false
+                self.answer = CallAnswer.miss(refresh.calls == 0 ? .noCalls
+                                              : unreadable.map { .unreadable($0) } ?? .nothingFound,
+                                              language: language)
+                self.startIdleTimer()
+                return
+            }
+            guard self.availability.isReady else {
+                self.isStreaming = false
+                self.failure = self.availability.message(feature: "answering")
+                    ?? "Answering isn't available on this Mac right now."
+                self.startIdleTimer()
+                return
+            }
+            let prompt = CallAnswer.prompt(question: trimmed, excerpts: chunks, language: language,
+                                           calendar: calendar)
+            var written = ""
+            do {
+                for try await partial in self.service.answer(prompt, instructions: CallAnswer.instructions) {
+                    guard !Task.isCancelled else { return }
+                    written = partial
+                    self.answer = CallAnswer.readable(partial)
+                }
+            } catch {
+                // A newer question cancelled this one, and the panel is its now.
+                guard !Task.isCancelled else { return }
+                self.failure = Self.couldNotAnswer
+                dictationLog("  call answer failed: \(error.localizedDescription)")
+            }
+            guard !Task.isCancelled else { return }
+            self.isStreaming = false
+            self.settleAnswer(question: trimmed)
+            if self.failure == nil {
+                self.callSources = CallAnswer.sources(in: written, excerpts: chunks)
+            }
+            dictationLog("  call answer: \(written.count) chars, \(self.callSources.count) sources, "
+                         + "\(Self.milliseconds(since: started)) ms")
+        }
+    }
+
+    private static func milliseconds(since start: ContinuousClock.Instant) -> Int {
+        Int(start.duration(to: .now) / .milliseconds(1))
+    }
+
+    /// A source row under a call answer was tapped: the notes window opens on
+    /// that call, at the moment the answer came from. The panel goes first,
+    /// as it does for every window it opens.
+    func openSource(_ source: CallSource) {
+        dismiss()
+        onShowCall?(source)
     }
 
     /// Nil when this was a question — which is most of the time, and is the
@@ -599,6 +746,8 @@ final class AssistantModel {
         self.question = question
         self.answer = answer
         failure = nil
+        answersFromCalls = false
+        callSources = []
         isStreaming = false
         isPresenting = true
         beginKeyboardSession()
@@ -664,11 +813,14 @@ final class AssistantModel {
     /// open the notch or outlive the picture.
     func presentPreview(question: String, answer: String = "", isStreaming: Bool = false,
                         failure: String? = nil, routes: [PromptRouting.Route] = [],
-                        availability: ModelAvailability = .ready) {
+                        availability: ModelAvailability = .ready,
+                        fromCalls: Bool = false, sources: [CallSource] = []) {
         self.question = question
         self.answer = answer
         self.isStreaming = isStreaming
         self.failure = failure
+        answersFromCalls = fromCalls
+        callSources = sources
         routeCandidates = routes
         performed = nil
         pending = nil

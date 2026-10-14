@@ -30,6 +30,54 @@ final class SettingsAnchorTests: XCTestCase {
         XCTAssertTrue(SettingsAnchor.search("limit", guideOn: false).contains(.usageWarning))
     }
 
+    /// The call languages show on the Voice page only while call notes are on,
+    /// and search follows the page.
+    func testCallLanguagesOnlyWhileCallNotesAreOn() {
+        XCTAssertFalse(SettingsAnchor.search("calls", guideOn: false, callNotesOn: false).contains(.callLanguages))
+        XCTAssertEqual(SettingsAnchor.search("language on calls", guideOn: false, callNotesOn: true).first,
+                       .callLanguages)
+        XCTAssertEqual(SettingsAnchor.callLanguages.pane, .voice)
+    }
+
+    /// The call notes switch itself is there on or off: off, it is the only
+    /// way back.
+    func testTheCallNotesSwitchIsAlwaysThere() {
+        XCTAssertEqual(SettingsAnchor.search("call notes", guideOn: false, callNotesOn: false).first, .callNotes)
+        XCTAssertEqual(SettingsAnchor.search("call notes", guideOn: false, callNotesOn: true).first, .callNotes)
+        XCTAssertEqual(SettingsAnchor.callNotes.pane, .voice)
+    }
+
+    /// The way to past calls shows beside the call languages, so it follows
+    /// the same switch.
+    func testPastCallsOnlyWhileCallNotesAreOn() {
+        XCTAssertFalse(SettingsAnchor.search("past calls", guideOn: false, callNotesOn: false).contains(.pastCalls))
+        XCTAssertEqual(SettingsAnchor.search("past calls", guideOn: false, callNotesOn: true).first, .pastCalls)
+        XCTAssertEqual(SettingsAnchor.pastCalls.pane, .voice)
+    }
+
+    /// The words meetings spell their way sit with the other call rows.
+    func testWordsToKnowOnlyWhileCallNotesAreOn() {
+        XCTAssertFalse(SettingsAnchor.search("words to know", guideOn: false, callNotesOn: false)
+            .contains(.knownWords))
+        XCTAssertEqual(SettingsAnchor.search("words to know", guideOn: false, callNotesOn: true).first, .knownWords)
+        XCTAssertEqual(SettingsAnchor.search("spelling", guideOn: false, callNotesOn: true).first, .knownWords)
+        XCTAssertEqual(SettingsAnchor.knownWords.pane, .voice)
+    }
+
+    /// "Write notes online" sits with the other call rows, and only while
+    /// notes online are switched on by hand for a subscriber.
+    func testNotesOnlineOnlyWhileCallNotesAndNotesOnlineAreOn() {
+        XCTAssertFalse(SettingsAnchor.search("notes online", guideOn: false, callNotesOn: true, notesOnlineOn: false)
+            .contains(.notesOnline))
+        XCTAssertFalse(SettingsAnchor.search("notes online", guideOn: false, callNotesOn: false, notesOnlineOn: true)
+            .contains(.notesOnline))
+        XCTAssertEqual(SettingsAnchor.search("write notes online", guideOn: false, callNotesOn: true,
+                                             notesOnlineOn: true).first, .notesOnline)
+        XCTAssertTrue(SettingsAnchor.search("gemini", guideOn: false, callNotesOn: true, notesOnlineOn: true)
+            .contains(.notesOnline))
+        XCTAssertEqual(SettingsAnchor.notesOnline.pane, .voice)
+    }
+
     /// Every row a search can return lands on a page the sidebar offers.
     func testEveryAnchorLandsOnASidebarPage() {
         for guideOn in [false, true] {

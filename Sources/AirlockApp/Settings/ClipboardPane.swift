@@ -11,155 +11,133 @@ struct ClipboardPane: View {
     /// Clear all deletes the saved pictures with the rows and can't be undone,
     /// so it asks first (X21). Clear unpinned keeps what was pinned and doesn't.
     @State private var confirmingClearAll = false
+    @State private var moreOptions: Bool
+
+    init(moreOptions: Bool = false) {
+        _moreOptions = State(initialValue: moreOptions)
+    }
 
     var body: some View {
         @Bindable var clipboard = clipboard
-        return Form {
-            Section("Should Airlock remember what you copy?") {
-                Toggle("Record clipboard history", isOn: $clipboard.isEnabled)
-                    .settingsAnchor(.clipboardHistory)
-                Text("Off stops the watcher entirely — nothing is read and nothing is stored. "
-                     + "Items already saved stay until you clear them.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+        LookPage("Clipboard", subtitle: "Everything you copy, kept on this Mac.", moreOptions: $moreOptions) {
+            LookToggleRow("Record clipboard history", isOn: $clipboard.isEnabled)
+                .settingsAnchor(.clipboardHistory)
 
-                Picker("Keep", selection: $clipboard.capacity) {
-                    ForEach([50, 100, 200, 500, 1000], id: \.self) { count in
-                        Text("\(count) items").tag(count)
+            LookRow("Keep") {
+                LookMenu("\(clipboard.capacity) items") {
+                    Picker("Keep", selection: $clipboard.capacity) {
+                        ForEach([50, 100, 200, 500, 1000], id: \.self) { count in
+                            Text("\(count) items").tag(count)
+                        }
                     }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
                 }
-                .disabled(!clipboard.isEnabled)
+            }
+            .disabled(!clipboard.isEnabled)
 
-                // The buttons sit on the row with the number they act on. A
-                // count in one row and two Clear buttons in the next asks you
-                // to hold "146" in your head while deciding what to delete.
-                LabeledContent("Stored now") {
-                    HStack(spacing: 10) {
-                        Text(storedSummary).foregroundStyle(.secondary)
-                        Button("Clear unpinned") { clipboard.clearUnpinned() }
-                            .disabled(clipboard.history.items.isEmpty)
-                        Button("Clear all", role: .destructive) { confirmingClearAll = true }
-                            .disabled(clipboard.history.items.isEmpty)
-                    }
+            // The buttons sit on the row with the number they act on. A count
+            // in one row and two Clear buttons in the next asks you to hold
+            // "146" in your head while deciding what to delete.
+            LookRow("Stored now", subtitle: storedSummary) {
+                HStack(spacing: 6) {
+                    LookButton("Clear unpinned") { clipboard.clearUnpinned() }
+                        .disabled(clipboard.history.items.isEmpty)
+                    LookButton("Clear all") { confirmingClearAll = true }
+                        .disabled(clipboard.history.items.isEmpty)
                 }
-                Text("Pinned items survive Clear unpinned. Clear all deletes the saved images too, not just the rows.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .confirmationDialog("Delete all clipboard history?", isPresented: $confirmingClearAll) {
-                        Button("Delete All", role: .destructive) { clipboard.clearAll() }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("Every item goes, pinned ones too, along with the images Airlock saved from them. This can't be undone.")
-                    }
-
-                // Where it is kept belongs with what is kept, not with what is
-                // refused. It was under "Never recorded", which is the section
-                // about exclusions.
-                LabeledContent("Kept at") {
-                    Text(clipboard.storageDirectory)
-                        .font(.callout.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                // The files are 0600 and the image folder 0700; what that means
-                // to a person is the sentence. File names and modes are for us.
-                Text("Only your account on this Mac can read it, and it's never synced anywhere.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            }
+            .confirmationDialog("Delete all clipboard history?", isPresented: $confirmingClearAll) {
+                Button("Delete All", role: .destructive) { clipboard.clearAll() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every item goes, pinned ones too, along with the images Airlock saved from them. This can't be undone.")
             }
 
-            Section("What should it never remember?") {
-                // Chips, not a sentence. This list is the thing people want to
-                // read before they trust a clipboard manager at all, and
-                // "anything an app marks private" asks them to take it on faith.
-                // Names they recognise, and the ones they added removable.
-                IgnoredAppChips(clipboard: clipboard)
-
-                LabeledContent("Always") {
-                    Text("Anything an app marks private")
-                        .foregroundStyle(.secondary)
-                }
+            LookGroupLabel("Never remembered")
+            // Chips, not a sentence. This list is the thing people want to
+            // read before they trust a clipboard manager at all, and "anything
+            // an app marks private" asks them to take it on faith. Names they
+            // recognise, and the ones they added removable.
+            IgnoredAppChips(clipboard: clipboard)
+                .lookRowBox()
+            LookRow("Always") { LookValue("Anything an app marks private") }
                 .settingsAnchor(.neverRecorded)
-                Text("Password managers and two-factor apps mark what they copy as private. "
+            LookToggleRow("Also skip known password managers", subtitle: "For the ones that don't mark copies private",
+                          isOn: $clipboard.ignoresPasswordManagerTypes)
+            if let skip = clipboard.lastSkip {
+                LookRow("Last copy skipped") { LookValue(describe(skip)) }
+            }
+
+            LookGroupLabel("Opening it")
+            LookToggleRow("Open with a shortcut", isOn: $clipboard.hotkeyEnabled)
+                .settingsAnchor(.clipboardShortcut)
+                .disabled(!clipboard.isEnabled)
+            // Four chords became "press what you want". The old list was four
+            // guesses at what would be free on your Mac, and a Mac where all
+            // four were taken had no way to open the clipboard at all.
+            HotkeyRecorder("Opens clipboard", binding: $clipboard.hotkey, conflict: { _ in nil })
+                .disabled(!clipboard.isEnabled || !clipboard.hotkeyEnabled)
+            if clipboard.isEnabled, let error = clipboard.hotkeyError {
+                ProblemCard(sentence: error)
+            } else if clipboard.isEnabled, clipboard.hotkeyEnabled, clipboard.hotkey == .commandShiftC {
+                // Registration can succeed for both apps; which one the system
+                // delivers to is then not something either can control. Worth
+                // saying out loud, because the symptom is "my hotkey opens the
+                // wrong app" with no error anywhere.
+                LookNote("⇧⌘C is also Maccy's default. If Maccy is still running, one of the two "
+                         + "will get the key and it won't be predictable which.")
+            }
+
+            LookToggleRow("Paste automatically when I pick an item",
+                          subtitle: clipboard.pastesAutomatically ? "Types ⌘V into the app in front" : "You paste it yourself",
+                          isOn: $clipboard.pastesAutomatically)
+                .settingsAnchor(.autoPaste)
+            if clipboard.pastesAutomatically && !clipboard.pasteIsTrusted {
+                ProblemCard(sentence: "Nothing will paste until Airlock has the Accessibility permission.",
+                            button: "Open Accessibility Settings",
+                            action: { PasteService.openAccessibilitySettings() })
+            }
+        } more: {
+            LookGroupLabel("History")
+            LookNote("Off stops the watcher entirely — nothing is read and nothing is stored. "
+                     + "Items already saved stay until you clear them.")
+            LookNote("Pinned items survive Clear unpinned. Clear all deletes the saved images too, not just the rows.")
+            // Where it is kept belongs with what is kept, not with what is
+            // refused.
+            LookRow("Kept at") {
+                LookValue(clipboard.storageDirectory, monospaced: true)
+                    .textSelection(.enabled)
+            }
+            // The files are 0600 and the image folder 0700; what that means to
+            // a person is the sentence. File names and modes are for us.
+            LookNote("Only your account on this Mac can read it, and it's never synced anywhere.")
+
+            LookGroupLabel("Never remembered")
+            LookNote("Password managers and two-factor apps mark what they copy as private. "
                      + "Airlock always respects that, and there is no setting to turn it off — "
                      + "you can't agree on behalf of the app that marked it.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                Toggle("Also skip known password managers", isOn: $clipboard.ignoresPasswordManagerTypes)
-                Text("Covers password managers that don't mark their copies as private — "
+            LookNote("Also skip known password managers covers the ones that don't mark their copies as private — "
                      + "1Password, Bitwarden, Dashlane, Enpass, LastPass and Keychain Access.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
 
-                if let skip = clipboard.lastSkip {
-                    LabeledContent("Last copy skipped") {
-                        Text(describe(skip)).foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Section("How do you open it?") {
-                Toggle("Open with a shortcut", isOn: $clipboard.hotkeyEnabled)
-                    .settingsAnchor(.clipboardShortcut)
-                    .disabled(!clipboard.isEnabled)
-                // Four chords became "press what you want". The old list was
-                // four guesses at what would be free on your Mac, and a Mac
-                // where all four were taken had no way to open the clipboard at
-                // all.
-                LabeledContent("Opens clipboard") {
-                    HotkeyRecorder(binding: $clipboard.hotkey, conflict: { _ in nil })
-                }
-                .disabled(!clipboard.isEnabled || !clipboard.hotkeyEnabled)
-
-                if !clipboard.isEnabled {
-                    // The key used to stay registered with history off and open
-                    // the panel on Home, which explains nothing. It is released
-                    // instead — and the setting says so rather than sitting
-                    // there switched on and inert.
-                    Text("History is off, so the key isn't registered — there would be no clipboard "
+            LookGroupLabel("Opening it")
+            if !clipboard.isEnabled {
+                // The key used to stay registered with history off and open
+                // the panel on Home, which explains nothing. It is released
+                // instead — and the setting says so rather than sitting there
+                // switched on and inert.
+                LookNote("History is off, so the key isn't registered — there would be no clipboard "
                          + "tab for it to open. Your choice of key is kept and comes back with it.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else if let error = clipboard.hotkeyError {
-                    ProblemCard(sentence: error)
-                } else if clipboard.hotkeyEnabled && clipboard.hotkey == .commandShiftC {
-                    // Registration can succeed for both apps; which one the
-                    // system delivers to is then not something either can
-                    // control. Worth saying out loud, because the symptom is
-                    // "my hotkey opens the wrong app" with no error anywhere.
-                    Text("⇧⌘C is also Maccy's default. If Maccy is still running, one of the two "
-                         + "will get the key and it won't be predictable which.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-
-                if clipboard.isEnabled {
-                    Text("Press it again while the clipboard is open to close it.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+            } else {
+                LookNote("Press it again while the clipboard is open to close it.")
             }
-
-            Section {
-                Toggle("Paste automatically when I pick an item", isOn: $clipboard.pastesAutomatically)
-                    .settingsAnchor(.autoPaste)
-                if clipboard.pastesAutomatically && !clipboard.pasteIsTrusted {
-                    ProblemCard(sentence: "Nothing will paste until Airlock has the Accessibility permission.",
-                                button: "Open Accessibility Settings",
-                                action: { PasteService.openAccessibilitySettings() })
-                }
-                Text(clipboard.pastesAutomatically
+            LookNote(clipboard.pastesAutomatically
                      ? "Picking an item types ⌘V into whatever app is in front. This is the only "
                         + "part of the clipboard that needs a permission."
                      : "Picking an item puts it on the clipboard and you paste it yourself. "
                         + "No permission needed.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+            AdvancedSwitch()
         }
-        .formStyle(.grouped)
     }
 
     /// "146 items · 8 pinned", which is what the two buttons beside it act on.
@@ -216,8 +194,7 @@ private struct IgnoredAppChips: View {
                     clipboard.stopIgnoringApp(bundle)
                 }
             }
-            Button("Add an app…") { isPicking = true }
-                .buttonStyle(.link)
+            LookButton("Add an app…") { isPicking = true }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -228,20 +205,24 @@ private struct IgnoredAppChips: View {
             // One line, at its natural width. A chip that wraps is the bug in
             // the screenshot; the layout gives way now, never the name.
             Text(title)
-                .font(.callout)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
                 .fixedSize()
             if removable {
                 Button(action: onRemove) {
-                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Theme.textSecondary)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
+                .clickable()
                 .accessibilityLabel("Stop ignoring \(title)")
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(Capsule().fill(.quaternary))
+        .background(Capsule().fill(SettingsLook.chipFill))
         // The identifier is what the skip actually matches on, and the only way
         // to tell two apps with the same name apart. On hover, not on the chip.
         .help(identifier)

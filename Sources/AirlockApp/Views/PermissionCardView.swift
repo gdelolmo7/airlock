@@ -752,9 +752,16 @@ struct PermissionCardView: View {
     /// being sold is answering it FROM HERE, so hiding the thing being answered
     /// would hide the argument.
     ///
-    /// The free way out is stated and deliberately unstyled: the request is
-    /// still waiting in the agent's own terminal, and saying so costs a sale
-    /// that was never going to happen while keeping one that might.
+    /// The free way out is stated and deliberately unstyled: closing the card
+    /// hands the request back, and the agent asks in its own terminal. Saying
+    /// so costs a sale that was never going to happen while keeping one that
+    /// might.
+    ///
+    /// **It used to say the request was "still waiting" there**, which was not
+    /// true while this card held it: Claude Code puts its own prompt up only
+    /// once the hook lets go. After the trial a gate is handed back on arrival
+    /// now (`GateHolding`), so this card is only ever the demo's, or one the
+    /// bridge has not let go of yet.
     ///
     /// **It used to promise what the app no longer does** — "Airlock still
     /// watches", "media, sound, calendar, clipboard and the shelf keep working
@@ -811,11 +818,11 @@ struct PermissionCardView: View {
     static let trialEndedTitle = "Your trial has ended"
     /// Where the request can still be answered for free, then the offer.
     static func trialEndedLine(_ terminal: String) -> String {
-        "This is still waiting in \(terminal), and you can answer it there. To answer from the notch, subscribe."
+        "Close this card to answer it in \(terminal) instead. To answer from the notch, subscribe."
     }
 
-    /// Names the terminal where the request is still waiting, because "answer
-    /// it elsewhere" only helps if you know where elsewhere is.
+    /// Names the terminal the agent asks in once the card is closed, because
+    /// "answer it elsewhere" only helps if you know where elsewhere is.
     private var freeWayOut: String {
         TerminalName.pretty(session.terminal?.app ?? session.jumpTarget?.terminalApp)
             .map { "\($0)" } ?? "its terminal"

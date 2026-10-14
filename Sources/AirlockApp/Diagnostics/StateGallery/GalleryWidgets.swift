@@ -13,7 +13,9 @@ import AirlockCore
 /// `SystemSectionSnapshot`): `NowPlayingCard`, `ControlRail`, `LevelRows` and
 /// friends with plain values. The two models that are built,
 /// `CalendarWidgetModel` and `RepositoryWidgetModel`, go through their
-/// `init(previewing:)`, which opens no store and runs no `git`.
+/// `init(previewing:)`, which opens no store and runs no `git`. The Agents
+/// tab's usage rows draw on an `AppModel` that is never started, as the Agents
+/// area does, and an `AgentsWidgetModel` previewing its values.
 ///
 /// Every sentence is the app's own — a model constant, a Core policy, a static
 /// the model itself calls — so a wording change shows up here the same day.
@@ -185,6 +187,45 @@ enum GalleryWidgets {
                     homeRow(controls: controlsCard(on: [.wifi], heldForAgents: true), sound: soundCard())
                 }
             },
+            // Keep awake for a set time. The next free IDs, kept beside the
+            // other awake rows.
+            GalleryState("W57", area, "Awake: how-long menu open (menu button beside the cup, or a right-click)",
+                         width: panel) {
+                VStack(alignment: .leading, spacing: 14) {
+                    caption("beside Sound")
+                    homeRow(controls: controlsCard(on: [.wifi], awakeStrip: awakeStrip()), sound: soundCard())
+                    caption("alone in the row")
+                    controlsCard(on: [.wifi], awakeStrip: awakeStrip()).frame(width: stack)
+                }
+            },
+            GalleryState("W58", area, "Awake: on for a set time, 42 min left, with +30 min", width: panel) {
+                VStack(alignment: .leading, spacing: 14) {
+                    homeRow(controls: controlsCard(on: [.wifi, .awake], countdown: countdown(left: 42 * 60)),
+                            sound: soundCard())
+                    caption("over an hour")
+                    homeRow(controls: controlsCard(on: [.wifi, .awake], countdown: countdown(left: 80 * 60)),
+                            sound: soundCard())
+                }
+            },
+            GalleryState("W59", area, "Awake: on for a set time, under a minute left", width: panel) {
+                homeRow(controls: controlsCard(on: [.wifi, .awake], countdown: countdown(left: 40)),
+                        sound: soundCard())
+            },
+            GalleryState("W60", area, "Awake: \"Until…\" set to 08:00, picked at 23:00 (tomorrow)", width: panel) {
+                VStack(alignment: .leading, spacing: 14) {
+                    caption("beside Sound")
+                    homeRow(controls: controlsCard(on: [.wifi], awakeStrip: awakeStrip(until: eightOClock)),
+                            sound: soundCard())
+                    caption("alone in the row")
+                    controlsCard(on: [.wifi], awakeStrip: awakeStrip(until: eightOClock)).frame(width: stack)
+                }
+            },
+            GalleryState("W61", area, "Awake: the set time ran out (quiet line, no sound, goes 5 min after first seen)",
+                         width: panel) {
+                homeRow(controls: controlsCard(on: [.wifi],
+                                               failure: .init(sentence: KeepAwakeTimer.endedMessage, isNote: true)),
+                        sound: soundCard())
+            },
             GalleryState("W40", area, "Dark mode: not allowed", width: panel) {
                 homeRow(controls: controlsCard(on: [.wifi],
                                                failure: .init(sentence: SystemControlsModel.appearanceRefused,
@@ -276,6 +317,67 @@ enum GalleryWidgets {
                     return status
                 }()),
             ]),
+
+            // MARK: Calls
+            GalleryState("W62", area, "Calls tab: today, yesterday and an older day, mixed apps",
+                         width: panel) {
+                callsTab(mixedCalls, week: 5)
+            },
+            GalleryState("W63", area, "Calls tab: six calls, the most it shows", width: panel) {
+                callsTab(sixCalls, week: 9)
+            },
+            GalleryState("W64", area, "Calls tab: one call", width: panel) {
+                callsTab([call("Call with Sam", day: 0, at: 9.5, minutes: 12, todos: 1, in: whatsApp)], week: 1)
+            },
+            GalleryState("W65", area, "Calls tab: call notes on, no calls yet", width: panel) {
+                callsTab([])
+            },
+            GalleryState("W70", area, "Calls tab: \"Take notes\" for a meeting in the room", width: panel) {
+                callsTab(mixedCalls, week: 5, hand: .takeNotes)
+            },
+            // No Stop and no clock on the tab: the banner above the tabs
+            // has both while notes are taken. "Open in a window" is on both.
+            GalleryState("W71", area, "Calls tab: taking notes of a call, its row on top",
+                         width: panel) {
+                callsTab(mixedCalls, week: 5, live: liveNotes(paused: false), hand: .stop)
+            },
+            GalleryState("W73", area, "Calls tab: notes paused", width: panel) {
+                callsTab(mixedCalls, week: 5, live: liveNotes(paused: true), hand: .stop)
+            },
+            GalleryState("W74", area, "Calls tab: first call, notes being taken, nothing saved yet",
+                         width: panel) {
+                callsTab([], live: liveNotes(paused: false), hand: .stop)
+            },
+            GalleryState("W72", area, "Calls tab: no calls yet, \"Take notes\"", width: panel) {
+                callsTab([], hand: .takeNotes)
+            },
+            // A recording somebody already has: "Add recording" beside "Take
+            // notes", and the one being read on top while it is.
+            GalleryState("W75", area, "Calls tab: \"Add recording\" beside \"Take notes\"", width: panel) {
+                callsTab(mixedCalls, week: 5, hand: .takeNotes, addsRecordings: true)
+            },
+            GalleryState("W76", area, "Calls tab: a recording being read, its row on top", width: panel) {
+                callsTab(mixedCalls, week: 5, hand: .takeNotes, addsRecordings: true,
+                         reading: GalleryMeetings.reading(.listening, heard: 14 * 60))
+            },
+            GalleryState("W77", area, "Calls tab: no calls yet, \"Take notes\" and \"Add recording\"",
+                         width: panel) {
+                callsTab([], hand: .takeNotes, addsRecordings: true)
+            },
+            GalleryState("W66", area, "Dashboard: call notes on (no Calls card)", width: panel) {
+                dashboard
+            },
+
+            // MARK: Claude usage, on the Agents tab
+            GalleryState("W67", area, "Agents tab: Claude usage figures (tooltip not drawn)", width: panel) {
+                agentsTab(usage: freshUsage)
+            },
+            GalleryState("W68", area, "Agents tab: usage figures 2 h old, dated", width: panel) {
+                agentsTab(usage: staleUsage)
+            },
+            GalleryState("W69", area, "Agents tab: no usage figures, so no line", width: panel) {
+                agentsTab(usage: nil)
+            },
         ] + askStripStates
     }
 
@@ -340,16 +442,11 @@ enum GalleryWidgets {
     /// Settings' "How should the music bars move?" section, drawn as
     /// `SettingsView` draws its status line: the sentence is the model's.
     private static func waveSettings(_ diagnosis: WaveTapDiagnosis) -> some View {
-        Form {
-            Section("How should the music bars move?") {
-                Toggle("Wave follows the audio", isOn: .constant(true))
-                WaveTapStatusLine(status: diagnosis.message(player: "Spotify"), isProblem: diagnosis.isProblem,
-                                  needsPermission: diagnosis.needsPermission)
-            }
+        LookColumn {
+            LookToggleRow("Wave follows the audio", isOn: .constant(true))
+            WaveTapStatusLine(status: diagnosis.message(player: "Spotify"), isProblem: diagnosis.isProblem,
+                              needsPermission: diagnosis.needsPermission)
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(height: 160)
     }
 
     // MARK: - Home's controls row
@@ -371,9 +468,13 @@ enum GalleryWidgets {
     private static func controlsCard(shown: [SystemControlsModel.Control] = SystemControlsModel.Control.allCases,
                                      on: Set<SystemControlsModel.Control>,
                                      failure: SystemControlsModel.Problem? = nil,
-                                     heldForAgents: Bool = false) -> some View {
+                                     heldForAgents: Bool = false,
+                                     awakeStrip: KeepAwakeStrip? = nil,
+                                     countdown: KeepAwakeCountdownLine? = nil) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            ControlRail(shown: shown, isOn: { on.contains($0) }, openStrip: nil)
+            ControlRail(shown: shown, isOn: { on.contains($0) }, openStrip: awakeStrip == nil ? nil : .awake)
+            if let awakeStrip { awakeStrip }
+            if let countdown { countdown }
             if let failure {
                 ControlFailureLine(problem: failure)
             } else if heldForAgents {
@@ -381,6 +482,26 @@ enum GalleryWidgets {
             }
         }
         .modifier(HomeCardBackground())
+    }
+
+    /// Eleven at night today, so "Until…" set to 08:00 reads as tomorrow
+    /// whenever the gallery is drawn.
+    private static var lateEvening: Date {
+        Calendar.current.date(bySettingHour: 23, minute: 0, second: 0, of: Date()) ?? Date()
+    }
+
+    private static let eightOClock = KeepAwakeTimer.TimeOfDay(hour: 8, minute: 0)
+
+    /// The awake strip as the section builds it: the chips, or with `until`
+    /// the "Until…" clock already set to it.
+    private static func awakeStrip(until: KeepAwakeTimer.TimeOfDay? = nil) -> KeepAwakeStrip {
+        KeepAwakeStrip(suggested: eightOClock, settingUntil: until, frozenNow: lateEvening, pick: { _ in })
+    }
+
+    /// The countdown line, stopped `left` seconds before its end.
+    private static func countdown(left: TimeInterval) -> KeepAwakeCountdownLine {
+        let now = Date()
+        return KeepAwakeCountdownLine(deadline: now.addingTimeInterval(left), frozenNow: now, add: {})
     }
 
     /// The app's own sentence for a CoreWLAN refusal (macOS's words go to
@@ -539,6 +660,116 @@ enum GalleryWidgets {
             content.transaction { $0.animation = nil; $0.disablesAnimations = true }
         }
     }
+
+    // MARK: - Calls
+
+    /// 17:00 today: the made-up calls sit at fixed hours before it, so the
+    /// tab says "Today" and "Yesterday" whenever the gallery runs.
+    private static var callsNow: Date { day(0).addingTimeInterval(17 * 3600) }
+
+    /// The app a made-up call was in, and the site when it was a browser tab.
+    private typealias CallApp = (bundleID: String, site: MeetingLink.Provider?)
+    private static let meetInChrome: CallApp = ("com.google.Chrome", .googleMeet)
+    private static let whatsApp: CallApp = ("net.whatsapp.WhatsApp", nil)
+    private static let zoom: CallApp = ("us.zoom.xos", .zoom)
+    private static let safari: CallApp = ("com.apple.Safari", nil)
+    private static let slack: CallApp = ("com.tinyspeck.slackmacgap", nil)
+
+    /// A made-up call: a name, when, how long, how many to-dos it left, and
+    /// the app it was in. Rows from values, read from no folder.
+    private static func call(_ title: String, day offset: Int, at hour: Double, minutes: Double,
+                             todos: Int, in app: CallApp = zoom, people: Int = 2) -> CallsCard.Row {
+        let start = day(offset).addingTimeInterval(hour * 3600)
+        return CallsCard.Row(folder: title, title: title, startedAt: start,
+                             endedAt: start.addingTimeInterval(minutes * 60), todos: todos,
+                             bundleID: app.bundleID, site: app.site, people: people)
+    }
+
+    /// A Meet call notes have been taken of since 16:41.
+    private static func liveNotes(paused: Bool) -> CallsLiveNotes {
+        CallsLiveNotes(kind: CallGlyph.kind(for: meetInChrome.bundleID, site: meetInChrome.site),
+                       title: "Weekly sync", since: callsNow.addingTimeInterval(-19 * 60), paused: paused)
+    }
+
+    /// Three days, one call in a browser with no site the logos know, and a
+    /// name too long for its row.
+    private static var mixedCalls: [CallsCard.Row] {
+        [
+            call("Budget review", day: 0, at: 14.5, minutes: 42, todos: 3, in: meetInChrome, people: 5),
+            call("Call with Ana", day: 0, at: 11.25, minutes: 18, todos: 0, in: whatsApp),
+            call("Quarterly planning with design, research, marketing, sales and the partners "
+                 + "from the Lisbon office", day: -1, at: 16, minutes: 55, todos: 1, in: zoom, people: 8),
+            call("Interview: product designer", day: -4, at: 10, minutes: 47, todos: 2, in: safari, people: 3),
+        ]
+    }
+
+    /// As many as the tab holds (`CallsCard.limit`): a busy two days.
+    private static var sixCalls: [CallsCard.Row] {
+        [
+            call("Budget review", day: 0, at: 14.5, minutes: 42, todos: 3, in: meetInChrome, people: 5),
+            call("Call with Ana", day: 0, at: 11.25, minutes: 18, todos: 0, in: whatsApp),
+            call("Stand-up", day: 0, at: 9.5, minutes: 14, todos: 1, in: slack, people: 6),
+            call("Supplier check-in", day: -1, at: 17, minutes: 25, todos: 0, in: zoom),
+            call("Design review", day: -1, at: 12, minutes: 61, todos: 4, in: meetInChrome, people: 4),
+            call("Call with Mum", day: -1, at: 9, minutes: 33, todos: 0, in: whatsApp),
+        ]
+    }
+
+    /// Where `CallsWidget` puts it: a tab of its own, the stack's whole width.
+    private static func callsTab(_ rows: [CallsCard.Row], week: Int = 0, live: CallsLiveNotes? = nil,
+                                 hand: MeetingNotesFlow.HandButton? = nil, addsRecordings: Bool = false,
+                                 reading: RecordingImporter.Reading? = nil) -> some View {
+        CallsCardContent(rows: rows, week: week, live: live, now: callsNow, hand: hand, reading: reading,
+                         onOpenLive: live == nil ? nil : {},
+                         onAddRecording: addsRecordings ? {} : nil)
+            .frame(width: stack, alignment: .topLeading)
+    }
+
+    /// The Dashboard as `NotchRootView` lays it out with call notes on: the
+    /// calendar and System side by side, as before there were call notes,
+    /// since the calls have a tab of their own.
+    private static var dashboard: some View {
+        HStack(alignment: .top, spacing: 25) {
+            CalendarSectionView()
+                .environment(CalendarWidgetModel(previewing: .fullAccess, selectedDay: day(0),
+                                                 dayEvents: todaysEvents, daysWithEvents: [day(0), day(1)]))
+                .frame(width: side, alignment: .topLeading)
+            SystemStatsContent(stats: SystemStats(cpuPercent: 23.6, memoryPercent: 64.8, memoryUsedGB: 31.1,
+                                                  memoryTotalGB: 48, gpuPercent: 12),
+                               apps: .breakdown(ranked([xcode: 14.2, node: 4.1, .spotlight: 2.3], 23.6)))
+                .frame(width: side)
+                .modifier(Settled())
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - Claude usage
+
+    /// The Agents tab as `AgentSessionsSectionView` draws it with nothing
+    /// running and the figures switched on, so whether there is a line is up
+    /// to how old they are.
+    private static func agentsTab(usage: UsageSnapshot?) -> some View {
+        let model = AppModel()
+        model.usage = usage
+        let agents = AgentsWidgetModel(previewing: .hooksInstalled)
+        agents.wantsUsage = { true }
+        return AgentSessionsSectionView()
+            .environment(model)
+            .environment(agents)
+            .environment(RepositoryWidgetModel(previewing: []))
+            .environment(NotchUIState())
+            .environment(LicenseModel(previewing: .trialing(daysRemaining: 20)))
+            .frame(width: stack, alignment: .topLeading)
+    }
+
+    private static let freshUsage = UsageSnapshot(
+        fiveHour: RateLimitWindow(usedPercentage: 42, resetsAt: Date().addingTimeInterval(3 * 3600)),
+        sevenDay: RateLimitWindow(usedPercentage: 76, resetsAt: Date().addingTimeInterval(4 * 86400)),
+        capturedAt: Date().addingTimeInterval(-2 * 60))
+    private static let staleUsage = UsageSnapshot(
+        fiveHour: RateLimitWindow(usedPercentage: 42, resetsAt: Date().addingTimeInterval(3 * 3600)),
+        sevenDay: RateLimitWindow(usedPercentage: 76, resetsAt: Date().addingTimeInterval(4 * 86400)),
+        capturedAt: Date().addingTimeInterval(-2 * 3600))
 
     // MARK: - Repository
 

@@ -29,6 +29,7 @@ final class OwnerLogsTests: XCTestCase {
         ControlDiagnostics.log(.sleepDisplay, marker)
         WaveDiagnostics.log(marker)
         AppVolumeDiagnostics.log(marker)
+        MeetingDiagnostics.log(marker)
         // The hover trace writes only when it is switched on, so switch it on;
         // otherwise this line would pass whether or not the gate works.
         let previous = ProcessInfo.processInfo.environment["AIRLOCK_DEBUG"]
@@ -44,7 +45,8 @@ final class OwnerLogsTests: XCTestCase {
         let support = try XCTUnwrap(FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask).first)
         let files = [DictationDiagnostics.url, ControlDiagnostics.url, WaveDiagnostics.url,
-                     AppVolumeDiagnostics.url, support.appendingPathComponent("Airlock/hover.log")]
+                     AppVolumeDiagnostics.url, MeetingDiagnostics.url, BrokenPipeGuard.url,
+                     support.appendingPathComponent("Airlock/hover.log")]
         for file in files {
             // Bytes, not a String: a line another writer is halfway through
             // could fail to decode, and that must not read as "not found".

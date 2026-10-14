@@ -172,8 +172,10 @@ struct ActionCardView: View {
     /// `.blocked` printed one line and stopped, which is the correct amount of
     /// drama and the wrong amount of help: the only thing that clears it is a
     /// licence, and the card knew that while making the user go and find it.
-    /// The second line matters as much — answering is on-device and costs
-    /// nothing, so a finished trial takes the actions and not the notch.
+    ///
+    /// It used to add that typed questions still get answers. They don't: a
+    /// finished trial takes the typing bar and the ask hold as well, so the
+    /// line promised the one thing they could no longer try.
     ///
     /// Amber, not the red raised hand a rule's refusal gets: nothing went
     /// wrong and nobody refused anything — the trial ran out, and the button
@@ -195,12 +197,6 @@ struct ActionCardView: View {
                 }
                 Spacer(minLength: 0)
             }
-
-            // A sentence, and the accurate one: a hold of the ask key is
-            // refused too now, so it is typed questions that still answer.
-            Text("Questions you type still get answers.")
-                .font(Theme.chrome(10))
-                .foregroundStyle(Theme.textTertiary)
         }
     }
 

@@ -176,9 +176,11 @@ struct TraySectionView: View {
     /// open over Finder, so the selection route sits right here.
     private var emptyState: some View {
         HStack(spacing: 10) {
-            Image(systemName: "tray.and.arrow.down")
-                .font(.system(size: 17, weight: .light))
-                .foregroundStyle(Theme.textTertiary)
+            // Looking straight out, waiting for something to land on it. Brand
+            // blue, which is also the colour the shelf lights up when a file
+            // is held over it, so the cloud and the target read as one.
+            BloubView(expression: .attentive, motion: .breathing, tint: BloubTint.working.color)
+                .frame(width: 30, height: 30)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Drop files here")

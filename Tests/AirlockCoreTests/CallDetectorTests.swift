@@ -207,6 +207,37 @@ final class CallDetectorTests: XCTestCase {
         XCTAssertNil(d.call)
     }
 
+    // MARK: - Apps that listen and play without a call (NeverACall)
+
+    func testAVoiceAssistantTalkingBackIsNotACall() {
+        // On the mic and playing the whole time, which is all a call is to the
+        // test; it is the list that keeps it out.
+        var d = CallDetector()
+        let assistant = MicUser(bundleID: "com.openai.chat", name: "ChatGPT", playing: true)
+        let siri = MicUser(bundleID: "com.apple.corespeechd", name: "corespeechd", playing: true)
+        for s in 0...20 { XCTAssertNil(d.observe([assistant, siri], at: at(TimeInterval(s)))) }
+        XCTAssertNil(d.call)
+    }
+
+    func testAListedAppCannotTakeTheRealCallsPlace() {
+        // It sorts first, so without the list it would have been the call.
+        var d = CallDetector()
+        let assistant = MicUser(bundleID: "com.openai.chat", name: "ChatGPT", playing: true)
+        d.observe([assistant, zoom], at: at(0))
+        XCTAssertEqual(d.observe([assistant, zoom], at: at(2)),
+                       .started(OngoingCall(bundleID: zoom.bundleID, appName: "zoom.us", startedAt: at(0))))
+    }
+
+    func testAListedAppIsNotTheSavedCall() {
+        // A call an older build believed in, saved before the app was listed:
+        // it is not picked back up, quiet or playing.
+        let recorder = MicUser(bundleID: "com.apple.VoiceMemos", name: "Voice Memos", playing: true)
+        let original = OngoingCall(bundleID: recorder.bundleID, appName: "Voice Memos", startedAt: at(-600))
+        var d = CallDetector(resuming: CallSnapshot(call: original, seenAt: at(-2)), now: at(0))
+        for s in 0...10 { XCTAssertNil(d.observe([recorder], at: at(TimeInterval(s)))) }
+        XCTAssertNil(d.call)
+    }
+
     func testTheSnapshotRoundTrips() throws {
         var d = CallDetector()
         d.observe([whatsApp], at: at(0))

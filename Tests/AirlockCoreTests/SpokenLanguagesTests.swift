@@ -76,4 +76,30 @@ final class SpokenLanguagesTests: XCTestCase {
                                                      primary: "en_US",
                                                      available: available))
     }
+
+    // MARK: - Naming
+
+    /// A Mac set to English (US) with Spain as its region calls itself
+    /// `en_US@rg=eszzzz`, which `localizedString(forIdentifier:)` cannot
+    /// name: Settings showed that code. The keyword is about formats, so the
+    /// language is en_US, named as such.
+    func testTheMacsRegionKeywordIsNotPartOfTheLanguage() {
+        XCTAssertEqual(SpokenLanguages.plain("en_US@rg=eszzzz"), "en_US")
+        XCTAssertEqual(SpokenLanguages.plain("en-US-u-rg-eszzzz"), "en_US")
+        XCTAssertEqual(SpokenLanguages.plain("ca_ES@calendar=buddhist"), "ca_ES")
+        let english = Locale(identifier: "en_GB")
+        XCTAssertEqual(SpokenLanguages.name("en_US@rg=eszzzz", displayLocale: english), "English (United States)")
+        XCTAssertEqual(SpokenLanguages.name("ca_ES@calendar=buddhist", displayLocale: english), "Catalan (Spain)")
+        XCTAssertEqual(DictationHoldNotice.languageName("en_US@rg=eszzzz", displayLocale: english),
+                       "English (United States)")
+    }
+
+    /// What the speech lists hold comes through as it is.
+    func testAPlainIdentifierIsLeftAlone() {
+        for identifier in ["en_US", "es_419", "zh_Hans_CN", "ca_ES_VALENCIA", "nl", ""] {
+            XCTAssertEqual(SpokenLanguages.plain(identifier), identifier)
+        }
+        XCTAssertEqual(SpokenLanguages.plain("es-ES"), "es_ES", "BCP-47 in, the speech lists' spelling out")
+        XCTAssertNil(SpokenLanguages.name(""))
+    }
 }

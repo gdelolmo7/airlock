@@ -600,3 +600,85 @@ final class CompactIslandGuideTests: XCTestCase {
         XCTAssertEqual(CompactIsland.leading(paused), .idle)
     }
 }
+
+/// Call notes after the call: "Writing notes…", then "Notes ready" for eight
+/// seconds, directly under the call.
+final class CompactIslandCallNotesTests: XCTestCase {
+    private let t = Date(timeIntervalSince1970: 1_700_000_000)
+    private var call: OngoingCall { OngoingCall(bundleID: "us.zoom.xos", appName: "Zoom", startedAt: t) }
+
+    private func island(_ notes: CallNotesGlance?, at: TimeInterval = 0,
+                        _ build: (inout CompactIslandInput) -> Void = { _ in }) -> CompactIslandInput {
+        var i = CompactIslandInput(now: t.addingTimeInterval(at), callNotes: notes, callNotesAt: t)
+        build(&i)
+        return i
+    }
+
+    func testTheCallOutranksItsNotes() {
+        let i = island(.writing) { $0.call = self.call }
+        XCTAssertEqual(CompactIsland.trailing(i), .call(call))
+    }
+
+    func testNotesOutrankTheMeetingCountdownAndTheWave() {
+        let i = island(.ready(todos: 2), at: 1) {
+            $0.meetingSoon = true
+            $0.hasMedia = true
+            $0.mediaPlaying = true
+            $0.keepingAwake = true
+            $0.shelfCount = 3
+        }
+        XCTAssertEqual(CompactIsland.trailing(i), .callNotes(.ready(todos: 2)))
+        XCTAssertEqual(CompactIsland.trailing(island(.writing) { $0.meetingSoon = true }),
+                       .callNotes(.writing))
+    }
+
+    func testAWaitingAgentAndADyingBatteryOutrankNotes() {
+        let gate = island(.writing) { $0.agentsEnabled = true; $0.attentionCount = 1; $0.sessionCount = 1 }
+        XCTAssertEqual(CompactIsland.trailing(gate), .attentionDot)
+        let battery = island(.ready(todos: 0), at: 1) { $0.batteryCritical = true }
+        XCTAssertEqual(CompactIsland.trailing(battery), .batteryCritical(minutes: nil))
+    }
+
+    func testReadyShowsForEightSecondsAndWritingForAsLongAsItLasts() {
+        XCTAssertEqual(CompactIsland.notesReadyDuration, 8)
+        XCTAssertEqual(CompactIsland.trailing(island(.ready(todos: 1), at: 0)), .callNotes(.ready(todos: 1)))
+        XCTAssertEqual(CompactIsland.trailing(island(.ready(todos: 1), at: 7.9)), .callNotes(.ready(todos: 1)))
+        XCTAssertEqual(CompactIsland.trailing(island(.ready(todos: 1), at: 8)), .empty)
+        XCTAssertEqual(CompactIsland.trailing(island(.writing, at: 600)), .callNotes(.writing))
+    }
+
+    /// A clock stepping back must not turn eight seconds into however long
+    /// the clock is behind.
+    func testABackwardsClockDoesNotHoldReadyUp() {
+        XCTAssertEqual(CompactIsland.trailing(island(.ready(todos: 1), at: -1)), .empty)
+        XCTAssertNil(island(.ready(todos: 1)) { $0.callNotesAt = nil }.showingCallNotes)
+    }
+
+    func testNotesBringTheIslandUpOnlyWhileTheyShow() {
+        XCTAssertTrue(CompactIsland.hasContent(island(.writing, at: 30)))
+        XCTAssertTrue(CompactIsland.hasContent(island(.ready(todos: 0), at: 3)))
+        XCTAssertFalse(CompactIsland.hasContent(island(.ready(todos: 0), at: 8)))
+        XCTAssertFalse(CompactIsland.hasContent(island(nil)))
+    }
+
+    func testNotesAreSpoken() {
+        XCTAssertEqual(CompactSlot.callNotes(.writing).accessibilityLabel, "Writing call notes")
+        XCTAssertEqual(CompactSlot.callNotes(.ready(todos: 0)).accessibilityLabel, "Call notes ready")
+        XCTAssertEqual(CompactSlot.callNotes(.ready(todos: 1)).accessibilityLabel, "Call notes ready, 1 to-do")
+        XCTAssertEqual(CompactSlot.callNotes(.ready(todos: 2)).accessibilityLabel, "Call notes ready, 2 to-dos")
+        XCTAssertEqual(CompactSlot.callNotes(.tooLittleSaid).accessibilityLabel, "Not enough was said for notes")
+    }
+
+    /// Too little said is the same news as "Notes ready", told the other
+    /// way: in the same place, for the same eight seconds.
+    func testTooLittleSaidShowsLikeReady() {
+        XCTAssertEqual(CompactIsland.trailing(island(.tooLittleSaid, at: 0)), .callNotes(.tooLittleSaid))
+        XCTAssertEqual(CompactIsland.trailing(island(.tooLittleSaid, at: 7.9)), .callNotes(.tooLittleSaid))
+        XCTAssertEqual(CompactIsland.trailing(island(.tooLittleSaid, at: 8)), .empty)
+        XCTAssertEqual(CompactIsland.trailing(island(.tooLittleSaid, at: -1)), .empty)
+        XCTAssertNil(island(.tooLittleSaid) { $0.callNotesAt = nil }.showingCallNotes)
+        XCTAssertEqual(CompactIsland.trailing(island(.tooLittleSaid, at: 1) { $0.meetingSoon = true }),
+                       .callNotes(.tooLittleSaid))
+        XCTAssertEqual(CompactIsland.trailing(island(.tooLittleSaid) { $0.call = self.call }), .call(call))
+    }
+}

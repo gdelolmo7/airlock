@@ -69,23 +69,16 @@ final class OnboardingModel {
             // explicit collapse — leaves nothing to pick up again.
             if newValue {
                 UserDefaults.standard.removeObject(forKey: Keys.resumeStep)
+                #if AIRLOCK_GUIDE
                 UserDefaults.standard.removeObject(forKey: WelcomeModel.resumeKey)
+                #endif
             }
         }
     }
 
-    /// A first run was started and never finished: a step was saved by
-    /// either walk. See `OnboardingPlan.shouldPresent`.
+    /// A first run was started and never finished: a step was saved. See
+    /// `OnboardingPlan.shouldPresent`.
     static var leftHalfway: Bool {
-        !hasCompletedSetup
-            && (UserDefaults.standard.string(forKey: Keys.resumeStep) != nil
-                || UserDefaults.standard.string(forKey: WelcomeModel.resumeKey) != nil)
-    }
-
-    /// The setup wizard, not the welcome, was the walk left halfway — so a
-    /// relaunch returns to it even while the guide is on (which would
-    /// otherwise open the welcome).
-    static var wizardLeftHalfway: Bool {
         !hasCompletedSetup && UserDefaults.standard.string(forKey: Keys.resumeStep) != nil
     }
 
@@ -132,13 +125,6 @@ final class OnboardingModel {
         didFinish = false
         isResuming = resumed
         settings.refresh()
-    }
-
-    /// The welcome's "Yes, I do": setup carries on at its agents step, and
-    /// a quit there comes back to it rather than to nothing.
-    func continueFromWelcome() {
-        restart(at: .agents)
-        Self.remember(.agents)
     }
 
     private func moved() {
@@ -251,7 +237,7 @@ final class OnboardingModel {
            let name = Locale.current.localizedString(forLanguageCode: code) {
             return name
         }
-        return Locale.current.localizedString(forIdentifier: identifier) ?? identifier
+        return SpokenLanguages.name(identifier) ?? identifier
     }
 
     /// Sorted by the name on screen rather than the identifier behind it:
@@ -259,7 +245,7 @@ final class OnboardingModel {
     var dictationLanguages: [SpokenLanguage] {
         dictation.availableLocales
             .map { SpokenLanguage(id: $0.identifier,
-                                  name: Locale.current.localizedString(forIdentifier: $0.identifier)
+                                  name: SpokenLanguages.name($0.identifier)
                                       ?? $0.identifier) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -308,6 +294,17 @@ final class OnboardingModel {
     var launchAtLogin: Bool { settings.launchAtLogin }
 
     func setLaunchAtLogin(_ enabled: Bool) { settings.setLaunchAtLogin(enabled) }
+
+    /// The last step asks whether crash reports may be sent, in a build that
+    /// could send them (`CrashReporter.isAvailable`). Settable so the state
+    /// gallery can show the row from a build without a DSN.
+    var offersCrashReports = CrashReporter.shared.isAvailable
+
+    /// The answer, straight to the crash reporter: off until switched on.
+    var sendsCrashReports: Bool {
+        get { CrashReporter.shared.isEnabled }
+        set { CrashReporter.shared.isEnabled = newValue }
+    }
 
     func revealNotch() { onReveal?() }
 }

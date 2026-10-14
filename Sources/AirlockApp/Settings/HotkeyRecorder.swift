@@ -17,6 +17,8 @@ import SwiftUI
 /// keystroke so the chord being recorded cannot also fire whatever it is
 /// currently bound to somewhere else in the app.
 struct HotkeyRecorder: View {
+    /// What the shortcut does, on the left of the row.
+    let title: String
     @Binding var binding: GlobalHotkey.Binding
     /// Checked live, so a clash is stated while the key is still fresh in mind
     /// rather than discovered later when the gesture silently does two things.
@@ -25,26 +27,36 @@ struct HotkeyRecorder: View {
     @State private var isRecording = false
     @State private var monitor: Any?
     @State private var lastRejection: String?
+    @Environment(\.isEnabled) private var isEnabled
+
+    init(_ title: String, binding: Binding<GlobalHotkey.Binding>,
+         conflict: @escaping (GlobalHotkey.Binding) -> String?) {
+        self.title = title
+        _binding = binding
+        self.conflict = conflict
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Button(action: toggle) {
-                    Text(isRecording ? "Press keys…" : binding.displayName)
-                        .font(.body.monospaced())
-                        .frame(minWidth: 96)
-                        .padding(.vertical, 3)
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(Theme.chrome(12))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer(minLength: 8)
+                if isRecording {
+                    LookButton("Cancel") { stop() }
                 }
-                .buttonStyle(.bordered)
-                .tint(isRecording ? .accentColor : nil)
+                Button(action: toggle) {
+                    LookChip(text: isRecording ? "Press keys…" : binding.displayName)
+                        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(isRecording ? Theme.running : .clear, lineWidth: 1))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .clickable()
                 .accessibilityLabel(isRecording
                                     ? "Recording. Press the keys you want."
                                     : "Shortcut, \(binding.spokenName). Activate to change it.")
-
-                if isRecording {
-                    Button("Cancel") { stop() }
-                        .buttonStyle(.borderless)
-                }
             }
 
             if let lastRejection {
@@ -53,6 +65,8 @@ struct HotkeyRecorder: View {
                 ProblemCard(sentence: clash)
             }
         }
+        .lookRowBox()
+        .opacity(isEnabled ? 1 : 0.45)
         // A recorder left armed would keep swallowing keystrokes after the pane
         // it lives on has gone.
         .onDisappear { stop() }

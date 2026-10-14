@@ -9,10 +9,14 @@ import os
 /// Reads CoreAudio's process list once a second — which apps hold the
 /// microphone and which are playing — and lets `CallDetector` (Core, tested)
 /// decide. A property read, never a tap: no permission, no audio touched.
+/// Apps that listen and play without being a call (`NeverACall`: dictation,
+/// recorders, voice assistants, music apps, the system's speech daemons,
+/// Airlock) are left out here, before anything is grouped or decided.
 ///
 /// Logs to category `call`: the calling app's bundle ID and how long the call
 /// lasted. Never anything said on it — there is nothing here that could hear
-/// it anyway.
+/// it anyway. (Meeting notes do listen, with their own tap and only after a
+/// yes; see `MeetingNotesModel`. This class only tells them a call began.)
 @MainActor
 @Observable
 final class CallMonitor {
@@ -21,6 +25,9 @@ final class CallMonitor {
     /// Called when `call` changes, so the controller re-derives whether the
     /// island is on screen — a call is a driver.
     @ObservationIgnored var onChange: (() -> Void)?
+    /// Called with each start and end, for meeting notes. Its own callback so
+    /// the island's `onChange` stays the controller's alone.
+    @ObservationIgnored var onCallChange: ((CallDetector.Change) -> Void)?
 
     @ObservationIgnored private var detector = CallDetector()
     @ObservationIgnored private var timer: Timer?
@@ -32,6 +39,9 @@ final class CallMonitor {
     /// Daemon bundle IDs already logged once, so an unrecognised one is
     /// visible in the log without a line a second.
     @ObservationIgnored private var reportedUnowned: Set<String> = []
+    /// Apps on `NeverACall` already logged once for holding the mic, so a
+    /// false alarm that was avoided still shows in the log, once.
+    @ObservationIgnored private var reportedNeverACall: Set<String> = []
 
     private static let log = Logger(subsystem: "com.airlock.app", category: "call")
     private static let interval: TimeInterval = 1
@@ -117,6 +127,7 @@ final class CallMonitor {
         samplesSinceSiteCheck = 0
         if let current = call { call?.site = Self.site(of: current) }
         onChange?()
+        if let change { onCallChange?(change) }
     }
 
     /// Looks again every few seconds until the call's site is known, because
@@ -200,22 +211,22 @@ final class CallMonitor {
             let output = AudioProcesses.bool(object, kAudioProcessPropertyIsRunningOutput)
             guard input || output, let pid = AudioProcesses.pid(object), pid != ownPID else { continue }
             let processBundle = AudioProcesses.string(object, kAudioProcessPropertyBundleID)
+            // The process first, so a speech daemon is dropped before its
+            // parents are walked; then the app a helper resolves to.
+            if let processBundle, NeverACall.matches(processBundle) {
+                if input { reportNeverACall(processBundle) }
+                continue
+            }
 
-            let bundleID: String, name: String
-            if let processBundle, let callApp = CallDetector.callApp(forDaemon: processBundle) {
-                bundleID = callApp
-                name = "FaceTime"
-            } else if let app = AudioProcesses.owner(of: pid, bundleID: processBundle,
-                                                     running: running, bundleIDs: bundleIDs),
-                      app.activationPolicy == .regular,
-                      let id = app.bundleIdentifier,
-                      !AppMix.isSystemProcess(bundleID: id) {
-                bundleID = id
-                name = app.localizedName ?? id
-            } else {
+            guard let (bundleID, name) = Self.app(of: pid, processBundle: processBundle,
+                                                  running: running, bundleIDs: bundleIDs) else {
                 if input, let processBundle, reportedUnowned.insert(processBundle).inserted {
                     Self.log.log("mic held by unowned \(processBundle, privacy: .public)")
                 }
+                continue
+            }
+            if NeverACall.matches(bundleID) {
+                if input { reportNeverACall(bundleID) }
                 continue
             }
             var entry = apps[bundleID] ?? (name, false, false)
@@ -225,6 +236,45 @@ final class CallMonitor {
         }
         return apps.filter(\.value.input).map {
             MicUser(bundleID: $0.key, name: $0.value.name, playing: $0.value.output)
+        }
+    }
+
+    private func reportNeverACall(_ bundleID: String) {
+        guard reportedNeverACall.insert(bundleID).inserted else { return }
+        Self.log.log("mic held by \(bundleID, privacy: .public), never a call")
+    }
+
+    /// The app an audio process belongs to, the way a call is counted: the
+    /// FaceTime daemons as FaceTime, a helper as the app that started it, and
+    /// background agents and system processes as nobody.
+    private static func app(of pid: pid_t, processBundle: String?,
+                            running: [NSRunningApplication],
+                            bundleIDs: [String]) -> (bundleID: String, name: String)? {
+        if let processBundle, let callApp = CallDetector.callApp(forDaemon: processBundle) {
+            return (callApp, "FaceTime")
+        }
+        guard let app = AudioProcesses.owner(of: pid, bundleID: processBundle,
+                                             running: running, bundleIDs: bundleIDs),
+              app.activationPolicy == .regular,
+              let id = app.bundleIdentifier,
+              !AppMix.isSystemProcess(bundleID: id) else { return nil }
+        return (id, app.localizedName ?? id)
+    }
+
+    /// Every audio process of the call's app, by the same rule that found the
+    /// call — so the meeting-notes tap hears exactly the app the pill names,
+    /// helpers and FaceTime's daemons included. Never Airlock's own, and
+    /// never a process on `NeverACall`, whoever it belongs to.
+    static func audioProcesses(ofCallApp bundleID: String) -> [AudioObjectID] {
+        let running = NSWorkspace.shared.runningApplications
+        let bundleIDs = running.compactMap(\.bundleIdentifier)
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        return AudioProcesses.objects().filter { object in
+            guard let pid = AudioProcesses.pid(object), pid != ownPID else { return false }
+            let processBundle = AudioProcesses.string(object, kAudioProcessPropertyBundleID)
+            if let processBundle, NeverACall.matches(processBundle) { return false }
+            return app(of: pid, processBundle: processBundle, running: running,
+                       bundleIDs: bundleIDs)?.bundleID == bundleID
         }
     }
 }

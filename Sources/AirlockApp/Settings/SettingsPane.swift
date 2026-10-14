@@ -105,6 +105,15 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The word on the page's tab. The title, except where the title is a
+    /// phrase: "The notch" reads as a sentence fragment in a column of words.
+    var tabTitle: String {
+        switch self {
+        case .appearance: return "Notch"
+        default: return title
+        }
+    }
+
     var symbol: String {
         switch self {
         case .general: return "gearshape"

@@ -12,14 +12,16 @@ import SwiftUI
 /// to.
 enum SettingsAnchor: String, CaseIterable, Identifiable {
     // General
-    case launchAtLogin, displays, sounds, updates, diagnostics
+    case launchAtLogin, displays, sounds, updates, crashReports, diagnostics
     // The notch
     case surface, panelWidth, textSize, usageLimits, batteryPercentage
     case widgets, reactiveWave, perAppVolume
     case keepAwakeAgents, keepAwakeCutoff, keepAwakeScreen, keepAwakeShortcut
     case agentsSwitch, calendars, shelf
     // Voice
-    case holdToDictate, holdToAsk, microphoneInput, language, cleanup, pauseMusic, commandBar
+    case holdToDictate, holdToAsk, microphoneInput, language, callNotes, callLanguages, pastCalls, notesOnline,
+         knownWords, cleanup, pauseMusic
+    case commandBar
     // Clipboard
     case clipboardHistory, neverRecorded, clipboardShortcut, autoPaste
     // Agents / Developer
@@ -38,13 +40,14 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
 
     var pane: SettingsPane {
         switch self {
-        case .launchAtLogin, .displays, .sounds, .updates, .diagnostics, .guideAccessKey: return .general
+        case .launchAtLogin, .displays, .sounds, .updates, .crashReports, .diagnostics,
+             .guideAccessKey: return .general
         case .surface, .panelWidth, .textSize, .usageLimits, .batteryPercentage,
              .widgets, .reactiveWave, .perAppVolume,
              .keepAwakeAgents, .keepAwakeCutoff, .keepAwakeScreen, .keepAwakeShortcut,
              .agentsSwitch, .calendars, .shelf: return .appearance
-        case .holdToDictate, .holdToAsk, .microphoneInput, .language, .cleanup,
-             .pauseMusic, .commandBar: return .voice
+        case .holdToDictate, .holdToAsk, .microphoneInput, .language, .callNotes, .callLanguages, .pastCalls,
+             .notesOnline, .knownWords, .cleanup, .pauseMusic, .commandBar: return .voice
         case .clipboardHistory, .neverRecorded, .clipboardShortcut, .autoPaste: return .clipboard
         case .developerMode, .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return .agents
         case .permissionCalendar, .permissionMicrophone, .permissionInputMonitoring,
@@ -61,6 +64,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .sounds: return "Sounds"
         case .displays: return "Show on the main display"
         case .updates: return "Check for updates automatically"
+        case .crashReports: return "Send crash reports"
         case .diagnostics: return "Health and diagnostics"
         case .surface: return "Background"
         case .panelWidth: return "How wide the open notch is"
@@ -81,6 +85,11 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .holdToAsk: return "Hold a key to ask"
         case .microphoneInput: return "Microphone"
         case .language: return "Language"
+        case .callNotes: return "Call notes"
+        case .callLanguages: return "Language on calls"
+        case .pastCalls: return "Past calls"
+        case .notesOnline: return "Write notes online"
+        case .knownWords: return "Words to know"
         case .cleanup: return "Tidy up what I said"
         case .pauseMusic: return "Pause music while speaking"
         case .commandBar: return "Type at the notch too"
@@ -117,11 +126,12 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .sounds: return ["sound", "audio", "chime", "alert", "mute", "quiet", "volume"]
         case .displays: return ["display", "monitor", "screen", "external", "lid", "main"]
         case .updates: return ["update", "version", "new"]
+        case .crashReports: return ["crash", "report", "sentry", "privacy", "bug", "quit"]
         case .diagnostics: return ["log", "report", "debug", "problem", "health"]
         case .surface: return ["background", "glass", "dark", "look", "colour", "color"]
         case .panelWidth: return ["width", "size", "wide", "narrow"]
         case .textSize: return ["font", "bigger", "larger", "smaller", "zoom", "read"]
-        case .usageLimits: return ["usage", "limits", "rate", "hours", "weekly", "top bar", "claude"]
+        case .usageLimits: return ["usage", "limits", "rate", "hours", "weekly", "agents", "claude"]
         case .batteryPercentage: return ["battery", "percent", "top bar"]
         case .widgets: return ["widget", "media", "music", "spotify", "calendar", "system", "cpu",
                                "memory", "repository", "git", "show", "hide"]
@@ -138,6 +148,13 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .holdToAsk: return ["ask", "question", "assistant", "voice", "hold", "key"]
         case .microphoneInput: return ["microphone", "mic", "input", "device", "headset"]
         case .language: return ["language", "spanish", "english", "speak"]
+        case .callNotes: return ["calls", "meetings", "notes", "transcript", "teams", "facetime", "minutes",
+                                 "record"]
+        case .callLanguages: return ["language", "calls", "meetings", "notes", "spanish", "english"]
+        case .pastCalls: return ["past", "calls", "meetings", "transcript", "history", "open"]
+        case .notesOnline: return ["online", "cloud", "internet", "server", "gemini", "better", "notes",
+                                   "meetings", "calls", "summary"]
+        case .knownWords: return ["words", "names", "spelling", "vocabulary", "transcript", "meetings", "calls"]
         case .cleanup: return ["cleanup", "punctuation", "filler", "tidy"]
         case .pauseMusic: return ["music", "pause", "speaking"]
         case .commandBar: return ["command bar", "type", "shortcut", "option space", "ask"]
@@ -170,22 +187,48 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     /// Whether the row exists in the Settings shown now: the guide's pages and
     /// the Developer switch only with the guide on, the screen-recording row
     /// only for the guide. With the guide on, the agent rows wait behind
-    /// Developer mode (`agentsOn`), as the page does.
-    func isAvailable(guideOn: Bool, agentsOn: Bool = true) -> Bool {
+    /// Developer mode (`agentsOn`), as the page does. The call languages and
+    /// the way to past calls only while call notes are on (`callNotesOn`), as
+    /// on the Voice page. "Write notes online" only with call notes on and
+    /// notes online shown (`notesOnlineOn`).
+    @MainActor
+    func isAvailable(guideOn: Bool, agentsOn: Bool = true,
+                     callNotesOn: Bool = SettingsAnchor.callNotesAreOn,
+                     notesOnlineOn: Bool = SettingsAnchor.notesOnlineShown) -> Bool {
         switch self {
         case .guideVoice, .guideLayout, .guideKeys, .privacyPromise, .neverLook,
              .developerMode, .permissionScreenRecording, .guideAccessKey: return guideOn
         case .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return !guideOn || agentsOn
         case .licenceKey: return !Pricing.isFree
+        // Only a build that could send one shows the switch.
+        case .crashReports: return CrashReporter.bundleDSN != nil
+        case .callLanguages, .pastCalls, .knownWords: return callNotesOn
+        case .notesOnline: return callNotesOn && notesOnlineOn
         default: return true
         }
     }
 
+    /// Read the way the call notes' model reads its switch.
+    @MainActor
+    static var callNotesAreOn: Bool { MeetingNotesModel.isOn }
+
+    /// "Write notes online" is there only while notes online are switched on
+    /// by hand, and for a subscriber: nobody else's notes go online.
+    @MainActor
+    static var notesOnlineShown: Bool {
+        CloudNotesService.shared.isOn && CloudNotesService.shared.entitlement().isPaid
+    }
+
     /// Matching settings for the search field, best first.
+    @MainActor
     static func search(_ query: String, guideOn: Bool = SettingsPane.guideIsOn,
-                       agentsOn: Bool = true) -> [SettingsAnchor] {
+                       agentsOn: Bool = true, callNotesOn: Bool = callNotesAreOn,
+                       notesOnlineOn: Bool = notesOnlineShown) -> [SettingsAnchor] {
         allCases
-            .filter { $0.isAvailable(guideOn: guideOn, agentsOn: agentsOn) }
+            .filter {
+                $0.isAvailable(guideOn: guideOn, agentsOn: agentsOn, callNotesOn: callNotesOn,
+                               notesOnlineOn: notesOnlineOn)
+            }
             .compactMap { anchor -> (SettingsAnchor, Int)? in
                 SettingsSearch.score(query: query, title: anchor.title, keywords: anchor.keywords,
                                      page: anchor.pane.title).map { (anchor, $0) }

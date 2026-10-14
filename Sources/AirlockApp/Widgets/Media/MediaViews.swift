@@ -365,9 +365,11 @@ struct WaveTapStatusLine: View {
             }
         } else {
             Label(status, systemImage: "waveform")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(Theme.chrome(11))
+                .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

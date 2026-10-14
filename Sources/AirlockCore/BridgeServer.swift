@@ -10,6 +10,7 @@ import Foundation
 /// Gates that ask are held until the user decides or `ask_timeout` expires,
 /// at which point the hook is told to defer to the agent's own prompt. Several
 /// can wait in one session; they queue, oldest first, one card at a time.
+/// Once the trial has ended they are not held at all — see `GateHolding`.
 public actor BridgeServer {
     /// Domain events, ready for `SessionState.apply`. Consumed by the app.
     public nonisolated let events: AsyncStream<AgentEvent>
@@ -52,6 +53,12 @@ public actor BridgeServer {
     /// `ask_timeout`, a rule, or its hook going away. Every one of those is
     /// addressed by request id, which is why the decoder makes ids unique.
     private var gates: [String: [Gate]] = [:]
+
+    /// Whether a gate that asks is held for a card at all. Holding until the
+    /// app says otherwise is what every copy did before it knew its licence,
+    /// and it is the right side to be wrong on: a held gate can still be
+    /// handed back, a handed-back one cannot be asked again.
+    private var holding: GateHolding = .holdForPerson
 
     /// How long any gate may be held, from its arrival: a minute short of the
     /// hook's own wait (`HookDirective.blockingWait`, which is also what the
@@ -191,6 +198,19 @@ public actor BridgeServer {
         onAutoDecision = handler
     }
 
+    /// Set by the app whenever the entitlement changes — see `GateHolding`.
+    ///
+    /// Handing back also lets go of everything already held. A card up when
+    /// the trial ran out — or one that arrived in the moment between launch
+    /// and the licence being read — can no more be answered than a new one,
+    /// and its hook would otherwise wait out `ask_timeout` with the terminal
+    /// showing nothing.
+    public func setGateHolding(_ holding: GateHolding) {
+        self.holding = holding
+        guard holding == .handBack else { return }
+        for sessionID in Array(gates.keys) { releaseSession(sessionID) }
+    }
+
     // MARK: - Ingest
 
     /// The one way an event leaves the bridge, so `emittedUpTo` cannot miss one.
@@ -286,6 +306,16 @@ public actor BridgeServer {
             onAutoDecision?(GateRecord(request: request, outcome: .autoDenied,
                                        agent: payload.source, projectRoot: payload.cwd,
                                        decidedAt: Date()))
+
+        case .ask where holding == .handBack:
+            // Nobody can answer it from the notch, so it goes straight back
+            // with no decision and the agent asks in its own terminal. No
+            // card, so nothing opens the island; the row says where the
+            // question went, the same line a card handed back leaves. Not
+            // logged, like a gate that ran out of time: nobody decided it.
+            connection.send(.directive(HookDirective(action: .deferToAgent)))
+            connection.close()
+            emit(gateEvent.replacing(kind: .activity(summary: SessionCardText.handedBack)))
 
         case .ask:
             emit(gateEvent)

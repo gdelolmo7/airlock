@@ -38,7 +38,12 @@ struct SessionRowView: View {
         _isExpanded = State(initialValue: startsExpanded)
     }
 
-    private var accent: Color { Theme.accent(for: session.status) }
+    /// What the pill says and the tile is tinted with — the session's status,
+    /// but "Needs you" while it waits on its own terminal. The ring below
+    /// still goes by the status: it marks a card the notch can answer.
+    private var shownStatus: SessionStatus { SessionCardText.pillStatus(of: session) }
+
+    private var accent: Color { Theme.accent(for: shownStatus) }
 
     /// A finished turn under the pointer shows prompt + reply together.
     private var showsFullExchange: Bool {
@@ -57,9 +62,9 @@ struct SessionRowView: View {
 
     /// What the row already knows and never had room to say.
     ///
-    /// The account-wide usage figures appear here as well as in the top bar
-    /// deliberately: the strip has room for two numbers and no room for what
-    /// they mean.
+    /// The account-wide usage figures appear here as well as at the top of the
+    /// tab deliberately: that line has room for two numbers and no room for
+    /// what they mean.
     private var detail: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
@@ -214,7 +219,7 @@ struct SessionRowView: View {
                         Spacer(minLength: 6)
                         // The state, said in a word, for anyone who cannot use
                         // the tile's colour as the only channel.
-                        SessionStatusPill(text: session.status.word, tint: accent)
+                        SessionStatusPill(text: shownStatus.word, tint: accent)
                     }
                     // Resting: ONE message line — the latest turn (the agent's
                     // reply once it answered, your prompt while it hasn't).
@@ -237,7 +242,7 @@ struct SessionRowView: View {
                     if !brief, let activity = activityLine {
                         Text(activity)
                             .font(Theme.chrome(11.5, .medium))
-                            .foregroundStyle(session.status == .running ? Theme.running : Theme.textTertiary)
+                            .foregroundStyle(shownStatus == .running ? Theme.running : Theme.textTertiary)
                             .lineLimit(1)
                     }
                     footer

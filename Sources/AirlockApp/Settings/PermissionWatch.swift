@@ -69,30 +69,20 @@ struct PermissionFixRow: View {
     private static let log = Logger(subsystem: "com.airlock.app", category: "permissions")
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
             if knownOldApproval {
                 ProblemCard(sentence: kind.oldApprovalSentence,
                             button: running ? "Fixing…" : "Fix",
                             action: { if !running { confirming = true } })
-                Text(kind.oldApprovalSteps)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                LookNote(kind.oldApprovalSteps)
             } else {
-                Text(kind.fixQuestion)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(kind.fixExplanation)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button(running ? "Fixing…" : "Fix") { confirming = true }
-                    .disabled(running)
+                LookRow(kind.fixQuestion, subtitle: kind.fixExplanation) {
+                    LookButton(running ? "Fixing…" : "Fix") { confirming = true }
+                        .disabled(running)
+                }
             }
             if let result {
-                Text(result)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
+                LookNote(result)
             }
         }
         .confirmationDialog("Clear Airlock's \(kind.systemName) record?", isPresented: $confirming) {

@@ -185,6 +185,10 @@ final class SettingsModel {
     /// funnels through. `AgentsWidgetModel` derives its default from exactly
     /// that, so installing hooks turns the agent surfaces on without a relaunch.
     @ObservationIgnored var onHookStatusChange: (() -> Void)?
+    /// "Open past calls" on the Voice page: the call notes window, on the
+    /// newest call. The window belongs to the call notes model, which
+    /// Settings does not hold.
+    @ObservationIgnored var onOpenPastCalls: (() -> Void)?
 
     @ObservationIgnored private let registry = AgentRegistry.shared
     @ObservationIgnored private let store = PolicyStore()

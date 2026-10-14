@@ -8,12 +8,16 @@ extension SessionStatus {
     /// for the same state, so one card could say it twice in two different
     /// words. The plainer list won: "Idle" read as nothing happening when what
     /// it means is that the agent is waiting for your next prompt.
+    ///
+    /// The two waiting states share theirs. `waitingQuestion` is an approval an
+    /// agent that cannot wait for the notch asks in its own terminal, and it
+    /// said "Question" where every other approval says "Needs you" — the card
+    /// under the pill is what tells the two apart, with where to answer.
     public var word: String {
         switch self {
         case .starting: return "Starting"
         case .running: return "Working"
-        case .needsAttention: return "Needs you"
-        case .waitingQuestion: return "Question"
+        case .needsAttention, .waitingQuestion: return "Needs you"
         case .idle: return "Your turn"
         case .done: return "Finished"
         case .error: return "Error"
@@ -30,12 +34,36 @@ extension SessionStatus {
 /// first prompt is what names it.
 public enum SessionCardText {
     /// The row's line after a request was handed back to the agent's own
-    /// prompt — by the card's ×, or by running out of time.
+    /// prompt — by the card's ×, by running out of time, or, once the trial
+    /// has ended, on arrival (`GateHolding`).
     ///
     /// It used to keep the request's own words ("Run shell command", or the
     /// question itself), which read as the agent still being on it when it is
     /// sitting at its prompt waiting for an answer typed there.
     public static let handedBack = "Asking in its terminal instead"
+
+    /// The state the pill says, and the colour it and the tile take.
+    ///
+    /// The session's own status, except while the agent waits on an answer in
+    /// its own terminal: that reads "Needs you" too. The card said "Asking in
+    /// its terminal instead" beside a "Working" pill, which read as nothing to
+    /// do. Only the words and their colour move — nothing is waiting on the
+    /// notch, so the session stays running for all that reads attention: the
+    /// island opening, the sound, the order of the list.
+    public static func pillStatus(of session: AgentSession) -> SessionStatus {
+        session.status == .running && asksInItsTerminal(session) ? .needsAttention : session.status
+    }
+
+    /// Whether the line says the agent is at its own prompt, waiting on you: a
+    /// request handed back to it, or Claude saying it needs your permission.
+    /// That notice takes the line over while Claude's prompt is still up, so
+    /// the handed-back line alone would turn the pill back to "Working" before
+    /// anybody answered. Anything else the agent says next — the call running,
+    /// a new prompt, the turn ending — replaces the line and ends it.
+    static func asksInItsTerminal(_ session: AgentSession) -> Bool {
+        let line = session.lastSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return line == handedBack || line.hasPrefix(ClaudeStyleHookDecoder.permissionNoticePrefix)
+    }
 
     /// The card's heading.
     ///

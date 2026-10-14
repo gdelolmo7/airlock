@@ -39,6 +39,10 @@ final class HouseWordsTests: XCTestCase {
         "Text(", "Label(", "Button(", "Section(", "Toggle(", "LabeledContent(",
         ".help(", "ProblemCard(", "PaneReference(", "messageText", "informativeText",
         "addButton(withTitle:", ".accessibilityLabel(", ".accessibilityHint(",
+        // Settings' rows (`SettingsLook`). `LookButton(` and `LookGroupLabel(`
+        // are already caught by `Button(` and `Label(`.
+        "LookRow(", "LookToggleRow(", "LookNote(", "LookPage(", "LookValue(", "LookStatus(",
+        "LookMenu(", "statusRow(", "PermissionStatusRow(", "HotkeyRecorder(",
     ]
 
     /// `name = "…"` where the name says the value is shown.

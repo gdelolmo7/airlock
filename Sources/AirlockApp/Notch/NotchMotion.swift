@@ -238,6 +238,11 @@ enum MotionEffect {
     /// an agent runs.
     static let breathe = Animation.easeInOut(duration: 1.5).repeatForever(autoreverses: true)
 
+    /// Call notes being taken: a dip and back every two seconds. Slower than
+    /// `pulse`, which is a live microphone, because this sits beside a call
+    /// for an hour and only has to say "still writing".
+    static let notesBreath = Animation.easeInOut(duration: 1).repeatForever(autoreverses: true)
+
     /// The three waiting dots, each a beat behind the one before.
     static func waiting(dot index: Int) -> Animation {
         .easeInOut(duration: 0.55).repeatForever(autoreverses: true).delay(Double(index) * 0.18)

@@ -150,6 +150,21 @@ public enum SubmittedPrompt: Equatable, Sendable {
         return text.isEmpty ? nil : text
     }
 
+    /// Which task a notification is about: its `<task-id>` and the call that
+    /// started it, `<tool-use-id>`. Nil for anything that is not one.
+    public static func notifiedTask(in raw: String) -> (taskID: String?, callID: String?)? {
+        let text = Substring(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let block = leadingBlock(of: text), block.tag == "task-notification" else { return nil }
+        func inner(_ tag: String) -> String? {
+            guard let open = block.body.range(of: "<\(tag)>"),
+                  let close = block.body.range(of: "</\(tag)>", range: open.upperBound..<block.body.endIndex)
+            else { return nil }
+            let value = block.body[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        return (inner("task-id"), inner("tool-use-id"))
+    }
+
     /// From the notification's `<status>`, and from its summary's exit code —
     /// a command that ran to the end and exited 1 did not succeed.
     private static func outcome(of notification: Substring) -> TaskOutcome {

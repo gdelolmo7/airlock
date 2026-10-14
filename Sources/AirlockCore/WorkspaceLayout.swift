@@ -27,6 +27,9 @@ public struct WorkspaceLayout: Equatable, Sendable {
     public var workspace: URL { root.appendingPathComponent("workspace", isDirectory: true) }
     /// The tray tab's folder. The folder IS the model — no database.
     public var tray: URL { root.appendingPathComponent("tray", isDirectory: true) }
+    /// One folder per call that notes were taken on. Made when the first
+    /// notes are, not here: most people never turn the feature on.
+    public var meetings: URL { root.appendingPathComponent("Meetings", isDirectory: true) }
 
     public static let environmentOverride = "AIRLOCK_WORKSPACE"
 

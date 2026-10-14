@@ -172,7 +172,7 @@ enum Theme {
 
     /// The band flanking the housing. Scales, but capped: its width budget is
     /// measured in `NotchAppearanceModel.trailingGutterDemand`, and unbounded
-    /// growth there pushes the usage figures behind the camera.
+    /// growth there pushes the tabs and the battery behind the camera.
     @MainActor
     static func gutter(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size * min(textScale, 1.25), weight: weight, design: .default)

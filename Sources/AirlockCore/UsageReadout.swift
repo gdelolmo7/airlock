@@ -30,7 +30,7 @@ public enum UsageReadout {
         return .current
     }
 
-    /// The top bar's tooltip while the figures are current.
+    /// The figures' tooltip while they are current.
     public static let currentHelp =
         "Claude usage: how much of your 5-hour and weekly limits you've used. It updates each time Claude Code answers in a terminal."
 
@@ -63,5 +63,13 @@ public enum UsageReadout {
     /// connected, and the link is somebody else's.
     public static func showsStopped(wanted: Bool, connection: UsageConnection.State) -> Bool {
         wanted && connection == .replaced
+    }
+
+    /// Whether the figures' line is drawn at the top of the Agents tab: they
+    /// are wanted, and nothing is waiting on you. The top of that tab belongs
+    /// to a gate or a question, and a readout is neither — so while one waits
+    /// the line steps aside rather than push it down.
+    public static func showsLine(wanted: Bool, somethingWaits: Bool) -> Bool {
+        wanted && !somethingWaits
     }
 }

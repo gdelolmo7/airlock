@@ -33,11 +33,21 @@ cd "$(dirname "$0")/.."
 #          AIRLOCK_APPCAST_URL=https://useairlock.app/appcast.xml \
 #          AIRLOCK_DOWNLOAD_PREFIX=https://useairlock.app/downloads/
 #
+# Two more for crash reports, both optional. AIRLOCK_SENTRY_DSN lets the app
+# offer them; without it the build never starts the crash handler. It is not a
+# secret (it ships in every copy's Info.plist), so it lives here too:
+#
+#   export AIRLOCK_SENTRY_DSN=https://ee483a87186fed23b4c98a77d3daafc3@o4511531076747264.ingest.de.sentry.io/4512225124221008
+#
+# SENTRY_AUTH_TOKEN uploads the debug symbols after notarization, so reports
+# read as function names rather than addresses (step 6b). That one IS a
+# secret: export it by hand, never write it here.
+#
 # Run this from YOUR OWN Terminal, not through a coding agent's shell.
 # Notarization failed three times that way with `completedParts: []` — it
 # authenticates, opens the multipart upload, and transfers nothing — and worked
 # first time from Terminal.app.
-VERSION="${AIRLOCK_VERSION:-1.0.18}"
+VERSION="${AIRLOCK_VERSION:-1.0.19}"
 PROFILE="${AIRLOCK_NOTARY_PROFILE:-airlock}"
 OUT=output/package
 APP="$OUT/Airlock.app"
@@ -129,6 +139,11 @@ echo "▸ identity: $IDENTITY"
 echo "▸ notary profile: $PROFILE"
 echo "▸ licence server: ${AIRLOCK_LICENSE_API_URL:-none (explicitly allowed)}"
 echo "▸ appcast feed: ${AIRLOCK_APPCAST_URL:-none (explicitly allowed)}"
+if [[ -n "${AIRLOCK_SENTRY_DSN:-}" ]]; then
+  echo "▸ crash reports: offered (sent only after the person says yes)"
+else
+  echo "▸ crash reports: not in this build (no AIRLOCK_SENTRY_DSN)"
+fi
 
 # Refuse a version that is already published BEFORE notarizing, not after. The
 # precise byte-comparison guard at the staging step still runs, but it runs
@@ -198,6 +213,37 @@ spctl --assess --type execute --verbose=2 "$APP" 2>&1 | sed 's/^/  gatekeeper ap
 # opposed to launching an app. Asking only the latter is how 1.0.0 shipped.
 spctl --assess -t open --context context:primary-signature --verbose=2 "$DMG" 2>&1 \
   | sed 's/^/  gatekeeper dmg: /'
+
+# ── 6b. Crash reports' debug symbols, uploaded to Sentry so a report from this
+#    build reads as function names and line numbers instead of bare addresses.
+#    Optional: without SENTRY_AUTH_TOKEN this prints one line and moves on, and
+#    the release is no worse for it (symbols can be uploaded later from the
+#    same binary). A failed upload warns rather than stopping, because this
+#    runs after two notarizations, the most expensive place to fall over.
+#
+#    The dSYM is made from the release binary package-app.sh copied into the
+#    bundle; signing and stapling leave its UUID alone, so the two still match.
+#    sentry-cli reads the token from the environment, never from argv. An
+#    organization token knows its region; any other kind needs
+#    SENTRY_URL=https://de.sentry.io for the EU-hosted organization.
+if [[ -n "${SENTRY_AUTH_TOKEN:-}" ]]; then
+  if command -v sentry-cli >/dev/null 2>&1; then
+    echo "▸ uploading debug symbols for crash reports"
+    DSYM="$OUT/Airlock.dSYM"
+    rm -rf "$DSYM"
+    if dsymutil .build/release/AirlockApp -o "$DSYM" \
+       && sentry-cli debug-files upload --org "${SENTRY_ORG:-outrun}" \
+            --project "${SENTRY_PROJECT:-airlock-macos}" "$DSYM"; then
+      echo "  ✓ symbols uploaded"
+    else
+      echo "  ⚠ symbol upload failed; reports from this build show addresses until it is redone"
+    fi
+  else
+    echo "▸ crash-report symbols not uploaded: SENTRY_AUTH_TOKEN is set but sentry-cli is not installed (brew install getsentry/tools/sentry-cli)"
+  fi
+else
+  echo "▸ crash-report symbols not uploaded (no SENTRY_AUTH_TOKEN): reports from this build will show addresses, not function names"
+fi
 
 # ── 7. The appcast: the XML Sparkle fetches to learn a new version exists, with
 #    the EdDSA signature of this DMG in it. Generated from the output directory,

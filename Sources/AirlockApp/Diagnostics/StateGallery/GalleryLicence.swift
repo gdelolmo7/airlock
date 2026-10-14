@@ -28,10 +28,17 @@ enum GalleryLicence {
                     .environment(LicenseModel(previewing: .trialing(daysRemaining: 1)))
             },
             GalleryState("L4", area, "Trial ended") {
-                LicenseBlockedView(onSubscribe: {}, surface: LicenseBlockedView.panel)
+                LicenseBlockedView(onSubscribe: {}, onEnterKey: {}, surface: LicenseBlockedView.panel)
             },
             GalleryState("L4a", area, "Subscription ended (subscribed before)") {
-                LicenseBlockedView(onSubscribe: {}, surface: LicenseBlockedView.panel, subscribedBefore: true)
+                LicenseBlockedView(onSubscribe: {}, onEnterKey: {}, surface: LicenseBlockedView.panel,
+                                   subscribedBefore: true)
+            },
+            // With agents on, their requests go straight back to the terminal
+            // and the island stays shut, so this card is where that is said.
+            GalleryState("L4b", area, "Trial ended, coding agents on") {
+                LicenseBlockedView(onSubscribe: {}, onEnterKey: {}, surface: LicenseBlockedView.panel,
+                                   agentsAsk: true)
             },
             GalleryState("L5", area, "Payment overdue") {
                 LicenseNoticeBanner(notice: .overdue)
@@ -80,6 +87,10 @@ enum GalleryLicence {
             GalleryState("L20", area, "Purchase window: choose a plan", ground: .window, width: purchaseWidth) {
                 purchase(PurchaseFlow())
             },
+            // What the last-day card's monthly button opens.
+            GalleryState("L20a", area, "Purchase window: opened on monthly", ground: .window, width: purchaseWidth) {
+                purchase(PurchaseFlow(), plan: .monthly)
+            },
             GalleryState("L21", area, "Purchase window: finish in your browser", ground: .window, width: purchaseWidth) {
                 purchase(flow { $0.begin(plan: .yearly) })
             },
@@ -120,7 +131,7 @@ enum GalleryLicence {
     /// The settings window's detail column: 780 less the sidebar's 204.
     static let paneWidth: CGFloat = 576
     /// `PurchaseView`'s own frame.
-    private static let purchaseWidth: CGFloat = 460
+    private static let purchaseWidth: CGFloat = 480
 
     private static let licence: License = {
         let renews = Date(timeIntervalSince1970: 1_822_000_000) // late Sep 2027
@@ -154,27 +165,21 @@ enum GalleryLicence {
 
     /// Settings › General › Updates. Also drawn by `GallerySettings` (X4).
     static func updates(_ status: UpdateStatus, canCheck: Bool) -> some View {
-        Form {
+        LookColumn {
             UpdatesSection(checksAutomatically: .constant(true),
                            lastCheck: Date(timeIntervalSince1970: 1_790_000_000),
                            canCheck: canCheck,
                            statusLine: UpdateStatus.line(status, canCheck: canCheck))
         }
-        .formStyle(.grouped)
-        .frame(height: 375)
     }
 
     /// Settings › General's launch-at-login switch after macOS refused the
     /// change (X6), with the shipping sentence.
     static var launchAtLoginRefused: some View {
-        Form {
-            Section("When should Airlock start?") {
-                Toggle("Launch at login", isOn: .constant(false))
-                LaunchAtLoginProblem(note: "Login Items couldn't be changed. Try it in System Settings › General › Login Items.")
-            }
+        LookColumn {
+            LookToggleRow("Launch at login", isOn: .constant(false))
+            LaunchAtLoginProblem(note: "Login Items couldn't be changed. Try it in System Settings › General › Login Items.")
         }
-        .formStyle(.grouped)
-        .frame(height: 185)
     }
 
     private static func flow(_ steps: (PurchaseFlow) -> Void) -> PurchaseFlow {
@@ -183,8 +188,13 @@ enum GalleryLicence {
         return flow
     }
 
-    private static func purchase(_ flow: PurchaseFlow, pendingGate: String? = nil) -> some View {
+    private static func purchase(_ flow: PurchaseFlow, pendingGate: String? = nil,
+                                 plan: License.Period = .yearly) -> some View {
         PurchaseView(flow: flow, tally: UsageTally(approvals: 41, answers: 9, dictations: 23),
-                     onBuy: { _ in }, onPasteKey: {}, onDismiss: {}, pendingGate: pendingGate)
+                     onBuy: { _ in }, onPasteKey: {}, onDismiss: {}, pendingGate: pendingGate,
+                     openingPlan: plan)
+            // The real window's see-through title bar, which the page sits under.
+            .safeAreaPadding(.top, 28)
+            .background(SettingsLook.ground)
     }
 }

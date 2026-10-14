@@ -82,6 +82,12 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Takes the window down when the setup moves to the notch. Closing counts
+    /// as finishing, which is right here: the notch copy settles it again.
+    func close() {
+        window?.close()
+    }
+
     /// Reopened from the menu bar. Rewinds to the first step so it is a guide
     /// rather than a stale end-screen.
     func showFromStart() {

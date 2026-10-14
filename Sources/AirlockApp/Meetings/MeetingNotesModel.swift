@@ -1,0 +1,1764 @@
+import AVFoundation
+import AppKit
+import AirlockCore
+import CoreAudio
+import IOKit.pwr_mgt
+import Speech
+
+/// `meetings.log`: what the call notes did, for the owner. Same rules as the
+/// wave's log (`WaveDiagnostics`): main actor only, shut in tests, capped.
+/// Never a word of what was said: only counts, languages and timings.
+enum MeetingDiagnostics {
+    static var url: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/Airlock/meetings.log")
+    }
+
+    @MainActor
+    static func log(_ message: String) {
+        guard OwnerLogs.areOpen else { return }
+        let line = "\(Date().formatted(date: .omitted, time: .standard))  \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        let manager = FileManager.default
+        if let size = (try? manager.attributesOfItem(atPath: url.path)[.size]) as? Int,
+           size > 64 * 1024 {
+            try? manager.removeItem(at: url)
+        }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url)
+            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+    }
+}
+
+/// Notes of your calls, written on this Mac: asked once per call in the
+/// panel, listened to as two tracks (you, them), saved as text as it is said,
+/// and summarised when the call ends. Also notes of a meeting in the room,
+/// started by hand ("Take notes"): the Mac's microphone as the one track,
+/// every voice on it told apart by the voice model.
+///
+/// The rules live in `MeetingNotesFlow` and `CallChannelHealth` (Core,
+/// tested); this is the part that touches the microphone, the call app's
+/// sound, the disk and the model, and it looks once a second while notes are
+/// taken to tell them what it sees.
+///
+/// **On unless switched off** (`meetings.enabled`, the "Call notes" switch
+/// on the Voice page in Settings). It was a prototype switched on by hand on
+/// the owner's Mac from 2026-10-08, and on for everyone from 1.0.19. Off,
+/// the call pill behaves exactly as before and none of this listens to
+/// anything.
+@MainActor
+@Observable
+final class MeetingNotesModel {
+    static let enabledKey = "meetings.enabled"
+    /// What the switch says before anybody has touched it.
+    static let onByDefault = true
+    /// Whether call notes are on, read the way every part of the app reads it.
+    static var isOn: Bool { Defaults.bool(enabledKey, default: onByDefault) }
+    static let autoStartKey = "meetings.autoStart"
+    /// Taking the speakers out of your side: on unless set to false.
+    static let echoRemovalKey = "meetings.echoRemoval"
+    /// The words typed in Settings for transcripts to spell their way
+    /// (`MeetingKnownWords`), as a list of strings.
+    static let knownWordsKey = "meetings.knownWords"
+    /// How many of the latest meetings are read for names given to voices.
+    static let namesLookedBack = 50
+    static let echoLogEvery: TimeInterval = 60
+    /// How recent the Mac's last voice must be to count as playing one at a
+    /// look: a look's second, and the speakers' drain's slack.
+    static let speakingWithin: TimeInterval = 1.5
+    /// How long "Notes ready" stays in the panel before it tidies itself away.
+    static let readyLinger: Duration = .seconds(600)
+    /// How often the model looks while notes are taken. The waits it serves
+    /// are seconds long, and each look is a handful of property reads.
+    static let lookEvery: Duration = .seconds(1)
+    /// After the Mac wakes, how long before looking whether the call its
+    /// sleep stopped notes on is still on. The call detector looks once a
+    /// second, and a call that ended during the sleep is only over once it
+    /// has been missing for the detector's grace, counted from its first look
+    /// after waking. Looking sooner would find a finished call still "on" and
+    /// start listening to nothing.
+    static let wakeWait: Duration = .seconds(CallDetector.grace + 2)
+
+    private(set) var flow = MeetingNotesFlow()
+    /// Whether each side is reaching the notes, for the panel's lines.
+    private(set) var health = CallChannelHealth()
+    /// The calendar event the call now belongs to, looked up once when the
+    /// call started (`CallEventMatch`). Nil without one, or without calendar
+    /// access: the notes are then named after the app, as before.
+    private(set) var callEvent: MeetingEvent?
+    /// Lines typed into the notes of the call now.
+    private(set) var jotCount = 0
+    /// The notes behind the "Notes ready" line, while it shows.
+    private(set) var readyNotes: MeetingNotes?
+    /// Whether that line says the notes are ready or that too little was
+    /// said for any. Set as the notes are saved, before the line goes up.
+    private(set) var readyOutcome: CallNotesPanel.Ready = .notes
+    /// Until when this month's online notes are used, said under that line
+    /// once a month (`CloudNotesAllowance`): these notes were written on the
+    /// Mac for that reason.
+    private(set) var readyAllowance: Date?
+    /// Whether to ask, under that line, if notes may be written online
+    /// (`CloudNotesQuestion`): these notes could have been, and nobody has
+    /// answered yet. Asked once per meeting at most, and never by opening
+    /// the island: only where the line already is.
+    private(set) var readyAsksOnline = false
+    /// To-dos in those notes, for the line to mention.
+    var readyTodoCount: Int { readyNotes?.todos.count ?? 0 }
+    /// The last few things said, for the panel's "Show transcript". Kept
+    /// here rather than read off the record, so the record can change with
+    /// every sentence without redrawing anything that does not show them.
+    private(set) var recentLines: [CallNotesPanel.Line] = []
+
+    /// The call pill's mark. Stored rather than read off the flow, because
+    /// it also hangs on the clock (the ask's ten seconds) and on the call
+    /// app's mute, and the pill should redraw when those change, not on every
+    /// look.
+    private(set) var pillMark: MeetingNotesFlow.PillMark = .none
+    /// The call app's own mute, as last seen while notes are taken.
+    private(set) var isMuted = false
+    /// What the compact island says once the call is over, and when it began
+    /// saying it: "Writing notes…", then "Notes ready" (`CompactIsland`).
+    private(set) var glance: CallNotesGlance?
+    private(set) var glanceAt: Date?
+
+    var isPaused: Bool { flow.pausedSince != nil }
+
+    /// Read from the switch every time, so a call that starts just after it
+    /// moved goes by the new answer. `seenSwitch` is read too only so that a
+    /// view drawn from this (the Calls tab, the Voice page's call rows)
+    /// redraws when Settings moves it: `@Observable` cannot see a defaults
+    /// read on its own.
+    var isEnabled: Bool {
+        _ = seenSwitch
+        return Self.isOn
+    }
+    /// The switch as last seen (`watchSwitch`).
+    private var seenSwitch = MeetingNotesModel.isOn
+    @ObservationIgnored private var switchWatch: NSObjectProtocol?
+    var autoStart: Bool { Defaults.bool(Self.autoStartKey, default: false) }
+
+    /// Collapses the island when "Show" opens the notes window.
+    @ObservationIgnored var onNavigateAway: (() -> Void)?
+    /// The glance changed: it brings the compact island up, so the island
+    /// has to look again at whether to be on screen.
+    @ObservationIgnored var onChange: (() -> Void)?
+    /// The call as the call detector knows it NOW. The call the panel asked
+    /// about was copied when it started, before a browser's tab could say
+    /// it was Meet.
+    @ObservationIgnored var latestCall: (() -> OngoingCall?)?
+    /// The calendar event that fits a call starting at a time, in a meeting
+    /// service if known (`CalendarWidgetModel.callEvent`). Never asks for
+    /// calendar access; nil without it.
+    @ObservationIgnored var eventNear: ((Date, MeetingLink.Provider?) -> MeetingEvent?)?
+
+    @ObservationIgnored private let store = MeetingStore()
+    /// The last few calls, for the notch's Calls tab. Kept here because
+    /// this is what knows when a call's notes are saved.
+    let recentCalls: RecentCalls
+    /// "Add a recording": a recording somebody already has, read into a
+    /// meeting of its own.
+    let recordings: RecordingImporter
+    /// The call notes are being taken of, as it is written: for the window
+    /// beside the call and the notes window (`CallNotesLive`).
+    let live: CallNotesLive
+    /// The window beside the call; made the first time it is opened.
+    @ObservationIgnored private var liveWindow: LiveTranscriptWindowController?
+    @ObservationIgnored private let log: (String) -> Void = { MeetingDiagnostics.log($0) }
+    /// Made on the first call with notes, so a Mac that never takes any
+    /// never builds an audio engine for them.
+    @ObservationIgnored private var mic: AudioCapture?
+    @ObservationIgnored private var tap: CallAudioTap?
+    /// What the Mac plays, and your side with it taken back out
+    /// (`SpeakerEcho`); `echo` is the running call's, logged once a minute.
+    @ObservationIgnored private var speakers: SpeakersTap?
+    @ObservationIgnored private var echo: SpeakerEcho?
+    @ObservationIgnored private var echoLoggedAt: Date?
+    /// The call tap gone dead while the Mac still plays a voice
+    /// (`CallTapWatch`), and what its two steps need: when the call tap
+    /// last started, and the transcriber's format for the other side.
+    @ObservationIgnored private var tapWatch = CallTapWatch()
+    @ObservationIgnored private var callTapStartedAt: Date?
+    @ObservationIgnored private var theirFormat: AVAudioFormat?
+    /// Words written down for each side, and when the minute's line on both
+    /// sides was last written.
+    @ObservationIgnored private var wordsHeard: [MeetingSpeaker: Int] = [:]
+    @ObservationIgnored private var sidesLoggedAt: Date?
+    @ObservationIgnored private var mute: CallMuteWatcher?
+    /// Made the first time it is asked for.
+    @ObservationIgnored private var notesWindow: CallNotesWindowController?
+    @ObservationIgnored private var me: MeetingTrack?
+    @ObservationIgnored private var them: MeetingTrack?
+    /// Tells the other side's voices apart, when the voice model is here
+    /// (`CallVoiceModel`), and from how far into the call it listens: a
+    /// call that came back keeps the numbers it already gave.
+    @ObservationIgnored private var voices: CallVoiceListener?
+    @ObservationIgnored private var voicesFrom: TimeInterval = 0
+    /// Each side's sound on its way to its track, measured as it passes.
+    @ObservationIgnored private var mine: MeetingInput?
+    @ObservationIgnored private var theirs: MeetingInput?
+    /// When each side's sound was first asked for: the microphone when the
+    /// notes began, the call when its tap first started.
+    @ObservationIgnored private var mineSince: Date?
+    @ObservationIgnored private var theirsSince: Date?
+    /// The microphone stream now running: when it started (nil when the last
+    /// start failed), on which device, in which format. The start is also
+    /// what tells a microphone with a noise gate from a dead one
+    /// (`CallChannelHealth.microphoneInput`), so it is reset on every restart.
+    @ObservationIgnored private var micStartedAt: Date?
+    @ObservationIgnored private var micDevice: AudioDeviceID?
+    @ObservationIgnored private var micFormat: AVAudioFormat?
+    @ObservationIgnored private var micRestart = MicRestart()
+    /// When the last finished sentence ended, either side: speech the level
+    /// alone might have missed, for the silence rule.
+    @ObservationIgnored private var lastWords: Date?
+    @ObservationIgnored private var folder: URL?
+    @ObservationIgnored private var record: MeetingRecord? {
+        didSet { if recordIsLive { live.follow(record, in: folder) } }
+    }
+    /// Whether `record` is the one these notes write to. Not between a new
+    /// start and `begin`: until then it is the last call's, still finishing.
+    @ObservationIgnored private var recordIsLive = false
+    /// The call `callEvent` was looked up for, so a call that drops and
+    /// comes back is not looked up again.
+    @ObservationIgnored private var eventCall: OngoingCall?
+    /// Start and finish, one after the other, never overlapping: a call that
+    /// drops and returns must not start listening before the last listening
+    /// has stopped.
+    @ObservationIgnored private var chain: Task<Void, Never>?
+    @ObservationIgnored private var summaries: [URL: Task<Void, Never>] = [:]
+    @ObservationIgnored private var pendingSave: Task<Void, Never>?
+    @ObservationIgnored private var looking: Task<Void, Never>?
+    @ObservationIgnored private var themRetry: Task<Void, Never>?
+    @ObservationIgnored private var linger: Task<Void, Never>?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// The app whose call the Mac's sleep stopped notes on, until the Mac
+    /// has woken and looked whether that call is still on. The call detector
+    /// may never say it started again: as far as it knows, it never ended.
+    @ObservationIgnored private var stoppedBySleep: String?
+    @ObservationIgnored private var wakeLook: Task<Void, Never>?
+    /// Settles "Notes?" to a dot once its ten seconds are up.
+    @ObservationIgnored private var askSettle: Task<Void, Never>?
+    /// Held while notes in the room are taken, so the Mac does not doze off
+    /// in the middle of a meeting nobody is typing through. Closing the lid
+    /// still sleeps it, and that stops the notes.
+    @ObservationIgnored private var awake: IOPMAssertionID?
+    /// Starts the notes when "Always"'s countdown runs out.
+    @ObservationIgnored private var countdown: Task<Void, Never>?
+    /// The to-dos in the notes just saved, for "Notes ready · 2 to-dos".
+    @ObservationIgnored private var savedTodos = 0
+    /// Every pause, oldest first; the last is open while paused. Spans
+    /// rather than a flag, because a recogniser hands a sentence over a
+    /// moment after it was said: one said just before "Resume" arrives after
+    /// it, and must still be left out.
+    @ObservationIgnored private var pauses: [Pause] = []
+
+    private struct Pause {
+        var from: Date
+        var to: Date?
+
+        func holds(_ date: Date) -> Bool { date >= from && (to.map { date < $0 } ?? true) }
+    }
+
+    init() {
+        recentCalls = RecentCalls(store: MeetingStore())
+        recordings = RecordingImporter()
+        live = CallNotesLive()
+        recordings.onFolder = { [weak self] folder in
+            guard let self else { return }
+            window.show(folder: folder)
+            onNavigateAway?()
+        }
+        recordings.onSaved = { [weak self] _, record, notes in self?.recordingSaved(record, notes: notes) }
+        recordings.onEnded = { [weak self] in
+            self?.notesWindow?.refreshIfOpen()
+            self?.recentCalls.refresh()
+        }
+    }
+
+    /// A model standing in one state, for drawing it (the state gallery):
+    /// no microphone, no call app's sound, no timers, no calendar, and no
+    /// folder, so nothing is ever written. `event` is the calendar's for the
+    /// call in `flow`, as if it had been looked up when the call started.
+    init(previewing flow: MeetingNotesFlow, record: MeetingRecord? = nil,
+         notes: MeetingNotes? = nil, event: MeetingEvent? = nil, reading: RecordingImporter.Reading? = nil,
+         allowanceUntil: Date? = nil, asksOnline: Bool = false,
+         hearing: [CallLive.Hearing] = []) {
+        self.flow = flow
+        self.record = record
+        readyNotes = notes
+        readyAllowance = allowanceUntil
+        readyAsksOnline = asksOnline
+        readyOutcome = record.map { CallNotesPanel.ready(of: $0, notes: notes) } ?? .notes
+        jotCount = record?.jots.count ?? 0
+        recentLines = record.map { CallNotesPanel.recentLines(of: $0) } ?? []
+        if let event, let call = flow.phase.call {
+            eventCall = call
+            callEvent = event
+        }
+        pillMark = flow.pillMark(now: Date(), muted: false)
+        recentCalls = RecentCalls(previewing: [])
+        recordings = RecordingImporter(previewing: reading)
+        live = CallNotesLive(previewing: record, hearing: hearing)
+    }
+
+    /// Notices the switch moving, wherever it was moved from. Set once, at
+    /// launch, so the models the tests and the state gallery make never
+    /// register.
+    private func watchSwitch() {
+        guard switchWatch == nil else { return }
+        switchWatch = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.lookAtSwitch() }
+        }
+    }
+
+    private func lookAtSwitch() {
+        guard seenSwitch != Self.isOn else { return }
+        seenSwitch = Self.isOn
+        log("call notes switched \(seenSwitch ? "on" : "off")")
+    }
+
+    /// At launch: finish the notes of any call the app quit or crashed during.
+    func start() {
+        watchSwitch()
+        // Notes the Mac wrote offline, written online later: the window and
+        // the Calls tab show the new ones.
+        CloudNotesService.shared.onRedone = { [weak self] folder, notes in
+            guard let self else { return }
+            // Still under the "Notes ready" line: it counts the new to-dos.
+            if case let .ready(name, _) = flow.phase, name == folder.lastPathComponent {
+                readyNotes = notes.isEmpty ? nil : notes
+            }
+            notesWindow?.refreshIfOpen()
+            recentCalls.refresh()
+        }
+        guard isEnabled else { return }
+        let unfinished = store.unfinishedFolders()
+        guard !unfinished.isEmpty else { return }
+        log("launch: \(unfinished.count) unfinished call(s) to finish")
+        for folder in unfinished {
+            guard var record = store.loadRecord(in: folder) else { continue }
+            // Too short to keep, and the app quit before it went.
+            if record.droppedAt != nil {
+                remove(folder)
+                continue
+            }
+            // A recording the app quit while it read: half its transcript
+            // would make half its notes. The file is untouched, and can be
+            // added again.
+            if record.recording != nil, record.endedAt == nil {
+                do {
+                    try store.remove(folder)
+                    log("launch: a recording read only in part, removed")
+                } catch {
+                    log("launch: part-read recording remove FAILED: \(error.localizedDescription)")
+                }
+                continue
+            }
+            var changed = MeetingKnownWords.forMeeting(record, typed: Self.typedWords()).respell(&record) > 0
+            if record.endedAt == nil {
+                let lastWord = record.segments.map(\.end).max() ?? 0
+                record.endedAt = record.startedAt.addingTimeInterval(lastWord)
+                changed = true
+            }
+            if changed { try? store.saveTranscript(record, in: folder) }
+            summarise(record, in: folder, announce: false)
+        }
+    }
+
+    // MARK: - From the call detector
+
+    func callChanged(_ change: CallDetector.Change) {
+        switch change {
+        case .started(let call), .resumed(let call):
+            log("call started: \(call.bundleID)")
+            // Another app's call: the one the sleep stopped is not coming back.
+            if let slept = stoppedBySleep, slept != call.bundleID {
+                stoppedBySleep = nil
+                wakeLook?.cancel()
+                wakeLook = nil
+            }
+            lookUpEvent(for: call)
+            send(.callStarted(call, at: Date()))
+        case .ended(let call, let at):
+            log("call ended: \(call.bundleID)")
+            send(.callEnded(at: at))
+        }
+    }
+
+    // MARK: - From the panel
+
+    func takeNotes(always: Bool = false) {
+        send(always ? .acceptAlways(at: Date()) : .accept(at: Date()))
+    }
+
+    func notNow() { send(.decline) }
+    func stop() { send(.stop) }
+    func dismiss() { send(.dismiss) }
+
+    /// "Take notes" with no call: a meeting in the room, through the Mac's
+    /// microphone, until "Stop". The calendar is asked which meeting it is,
+    /// as for a call, so the notes can carry its name and who was invited.
+    func takeNotesInPerson() {
+        guard isEnabled, flow.handButton == .takeNotes else { return }
+        let now = Date()
+        let room = OngoingCall.inPerson(at: now)
+        eventCall = room
+        callEvent = eventNear?(now, nil)
+        log("notes: in person, " + (callEvent.map { "event found, \($0.attendees.count) other(s)" } ?? "no event"))
+        send(.takeNotesInPerson(at: now))
+    }
+
+    /// What the one "Take notes" button does now (`MeetingNotesFlow.handButton`).
+    var handButton: MeetingNotesFlow.HandButton { flow.handButton }
+
+    /// The "Take notes" button, in the Calls tab and the menu bar: notes in
+    /// the room, the call's own notes while one is on, or "Stop".
+    func pressHandButton() {
+        switch flow.handButton {
+        case .takeNotes: takeNotesInPerson()
+        case .takeNotesOfCall: takeNotes()
+        case .stop: stop()
+        case .busy: break
+        }
+    }
+
+    /// The meeting in the room while its notes are taken, for the island to
+    /// show the way it shows a call. Nil otherwise: once the notes stop,
+    /// there is nothing on to show.
+    var inPersonCall: OngoingCall? {
+        if case let .recording(call, _) = flow.phase, call.isInPerson { return call }
+        return nil
+    }
+
+    /// The countdown tapped away: not now, but the offer stays.
+    func skipCountdown() {
+        guard case .startingSoon = flow.phase else { return }
+        log("notes: countdown skipped")
+        send(.decline)
+    }
+
+    /// The countdown cut short.
+    func startNow() {
+        guard case .startingSoon = flow.phase else { return }
+        send(.accept(at: Date()))
+    }
+
+    func pause() { send(.pause(at: Date())) }
+    func resume() { send(.resume(at: Date())) }
+
+    /// The notes window, on this call.
+    func showNotes() {
+        guard case let .ready(name, _) = flow.phase else { return }
+        window.show(folder: store.root.appendingPathComponent(name, isDirectory: true))
+        onNavigateAway?()
+    }
+
+    /// "Upgrade", under the notes once this month's online notes are used:
+    /// the website's plans. Shown only while `CloudNotesAllowance.offersUpgrade`
+    /// is on, which it is not yet.
+    func showPlans() {
+        NSWorkspace.shared.open(LicenseModel.pricingURL)
+        log("notes online: plans opened")
+        onNavigateAway?()
+    }
+
+    /// "Write online", under the notes: the yes, and these notes written
+    /// again online now, the Mac's page kept beside them.
+    func writeNotesOnline() {
+        readyAsksOnline = false
+        guard case let .ready(name, _) = flow.phase else {
+            // The line went as the button was pressed: the yes still holds.
+            CloudNotesService.setSwitch(true)
+            return
+        }
+        CloudNotesService.shared.writeOnline(store.root.appendingPathComponent(name, isDirectory: true))
+    }
+
+    /// "Keep on this Mac", under the notes: the no, never asked again.
+    func keepNotesOnMac() {
+        readyAsksOnline = false
+        CloudNotesService.shared.keepOnMac()
+    }
+
+    /// The notes window on a call an answer in the notch came from, at the
+    /// moment it cites.
+    func showCall(folder: String, saidAt time: TimeInterval) {
+        window.show(folder: store.root.appendingPathComponent(folder, isDirectory: true), saidAt: time)
+        onNavigateAway?()
+    }
+
+    /// The notes window on a call picked on the notch's Calls tab.
+    func showCall(folder: String) {
+        window.show(folder: store.root.appendingPathComponent(folder, isDirectory: true))
+        onNavigateAway?()
+    }
+
+    /// "Add a recording", from the Calls tab and the menu bar: asks which.
+    /// While one is being read, opens the window on it instead, where how
+    /// far along it is shows.
+    func addRecording() {
+        if let folder = recordings.reading?.folder {
+            window.show(folder: folder)
+        } else {
+            recordings.choose()
+        }
+    }
+
+    /// The notes window on the newest call, from the menu bar, Settings or
+    /// the Calls tab's "All calls": any call, whenever, not only the one
+    /// "Open notes" offers as it ends. With none saved yet the window says
+    /// so. The menu bar and Settings are not the island, so there is nothing
+    /// to collapse; from the tab, the island steps aside for the window.
+    func showPastCalls(fromIsland: Bool = false) {
+        window.show(folder: nil)
+        if fromIsland { onNavigateAway?() }
+    }
+
+    /// "Open in a window": the transcript of the call notes are being taken
+    /// of, in a narrow window beside the call, as it is written.
+    func openLiveWindow() {
+        let shown = liveWindow ?? LiveTranscriptWindowController(live: live, actions: LiveTranscriptActions(
+            isPaused: { [weak self] in self?.isPaused ?? false },
+            pause: { [weak self] in self?.pause() },
+            resume: { [weak self] in self?.resume() },
+            stop: { [weak self] in self?.stop() },
+            open: { [weak self] tab in self?.showLiveCall(on: tab) },
+            close: { [weak self] in self?.liveWindow?.close() }))
+        liveWindow = shown
+        shown.show()
+        log("live transcript: opened")
+        onNavigateAway?()
+    }
+
+    /// The notes window on the call the live transcript shows, on `tab`.
+    func showLiveCall(on tab: CallNotesLibrary.Tab) {
+        guard let folder = live.folder else { return }
+        window.show(folder: folder, on: tab)
+    }
+
+    private var window: CallNotesWindowController {
+        if let notesWindow { return notesWindow }
+        let made = CallNotesWindowController(store: store)
+        made.follow(live, openWindow: { [weak self] in self?.openLiveWindow() },
+                    isPaused: { [weak self] in self?.isPaused ?? false })
+        made.takeNotes(state: { [weak self] in self?.handButton ?? .busy },
+                       press: { [weak self] in self?.pressHandButton() })
+        made.saveNames { [weak self] folder, names in self?.saveNames(names, in: folder) }
+        made.recordings(CallNotesLibrary.Recordings(
+            reading: { [weak self] in self?.recordings.reading },
+            takes: { [weak self] url in self?.recordings.takes(url) ?? false },
+            add: { [weak self] in self?.recordings.choose() },
+            drop: { [weak self] url in self?.recordings.add(url) },
+            stop: { [weak self] in self?.recordings.stop() }))
+        notesWindow = made
+        return made
+    }
+
+    /// Names given to a call's voices in the notes window. The call these
+    /// notes hold, which may still carry on, is named in memory as well, or
+    /// its next save would write the names away again. Names said while its
+    /// notes are being written are kept too: the page is named as it is
+    /// saved (`MeetingStore.saveNotes`).
+    func saveNames(_ names: [MeetingVoiceName], in folder: URL) {
+        let held = folder == self.folder
+        guard var record = held ? self.record : store.loadRecord(in: folder) else { return }
+        record.replaceNames(with: names)
+        if held { self.record = record }
+        do {
+            try store.saveNames(of: record, in: folder)
+            log("names: \(record.names.count) of \(record.voices.count) voice(s) named")
+        } catch {
+            log("names: save FAILED: \(error.localizedDescription)")
+        }
+        notesWindow?.refreshIfOpen()
+        recentCalls.refresh()
+    }
+
+    /// The name the panel gives a call: Meet once the tab has said so, even
+    /// if it had not yet when the call was offered.
+    func callName(_ call: OngoingCall) -> String {
+        var site = current(call).site
+        if site == nil, record?.bundleID == call.bundleID {
+            if case .offering = flow.phase {} else { site = record?.site }
+        }
+        return site?.displayName ?? call.appName
+    }
+
+    /// What the panel calls a call while asking about it: the meeting's
+    /// name from the calendar, else the other person's on a one-to-one call,
+    /// else the app's or the service's (`callName`).
+    func callTitle(_ call: OngoingCall) -> String {
+        if call.isInPerson { return listedTitle(call) }
+        guard let event = event(for: call) else { return callName(call) }
+        return event.name ?? event.oneToOne ?? callName(call)
+    }
+
+    /// What the call notes list calls the call (`MeetingFiles.title`), for
+    /// the lines about its notes once the call is over: "Writing your
+    /// notes…" and "Notes ready" name the notes as they will be found.
+    func listedTitle(_ call: OngoingCall) -> String {
+        MeetingFiles.title(event: event(for: call), callName: callName(call), inPerson: call.isInPerson)
+    }
+
+    /// The notes' own event once they have started (they keep the one they
+    /// started with), the call's before that.
+    private func event(for call: OngoingCall) -> MeetingEvent? {
+        if record?.bundleID == call.bundleID, let event = record?.event {
+            if case .offering = flow.phase {} else { return event }
+        }
+        return eventCall?.bundleID == call.bundleID ? callEvent : nil
+    }
+
+    /// Looks the call up in the calendar, once per call, and only when notes
+    /// are on: nothing reads the calendar for a feature nobody uses.
+    private func lookUpEvent(for call: OngoingCall) {
+        guard isEnabled, eventCall != call else { return }
+        eventCall = call
+        let site = call.site ?? CallEventMatch.provider(ofApp: call.bundleID)
+        callEvent = eventNear?(call.startedAt, site)
+        // Never the title or the names: the log is counts only.
+        log(callEvent.map { "event: found, \($0.attendees.count) other(s)" } ?? "event: none")
+    }
+
+    /// A typed line for the notes, at the moment it was typed.
+    func jot(_ text: String) {
+        guard case .recording = flow.phase, var record else { return }
+        let before = record.jots.count
+        record.jot(text, at: Date().timeIntervalSince(record.startedAt))
+        guard record.jots.count > before else { return }
+        self.record = record
+        jotCount = record.jots.count
+        log("jot: \(jotCount)")
+        saveSoon()
+    }
+
+    /// "That was important": the last half-minute is marked for the notes.
+    /// Not while paused (`CallNotesPanel.offersMark`). Returns whether a
+    /// mark was made, so the panel says "Marked" only then.
+    @discardableResult
+    func mark() -> Bool {
+        guard CallNotesPanel.offersMark(flow), var record else { return false }
+        record.mark(at: Date().timeIntervalSince(record.startedAt))
+        self.record = record
+        log("mark: \(record.marks.count)")
+        saveSoon()
+        return true
+    }
+
+    /// The ready call's notes, as written, for pasting anywhere.
+    func copyNotes() {
+        guard case let .ready(name, _) = flow.phase,
+              let page = store.notesPage(in: store.root.appendingPathComponent(name, isDirectory: true))
+        else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(page, forType: .string)
+        log("copy: notes")
+    }
+
+    /// A line to paste into the call's chat, so the others know.
+    func copyHeadsUp() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(CallNotesPanel.headsUp, forType: .string)
+    }
+
+    /// Where macOS keeps "System Audio Recording", the permission a tap on
+    /// the call app's sound needs.
+    func openAudioPermission() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        else { return }
+        NSWorkspace.shared.open(url)
+        onNavigateAway?()
+    }
+
+    /// When notes have been running, for the panel's timer.
+    var recordingSince: Date? {
+        if case let .recording(_, since) = flow.phase { return since }
+        return nil
+    }
+
+    // MARK: - Flow
+
+    private func send(_ event: MeetingNotesFlow.Event) {
+        // Applied to a copy and stored only when something changed: the ticks
+        // come every second, and every store redraws whatever reads `flow`.
+        var next = flow
+        let effects = next.apply(event, enabled: isEnabled, autoStart: autoStart)
+        let before = flow
+        if next != flow { flow = next }
+        if before.isWaitingForCallBack != next.isWaitingForCallBack, case .recording = next.phase {
+            log(next.isWaitingForCallBack ? "notes: waiting to be sure the call ended" : "notes: the call is back")
+        }
+        // Before the effects, so notes that end while paused close their
+        // pause in their own record, not the next one's.
+        followPauseInRecord()
+        for effect in effects {
+            switch effect {
+            case .rememberAlways:
+                Defaults.set(true, Self.autoStartKey)
+                log("always: on")
+            case let .startNotes(call, continuing):
+                recordIsLive = false
+                enqueue { await self.begin(call, continuing: continuing) }
+            case .finishNotes:
+                enqueue { await self.finish() }
+            case .dropNotes:
+                enqueue { await self.finish(keeping: false) }
+            case .pauseNotes:
+                // The listening carries on; what is heard meanwhile is left
+                // out as it arrives (`heard`).
+                pauses.append(Pause(from: next.pausedSince ?? Date()))
+                log("notes: paused")
+            case .resumeNotes:
+                log("notes: resumed")
+            }
+        }
+        // Unpaused, by a resume or by the notes ending, the open pause ends
+        // here. Ending notes keep their pause up to this moment, so the
+        // recognisers' last sentences from the pause are still left out.
+        if next.pausedSince == nil { closePause(at: Date()) }
+        if before.phase != next.phase {
+            // Said beside the call too, whether it stopped mid-call or once
+            // it was over.
+            if case let .failed(reason) = next.phase, recordIsLive { live.failed(reason) }
+            if case .ready = next.phase {} else {
+                if readyNotes != nil { readyNotes = nil }
+                if readyAllowance != nil { readyAllowance = nil }
+                // Closed without an answer: asked again at the next meeting.
+                if readyAsksOnline { readyAsksOnline = false }
+            }
+            if !next.phase.isRecording, isMuted { isMuted = false }
+            scheduleLinger()
+            followRecording()
+            followCountdown()
+            followGlance()
+        }
+        // The call is over and nothing is left to show for it: its event
+        // goes with it, so the next call starts clean.
+        if case .idle = flow.phase, eventCall != nil, latestCall?() == nil {
+            eventCall = nil
+            callEvent = nil
+        }
+        refreshPillMark()
+        // Each new offer asks for its own ten seconds.
+        if case .callStarted = event {
+            askSettle?.cancel()
+            askSettle = nil
+        }
+        settleTheAsk()
+    }
+
+    private func refreshPillMark() {
+        let mark = flow.pillMark(now: Date(), muted: isMuted)
+        if mark != pillMark { pillMark = mark }
+    }
+
+    /// "Notes?" settles to a dot after `askWiden`: one wake to redraw it,
+    /// since nothing else happens while an offer waits. Still asking after
+    /// it (a clock set back a little), it waits again.
+    private func settleTheAsk() {
+        guard pillMark == .ask else {
+            askSettle?.cancel()
+            askSettle = nil
+            return
+        }
+        guard askSettle == nil else { return }
+        askSettle = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(MeetingNotesFlow.askWiden))
+            guard !Task.isCancelled, let self else { return }
+            self.askSettle = nil
+            self.refreshPillMark()
+            self.settleTheAsk()
+        }
+    }
+
+    /// "Always": the notes start when the countdown runs out, unless it was
+    /// skipped or the call ended first.
+    private func followCountdown() {
+        countdown?.cancel()
+        countdown = nil
+        guard case let .startingSoon(_, startsAt) = flow.phase else { return }
+        log("always: notes in \(Int(MeetingNotesFlow.countdown))s")
+        let phase = flow.phase
+        countdown = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, startsAt.timeIntervalSinceNow)))
+            guard !Task.isCancelled, let self, self.flow.phase == phase else { return }
+            self.countdown = nil
+            self.send(.accept(at: Date()))
+        }
+    }
+
+    /// The island's few words after the call. Stamped when they change, so
+    /// "Notes ready" is shown for its eight seconds from the moment it was.
+    private func followGlance() {
+        let glance: CallNotesGlance?
+        switch flow.phase {
+        case .writing: glance = .writing
+        case .ready:
+            glance = readyOutcome == .tooLittleSaid ? .tooLittleSaid : .ready(todos: savedTodos)
+        default: glance = nil
+        }
+        guard glance != self.glance else { return }
+        self.glance = glance
+        glanceAt = glance == nil ? nil : Date()
+        onChange?()
+    }
+
+    /// A recording's notes are saved: the island's tick, as after a call,
+    /// unless a call's notes are under way and the island is theirs. It
+    /// goes again once shown, so the next call's glance is stamped afresh.
+    private func recordingSaved(_ record: MeetingRecord, notes: MeetingNotes?) {
+        guard isEnabled, case .idle = flow.phase else { return }
+        let ready = CallNotesPanel.ready(of: record, notes: notes)
+        glance = ready == .tooLittleSaid ? .tooLittleSaid : .ready(todos: notes?.todos.count ?? 0)
+        let stamp = Date()
+        glanceAt = stamp
+        onChange?()
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(CompactIsland.notesReadyDuration))
+            guard let self, glanceAt == stamp, case .idle = flow.phase else { return }
+            glance = nil
+            glanceAt = nil
+        }
+    }
+
+    /// The saved record keeps the notes' pauses, so the transcript says
+    /// where nothing was written down. Opened where the pause began, closed
+    /// on a resume or when the notes end, whichever comes first.
+    private func followPauseInRecord() {
+        guard recordIsLive, var record, record.endedAt == nil,
+              record.followPause(since: flow.pausedSince, now: Date()) else { return }
+        self.record = record
+        log(record.isPaused ? "notes: pause kept in the record" : "notes: pause closed in the record")
+        saveSoon()
+    }
+
+    private func closePause(at date: Date) {
+        guard let last = pauses.indices.last, pauses[last].to == nil else { return }
+        pauses[last].to = date
+    }
+
+    /// Whether `date` fell inside a pause.
+    private func wasPaused(at date: Date) -> Bool {
+        pauses.contains { $0.holds(date) }
+    }
+
+    /// Speech heard at `date`, unless it was during a pause: what is said
+    /// then is not written down, so it is not the call's either. It neither
+    /// shows the call is live nor holds off its end.
+    private func spoken(_ date: Date?) -> Date? {
+        guard let date, !wasPaused(at: date) else { return nil }
+        return date
+    }
+
+    private func enqueue(_ work: @escaping @MainActor () async -> Void) {
+        let previous = chain
+        chain = Task {
+            await previous?.value
+            await work()
+        }
+    }
+
+    private func scheduleLinger() {
+        linger?.cancel()
+        linger = nil
+        switch flow.phase {
+        case .ready, .failed:
+            let phase = flow.phase
+            linger = Task { [weak self] in
+                try? await Task.sleep(for: Self.readyLinger)
+                guard !Task.isCancelled, let self, self.flow.phase == phase else { return }
+                self.send(.dismiss)
+            }
+        default:
+            break
+        }
+    }
+
+    // MARK: - Looking while notes are taken
+
+    /// Looks once a second while notes are taken, and not at all otherwise.
+    /// The flow's waits are dates compared on these looks, so they hold
+    /// across the Mac sleeping: the wall clock keeps counting through it.
+    private func followRecording() {
+        guard case .recording = flow.phase else {
+            looking?.cancel()
+            looking = nil
+            return
+        }
+        watchTheMac()
+        guard looking == nil else { return }
+        looking = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.lookEvery)
+                guard !Task.isCancelled, let self else { return }
+                self.look()
+            }
+        }
+    }
+
+    private func look() {
+        guard case let .recording(call, _) = flow.phase else { return }
+        let now = Date()
+        keepMicrophoneGoing(now: now)
+        if let echo, now.timeIntervalSince(echoLoggedAt ?? now) >= Self.echoLogEvery {
+            echoLoggedAt = now
+            log(echoLine(echo))
+        }
+        watchCallTap(call, now: now)
+        if theirs != nil, now.timeIntervalSince(sidesLoggedAt ?? now) >= Self.echoLogEvery {
+            sidesLoggedAt = now
+            log(sidesLine(now: now))
+        }
+
+        let yours = mine?.reading ?? MeetingInput.Reading()
+        let theirs = self.theirs?.reading ?? MeetingInput.Reading()
+        let (yourSpeech, theirSpeech) = (spoken(yours.lastSpeech), spoken(theirs.lastSpeech))
+        // In the room there is no call app, so no mute button to follow.
+        let muted = call.isInPerson ? false : mute?.gate.isMuted(at: now) ?? false
+        var health = self.health
+        let yourInput = CallChannelHealth.microphoneInput(
+            lastBuffer: yours.lastBuffer, lastSound: yours.lastSound, streamStartedAt: micStartedAt)
+        let yourSide = CallChannelHealth.Side(since: mineSince, lastInput: yourInput,
+                                              lastSpeech: yourSpeech, heardAnything: yours.heardAnything)
+        if call.isInPerson {
+            health.update(room: yourSide, now: now)
+        } else {
+            health.update(
+                yours: yourSide,
+                theirs: .init(since: theirsSince, lastInput: theirs.lastBuffer,
+                              lastSpeech: theirSpeech, heardAnything: theirs.heardAnything),
+                youAreMuted: muted,
+                now: now)
+        }
+        if health != self.health {
+            log("reaching: yours missing \(health.yoursMissing), theirs missing \(health.theirsMissing), "
+                + "theirs not allowed \(health.theirsNotAllowed)")
+            self.health = health
+        }
+        if muted != isMuted { isMuted = muted }
+
+        let lastSpeech = [yourSpeech, theirSpeech, lastWords].compactMap { $0 }.max()
+        let onMic = flow.isWaitingForCallBack ? Self.isOnMicrophone(call.bundleID) : nil
+        send(.tick(.init(now: now, callOnMic: onMic, lastSpeech: lastSpeech,
+                         theirLastSpeech: theirSpeech)))
+    }
+
+    /// Whether any of the call app's processes is taking sound from a
+    /// microphone, by the rule that found the call.
+    private static func isOnMicrophone(_ bundleID: String) -> Bool {
+        CallMonitor.audioProcesses(ofCallApp: bundleID).contains {
+            AudioProcesses.bool($0, kAudioProcessPropertyIsRunningInput)
+        }
+    }
+
+    /// The call app quitting and the Mac going to sleep, which the flow
+    /// stops on, and the Mac waking, which may find the call still on.
+    /// Watched from the first notes on, for the app's lifetime: three
+    /// observers, and nothing happens unless notes are being taken or a
+    /// sleep stopped them.
+    private func watchTheMac() {
+        guard observers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        observers.append(center.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard let bundleID = app?.bundleIdentifier else { return }
+            Task { @MainActor [weak self] in self?.appQuit(bundleID) }
+        })
+        observers.append(center.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.macWillSleep() }
+        })
+        observers.append(center.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.macDidWake() }
+        })
+    }
+
+    private func appQuit(_ bundleID: String) {
+        guard case let .recording(call, _) = flow.phase, call.bundleID == bundleID else { return }
+        log("call app quit: \(bundleID)")
+        send(.appQuit(bundleID: bundleID, at: Date()))
+    }
+
+    private func macWillSleep() {
+        // Asleep again before the last wake looked: the next wake looks.
+        wakeLook?.cancel()
+        wakeLook = nil
+        guard case let .recording(call, _) = flow.phase else { return }
+        log("mac going to sleep: notes stop")
+        // A meeting in the room has no call to find again on waking.
+        stoppedBySleep = call.isInPerson ? nil : call.bundleID
+        send(.sleep(at: Date()))
+    }
+
+    /// The flow decides what a call still on after waking means: the same
+    /// notes carried on inside `sameMeetingWindow`, asked about again after
+    /// it (or new notes, with "Always").
+    private func macDidWake() {
+        guard let bundleID = stoppedBySleep else { return }
+        wakeLook?.cancel()
+        wakeLook = Task { [weak self] in
+            try? await Task.sleep(for: Self.wakeWait)
+            guard !Task.isCancelled, let self else { return }
+            self.wakeLook = nil
+            self.stoppedBySleep = nil
+            if let call = self.latestCall?(), call.bundleID == bundleID {
+                self.log("mac woke: \(bundleID) still on a call")
+                self.send(.callStarted(call, at: Date()))
+            } else {
+                self.log("mac woke: the call is over")
+            }
+        }
+    }
+
+    // MARK: - Listening
+
+    private func begin(_ call: OngoingCall, continuing: Bool) async {
+        let call = current(call)
+        let now = Date()
+        if continuing, let folder, var record {
+            summaries[folder]?.cancel()
+            summaries[folder] = nil
+            record.endedAt = nil
+            record.droppedAt = nil
+            self.record = record
+            jotCount = record.jots.count
+            recentLines = CallNotesPanel.recentLines(of: record)
+            log("notes: continuing \(folder.lastPathComponent)")
+        } else {
+            // The event found when the call started, if it is this call's.
+            let event = eventCall?.bundleID == call.bundleID ? callEvent : nil
+            // Nothing from before these notes can be heard in them.
+            pauses.removeAll { $0.to.map { $0 <= now } ?? false }
+            let record = MeetingRecord(bundleID: call.bundleID, appName: call.appName,
+                                       site: call.site, startedAt: now, event: event)
+            jotCount = 0
+            recentLines = []
+            do {
+                folder = try store.makeFolder(for: record)
+            } catch {
+                log("notes: folder FAILED: \(error.localizedDescription)")
+                send(.failed("Couldn't make a folder for the notes."))
+                return
+            }
+            self.record = record
+            log("notes: new \(folder?.lastPathComponent ?? "?")")
+        }
+        // A pause made while this waited its turn belongs to these notes.
+        recordIsLive = true
+        live.follow(record, in: folder)
+        followPauseInRecord()
+        saveNow()
+        // On disk now: a notes window left open lists the call as it starts.
+        notesWindow?.refreshIfOpen()
+
+        guard let setup = await speechSetup() else {
+            send(.failed("The speech model isn't installed for your language yet."))
+            return
+        }
+        let (picked, format, listeners) = setup
+        // Still wanted? The call may have ended while the model loaded.
+        guard case .recording = flow.phase else { return }
+        record?.languages = picked.map(\.identifier)
+        let offset = record.map { Date().timeIntervalSince($0.startedAt) } ?? 0
+        lastWords = nil
+        if call.isInPerson {
+            beginInPerson(picked: picked, format: format, listeners: listeners, offset: offset)
+            return
+        }
+
+        // Your side. The track is made whether or not the microphone starts:
+        // `keepMicrophoneGoing` keeps trying, into the same track.
+        let mute = mute ?? CallMuteWatcher(log: log)
+        self.mute = mute
+        mute.start(call: call)
+        let gate = mute.gate
+        let mine = MeetingInput(isMuted: { gate.isMuted(at: $0) })
+        self.mine = mine
+        mineSince = Date()
+        micFormat = format
+        micRestart = MicRestart()
+        startMicrophone(into: mine, format: format)
+        let track = MeetingTrack(speaker: .me, listeners: listeners, canRead: CallNotesWriter.canRead,
+                                 log: log) { [weak self] in self?.heard($0, from: .me) }
+        track.onHearing = { [weak self] in self?.hearing($0, from: .me) }
+        let heard = startEchoRemoval().map { $0.cleaning(mine.output) } ?? mine.output
+        track.begin(picked, format: format, offset: offset, input: gate.silencing(heard))
+        me = track
+
+        // Their side, once a sleeping Bluetooth headset is awake.
+        theirs = MeetingInput()
+        theirsSince = nil
+        tapWatch = CallTapWatch()
+        callTapStartedAt = nil
+        theirFormat = format
+        wordsHeard = [:]
+        sidesLoggedAt = Date()
+        log(await OutputWake.wakeIfBluetooth())
+        startThem(call, picked: picked, listeners: listeners, format: format, attempt: 0)
+    }
+
+    /// A meeting in the room: the Mac's microphone is the only side, and
+    /// everybody on it is "them", told apart by voice. No call app to tap,
+    /// no mute button to follow, and nothing the Mac plays to take back out.
+    /// The Mac is kept awake until the notes end.
+    private func beginInPerson(picked: [CallLanguageFollow.Listener], format: AVAudioFormat,
+                               listeners: CallListeners, offset: TimeInterval) {
+        let room = MeetingInput()
+        mine = room
+        mineSince = Date()
+        micFormat = format
+        micRestart = MicRestart()
+        wordsHeard = [:]
+        startMicrophone(into: room, format: format)
+        let track = MeetingTrack(speaker: .them, listeners: listeners, canRead: CallNotesWriter.canRead,
+                                 log: log) { [weak self] in self?.heard($0, from: .them) }
+        track.onHearing = { [weak self] in self?.hearing($0, from: .them) }
+        track.begin(picked, format: format, offset: offset, input: room.output)
+        them = track
+        holdAwake()
+        listenForVoices(on: track)
+        log("notes: in person, from the Mac's microphone")
+    }
+
+    private func holdAwake() {
+        guard awake == nil else { return }
+        var assertion = IOPMAssertionID(0)
+        let result = IOPMAssertionCreateWithName(
+            kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            "Airlock — taking notes of a meeting" as CFString, &assertion)
+        awake = result == kIOReturnSuccess ? assertion : nil
+        log(result == kIOReturnSuccess ? "awake: held" : "awake: FAILED (\(result))")
+    }
+
+    private func releaseAwake() {
+        guard let awake else { return }
+        IOPMAssertionRelease(awake)
+        self.awake = nil
+        log("awake: released")
+    }
+
+    /// Starts the microphone on whichever device the Mac is set to now, and
+    /// joins its sound onto `input`.
+    ///
+    /// Named rather than left to "the default": an engine that kept running
+    /// through a change of microphone could otherwise stay on the old one.
+    private func startMicrophone(into input: MeetingInput, format: AVAudioFormat) {
+        let device = SystemMicrophone.currentID()
+        micDevice = device
+        let mic = mic ?? AudioCapture(log: { MeetingDiagnostics.log("mic: \($0)") })
+        self.mic = mic
+        do {
+            let uid = device.flatMap(SystemMicrophone.uid(of:)) ?? ""
+            input.feed(try mic.start(analyzerFormat: format, deviceUID: uid))
+            micStartedAt = Date()
+        } catch {
+            micStartedAt = nil
+            log("mic FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    /// Listens to everything the Mac plays, so your side can have it taken
+    /// back out. Nil when switched off (`echoRemovalKey`). A tap that will
+    /// not start still returns the stage: with nothing played to go on, it
+    /// hands your side on as it was heard.
+    private func startEchoRemoval() -> SpeakerEcho? {
+        guard UserDefaults.standard.object(forKey: Self.echoRemovalKey) as? Bool ?? true else {
+            log("echo: off")
+            return nil
+        }
+        let echo = SpeakerEcho()
+        let speakers = speakers ?? SpeakersTap(log: log)
+        self.speakers = speakers
+        do {
+            try speakers.start(into: echo)
+        } catch {
+            log("echo: speakers tap FAILED: \(error.localizedDescription)")
+        }
+        self.echo = echo
+        echoLoggedAt = Date()
+        return echo
+    }
+
+    /// What the echo stage did so far: numbers only, never a sound.
+    private func echoLine(_ echo: SpeakerEcho) -> String {
+        let report = echo.report
+        var line = "echo: "
+        line += report.delayMilliseconds.map { String(format: "delay %.0f ms", $0) } ?? "no delay found"
+        line += String(format: " (clarity %.1f, %d found, moved %d)",
+                       report.strength, report.estimates, report.realigned)
+        line += String(format: "; speakers played %.0fs of %.0fs, mic quieter by %.1f dB (filter %.1f)",
+                       report.speakersSeconds, report.micSeconds, report.totalDB, report.filterDB)
+        line += "; unmatched \(report.unmatchedBlocks)"
+        if let speakers {
+            line += String(format: "; tap %llu buffers, peak %.3f", speakers.callbackCount, speakers.peakLevel)
+        }
+        if let format = echo.unusableFormat { line += "; not cleaned, format \(format)" }
+        return line
+    }
+
+    /// The call tap gone dead while the Mac plays a voice (`CallTapWatch`):
+    /// started again once, then, if that brought nothing, replaced by
+    /// everything the Mac plays for the rest of the notes. Only once the call
+    /// tap has started, and only with the speakers tap running, since that
+    /// is what tells a dead call tap from a quiet call.
+    private func watchCallTap(_ call: OngoingCall, now: Date) {
+        guard let theirs, let tap, let speakers, let callTapStartedAt, let theirFormat else { return }
+        let speaking = speakers.lastSpeech.map { now.timeIntervalSince($0) < Self.speakingWithin } ?? false
+        switch tapWatch.look(now: now, callTapSince: callTapStartedAt,
+                             callTapLastSound: theirs.reading.lastSound, speakersSpeaking: speaking) {
+        case .none:
+            return
+        case .restartCallTap:
+            log("call tap quiet while the Mac plays a voice, starting it again; playing: "
+                + Self.playing(callApp: call.bundleID))
+            self.callTapStartedAt = now
+            do {
+                theirs.feed(try tap.start(bundleID: call.bundleID, analyzerFormat: theirFormat))
+            } catch {
+                log("call tap restart FAILED: \(error.localizedDescription)")
+            }
+        case .useSpeakers:
+            guard let stream = speakers.otherSide(format: theirFormat) else {
+                log("call tap still quiet, and the speakers cannot stand in (format \(theirFormat))")
+                return
+            }
+            tap.stop()
+            theirs.feed(stream)
+            log("call tap still quiet, the other side now comes from everything the Mac plays; playing: "
+                + Self.playing(callApp: call.bundleID))
+        }
+    }
+
+    /// The processes playing sound now, the call app's marked: what tells a
+    /// call tap that lost the call from a call that moved to a process
+    /// nobody named.
+    private static func playing(callApp bundleID: String) -> String {
+        let callApp = Set(CallMonitor.audioProcesses(ofCallApp: bundleID))
+        let names = AudioProcesses.objects()
+            .filter { AudioProcesses.bool($0, kAudioProcessPropertyIsRunningOutput) }
+            .map { object in
+                let name = AudioProcesses.string(object, kAudioProcessPropertyBundleID)
+                    ?? "pid \(AudioProcesses.pid(object).map(String.init) ?? "?")"
+                return callApp.contains(object) ? "\(name) (the call)" : name
+            }
+        return names.isEmpty ? "nothing" : names.joined(separator: ", ")
+    }
+
+    /// Both sides at a glance, once a minute and at the end: when each last
+    /// had sound and speech, where the other side comes from, and how many
+    /// words each has had written down. Numbers only, never a word said.
+    private func sidesLine(now: Date) -> String {
+        func ago(_ date: Date?) -> String {
+            date.map { String(format: "%.0fs ago", now.timeIntervalSince($0)) } ?? "never"
+        }
+        let yours = mine?.reading ?? MeetingInput.Reading()
+        let theirs = self.theirs?.reading ?? MeetingInput.Reading()
+        var line = "sides: yours sound \(ago(yours.lastSound)), speech \(ago(yours.lastSpeech))"
+        line += "; theirs from the \(tapWatch.usingSpeakers ? "speakers" : "call tap")"
+        line += " sound \(ago(theirs.lastSound)), speech \(ago(theirs.lastSpeech))"
+        if let tap, !tapWatch.usingSpeakers {
+            line += String(format: ", call tap peak %.3f", tap.peakLevel)
+        }
+        if tapWatch.restarts > 0 { line += ", restarted \(tapWatch.restarts)" }
+        if let speakers {
+            line += "; Mac played a voice \(ago(speakers.lastSpeech))"
+            line += String(format: ", peak %.3f", speakers.peakLevel)
+        }
+        line += "; words you \(wordsHeard[.me, default: 0]), them \(wordsHeard[.them, default: 0])"
+        return line
+    }
+
+    /// Switching headsets or AirPods changes the Mac's microphone mid-call,
+    /// and the audio engine stops itself when it does, leaving its stream
+    /// quiet but never ended (`AudioCapture.configurationChanged`). Started
+    /// again here, on the new device, into the same track.
+    private func keepMicrophoneGoing(now: Date) {
+        guard let mine, let micFormat else { return }
+        let device = SystemMicrophone.currentID()
+        let changed = device != micDevice
+        guard micRestart.shouldRestart(now: now, startedAt: micStartedAt,
+                                       lastInput: mine.reading.lastBuffer,
+                                       deviceChanged: changed) else { return }
+        log(changed ? "mic: the Mac's microphone changed, starting again"
+                    : "mic: no sound coming through, starting again")
+        startMicrophone(into: mine, format: micFormat)
+    }
+
+    /// The call app often has no sound process until the first person
+    /// speaks, so a refusal here is tried again for a while.
+    private func startThem(_ call: OngoingCall, picked: [CallLanguageFollow.Listener], listeners: CallListeners,
+                           format: AVAudioFormat, attempt: Int) {
+        themRetry?.cancel()
+        themRetry = nil
+        guard case .recording = flow.phase, let theirs else { return }
+        do {
+            let tap = tap ?? CallAudioTap(log: { MeetingDiagnostics.log($0) })
+            self.tap = tap
+            theirs.feed(try tap.start(bundleID: call.bundleID, analyzerFormat: format))
+            theirsSince = theirsSince ?? Date()
+            callTapStartedAt = Date()
+            if them == nil {
+                let offset = record.map { Date().timeIntervalSince($0.startedAt) } ?? 0
+                let track = MeetingTrack(speaker: .them, listeners: listeners, canRead: CallNotesWriter.canRead,
+                                         log: log) { [weak self] in self?.heard($0, from: .them) }
+                track.onHearing = { [weak self] in self?.hearing($0, from: .them) }
+                track.begin(picked, format: format, offset: offset, input: theirs.output)
+                them = track
+                listenForVoices(on: track)
+            }
+        } catch {
+            log("call tap attempt \(attempt + 1): \(error.localizedDescription)")
+            guard attempt < 40 else { return }
+            themRetry = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                self?.startThem(call, picked: picked, listeners: listeners, format: format, attempt: attempt + 1)
+            }
+        }
+    }
+
+    /// Starts the voice model on the other side's audio, unless this call
+    /// is a one-to-one with a known name (nothing to tell apart) or the
+    /// model is off or not here.
+    private func listenForVoices(on track: MeetingTrack) {
+        guard voices == nil, CallVoiceModel.isOn, let record, record.otherName == nil else { return }
+        let (stream, offset) = track.voiceInput()
+        let listener = CallVoiceListener(offset: offset)
+        voices = listener
+        voicesFrom = offset
+        Task { await listener.start(stream) }
+        log("voices: listening from \(Int(offset))s")
+    }
+
+    /// Numbers the other side's lines by voice, from what the voice model
+    /// heard, and logs what that cost. Nothing of what was heard is kept.
+    private func numberVoices(_ listener: CallVoiceListener, words: [CallLanguageFollow.Timed],
+                              in record: inout MeetingRecord) async {
+        let report = await listener.finish()
+        let outcome = CallVoices.number(&record, from: voicesFrom, spans: report.spans, words: words)
+        let rtf = report.audioSeconds > 0 ? report.computeSeconds / report.audioSeconds : 0
+        var line = "voices: \(outcome.people) people from \(outcome.heard) heard"
+        line += ", \(outcome.folded) folded, \(outcome.split) line(s) cut"
+        if let reason = outcome.reason { line += " (\(reason))" }
+        line += String(format: "; audio %.0fs, model %.1fs (%.3fx), load %.1fs",
+                       report.audioSeconds, report.computeSeconds, rtf, report.loadSeconds)
+        line += ", thermal \(ProcessInfo.processInfo.thermalState.rawValue)"
+        if let stopped = report.stopped { line += "; stopped: \(stopped)" }
+        log(line)
+    }
+
+    private func heard(_ event: MeetingTrack.Event, from speaker: MeetingSpeaker) {
+        switch event {
+        case .line(let segment):
+            heard(segment)
+        case .listening(let from, let language):
+            record?.listen(speaker, from: from, in: language)
+            saveSoon()
+        case .switched(let seam, let language, let lines, let keptAs):
+            guard var record else { return }
+            // Said during a pause: left out, as when the line first came.
+            let kept = lines.filter { !said(during: $0, in: record) }
+            record.switchLanguage(of: speaker, at: seam, to: language, lines: kept, keptAs: keptAs)
+            self.record = record
+            let shown = CallNotesPanel.recentLines(of: record)
+            if shown != recentLines { recentLines = shown }
+            saveSoon()
+        case .shadow(let line):
+            guard let record, !said(during: line.segment, in: record) else { return }
+            self.record?.addShadow(line)
+            saveSoon()
+        }
+    }
+
+    /// What a side is saying before it is a line, for the transcript to
+    /// show as it comes. Nothing said while paused is shown.
+    private func hearing(_ text: String, from speaker: MeetingSpeaker) {
+        live.hear(isPaused ? "" : text, from: speaker)
+    }
+
+    /// Said during a pause, by its middle.
+    private func said(during segment: MeetingSegment, in record: MeetingRecord) -> Bool {
+        wasPaused(at: record.startedAt.addingTimeInterval((segment.start + segment.end) / 2))
+    }
+
+    private func heard(_ segment: MeetingSegment) {
+        // Said during a pause, by its middle: left out, whenever it arrives.
+        if let record, said(during: segment, in: record) {
+            return
+        }
+        record?.add(segment)
+        wordsHeard[segment.speaker, default: 0] += segment.text.split(whereSeparator: \.isWhitespace).count
+        if let record {
+            let spoken = record.startedAt.addingTimeInterval(segment.end)
+            lastWords = max(lastWords ?? spoken, spoken)
+            let lines = CallNotesPanel.recentLines(of: record)
+            if lines != recentLines { recentLines = lines }
+        }
+        if record?.site == nil, let record, let site = current(nil, bundleID: record.bundleID)?.site {
+            self.record?.site = site
+        }
+        saveSoon()
+    }
+
+    /// Saves a second after the last change: a burst of lines or notes is
+    /// one write, and a crash loses at most that second.
+    private func saveSoon() {
+        pendingSave?.cancel()
+        pendingSave = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            self?.saveNow()
+        }
+    }
+
+    private func saveNow() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        guard let folder, let record else { return }
+        do {
+            try store.saveTranscript(record, in: folder)
+        } catch {
+            log("save FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    /// `keeping` false: the call ended too short to keep. Nothing is
+    /// written up, and the folder goes once the call has had its chance to
+    /// come back (`discardSoon`).
+    private func finish(keeping: Bool = true) async {
+        themRetry?.cancel()
+        themRetry = nil
+        // Let go of everything the looks read first, so a look while the
+        // recognisers finish neither starts the microphone again nor says a
+        // side is missing.
+        if theirs != nil { log(sidesLine(now: Date())) }
+        let (mine, theirs, me, them) = (self.mine, self.theirs, self.me, self.them)
+        let voices = self.voices
+        let echo = self.echo
+        self.echo = nil
+        echoLoggedAt = nil
+        self.mine = nil
+        self.theirs = nil
+        self.me = nil
+        self.them = nil
+        self.voices = nil
+        mineSince = nil
+        theirsSince = nil
+        callTapStartedAt = nil
+        theirFormat = nil
+        sidesLoggedAt = nil
+        micStartedAt = nil
+        micDevice = nil
+        micFormat = nil
+        if health != CallChannelHealth() { health = CallChannelHealth() }
+        releaseAwake()
+        // Streams next: each recogniser's last sentence waits on its stream
+        // ending (`SpeechSession.finish`), and each side's stream ends once
+        // its sound has stopped and been passed on.
+        mic?.stop()
+        tap?.stop()
+        // The other side's stream, when it came from the speakers; the tap
+        // itself keeps going until your side has ended.
+        speakers?.endOtherSide()
+        mine?.close()
+        theirs?.close()
+        async let myLast: Void = me?.finish() ?? ()
+        async let theirLast: Void = them?.finish() ?? ()
+        _ = await (myLast, theirLast)
+        // After your side has ended, so the speakers' sound covers its end.
+        speakers?.stop()
+        if let echo { log(echoLine(echo)) }
+        mute?.stop()
+        let languages = (me?.languages ?? []) + (them?.languages ?? [])
+
+        guard let folder, var record else { return }
+        record.endedAt = Date()
+        if !languages.isEmpty {
+            record.languages = languages.reduce(into: []) { kept, language in
+                if !kept.contains(language) { kept.append(language) }
+            }
+        }
+        if !keeping { record.droppedAt = Date() }
+        if let voices {
+            if keeping {
+                await numberVoices(voices, words: them?.words ?? [], in: &record)
+            } else {
+                await voices.cancel()
+            }
+        }
+        // Once the voices have their lines: they are matched to the words
+        // as the recogniser wrote them.
+        if keeping { await Self.respell(&record, store: store, log: log) }
+        self.record = record
+        saveNow()
+        guard keeping else {
+            log("notes: short call (\(Int(record.duration(at: Date())))s), not kept")
+            discardSoon(folder)
+            return
+        }
+        log("notes: \(record.segments.count) line(s), \(Int(record.duration(at: Date()) / 60)) min")
+        summarise(record, in: folder, announce: true)
+    }
+
+    /// Removes a short call's folder once `sameMeetingWindow` has passed,
+    /// unless it came back and carried on. Held where a summary would be, so
+    /// carrying on cancels it the same way.
+    private func discardSoon(_ folder: URL) {
+        summaries[folder]?.cancel()
+        summaries[folder] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(MeetingNotesFlow.sameMeetingWindow + 5))
+            guard !Task.isCancelled, let self else { return }
+            self.summaries[folder] = nil
+            self.enqueue { self.discard(folder) }
+        }
+    }
+
+    private func discard(_ folder: URL) {
+        if folder == self.folder {
+            // Carried on: these are live notes now.
+            guard record?.droppedAt != nil else { return }
+            pendingSave?.cancel()
+            pendingSave = nil
+            self.folder = nil
+            record = nil
+        }
+        remove(folder)
+    }
+
+    private func remove(_ folder: URL) {
+        do {
+            try store.remove(folder)
+            log("notes: short call removed")
+        } catch {
+            log("notes: short call remove FAILED: \(error.localizedDescription)")
+        }
+        notesWindow?.refreshIfOpen()
+        recentCalls.refresh()
+    }
+
+    /// `call` as the detector knows it now, when it is still the same app's.
+    private func current(_ call: OngoingCall) -> OngoingCall {
+        current(call, bundleID: call.bundleID) ?? call
+    }
+
+    private func current(_ call: OngoingCall?, bundleID: String) -> OngoingCall? {
+        guard let latest = latestCall?(), latest.bundleID == bundleID else { return call }
+        return latest
+    }
+
+    /// Writes `Notes.md` beside the transcript, off the listening chain so a
+    /// call that comes straight back is not kept waiting for the model.
+    private func summarise(_ record: MeetingRecord, in folder: URL, announce: Bool) {
+        summaries[folder]?.cancel()
+        let store = store
+        summaries[folder] = Task { [weak self, log] in
+            let started = Date()
+            let page = await Self.notesPage(for: record, log: log)
+            let written = page.notes
+            guard !Task.isCancelled else { return }
+            do {
+                try store.saveNotes(page.page, in: folder)
+                log(String(format: "summary: saved in %.1fs", Date().timeIntervalSince(started)))
+                if let writer = page.writer {
+                    do {
+                        try store.saveNotesWriter(writer, in: folder)
+                    } catch {
+                        log("summary: writer not saved: \(error.localizedDescription)")
+                    }
+                }
+                if announce, let self {
+                    // Counted before the line goes up, so it can say them.
+                    self.savedTodos = written?.todos.count ?? 0
+                    self.readyOutcome = CallNotesPanel.ready(of: record, notes: written)
+                    self.live.settle(folder, as: .saved(self.readyOutcome, todos: self.savedTodos))
+                    self.send(.saved(folder: folder.lastPathComponent))
+                    if case let .ready(name, _) = self.flow.phase, name == folder.lastPathComponent {
+                        self.readyNotes = written
+                        // Once a month, where the notes say they are ready.
+                        self.readyAllowance = page.allowanceUntil.flatMap {
+                            CloudNotesService.shared.takeAllowanceNotice(until: $0)
+                        }
+                        // Not when an answer came in meanwhile, from Settings.
+                        self.readyAsksOnline = page.asksOnline && CloudNotesService.shared.answer == nil
+                    }
+                }
+                self?.notesWindow?.refreshIfOpen()
+                self?.recentCalls.refresh()
+            } catch {
+                log("summary: save FAILED: \(error.localizedDescription)")
+                if announce { self?.send(.failed("Couldn't save the notes.")) }
+            }
+            self?.summaries[folder] = nil
+        }
+    }
+
+    /// The words typed in Settings (`MeetingKnownWords`).
+    static func typedWords(in settings: UserDefaults = .standard) -> [String] {
+        settings.stringArray(forKey: knownWordsKey) ?? []
+    }
+
+    /// `record` with the words typed in Settings, the people invited and the
+    /// names given to voices lately spelled their way (`MeetingKnownWords`).
+    /// The earlier meetings are read off the main thread.
+    static func respell(_ record: inout MeetingRecord, settings: UserDefaults = .standard,
+                        store: MeetingStore, log: (String) -> Void) async {
+        let typed = typedWords(in: settings)
+        let looked = namesLookedBack
+        let earlier = await Task.detached(priority: .utility) {
+            store.calls().prefix(looked).map(\.record)
+        }.value
+        let known = MeetingKnownWords.forMeeting(record, typed: typed, earlier: earlier)
+        let changed = known.respell(&record)
+        if !known.isEmpty {
+            log("words: \(changed) line(s) respelled, \(typed.count) typed, \(known.spellings.count) known")
+        }
+    }
+
+    /// The notes page for `record`, and the notes on it when there are any.
+    /// Stretches in a language the notes writer can't read are written from
+    /// the take kept beside them (`MeetingNotesSource`); the page says so in
+    /// a line of its own.
+    ///
+    /// Written online first, for a subscriber who has notes online
+    /// (`CloudNotesService`), and by the Mac whenever they aren't, a failure
+    /// included, without a word.
+    static func notesPage(for record: MeetingRecord, log: @escaping (String) -> Void) async -> WrittenNotes {
+        let writer: MeetingNotesWriter?
+        var allowanceUntil: Date?
+        var asksOnline = false
+        switch await CloudNotesService.shared.write(record, log: log) {
+        case .written(let notes, let model):
+            let online = MeetingNotesWriter.online(model: model, at: Date())
+            return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: notes, writer: online),
+                                notes: notes, writer: online)
+        case .mac(.hiddenSwitchOff):
+            // Today's notes, and today's record: no writer kept.
+            writer = nil
+        case .mac(.offline):
+            writer = .mac(at: Date(), waitsForOnline: true)
+        case .mac(.allowanceUsed(let until)):
+            writer = .mac(at: Date())
+            allowanceUntil = until
+        case .mac(.notAsked):
+            // Written here now, so nobody waits on the question; a yes
+            // writes them again online.
+            writer = .mac(at: Date())
+            asksOnline = true
+        case .mac, .failed:
+            writer = .mac(at: Date())
+        }
+
+        let source = MeetingNotesSource(record, canRead: CallNotesWriter.canRead)
+        if source.record.languages != record.languages || !source.unreadable.isEmpty {
+            log("summary: written in \(source.record.languages.joined(separator: " + "))"
+                + (source.unreadable.isEmpty ? "" : ", unreadable \(source.unreadable.joined(separator: " + "))"))
+        }
+        switch await MeetingSummarizer.notes(for: source.record, log: log) {
+        case .notes(let notes):
+            return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: notes, writtenFrom: source.line,
+                                                             writer: writer),
+                                notes: notes.isEmpty ? nil : notes, writer: writer, allowanceUntil: allowanceUntil,
+                                asksOnline: asksOnline)
+        case .unavailable(let reason):
+            log("summary: none — \(reason)")
+            return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: nil, unavailableReason: reason,
+                                                             writer: writer),
+                                notes: nil, writer: writer, allowanceUntil: allowanceUntil, asksOnline: asksOnline)
+        }
+    }
+
+    /// A meeting's notes page, and what came with it.
+    struct WrittenNotes: Sendable {
+        var page: String
+        /// The notes on it, when there are any.
+        var notes: MeetingNotes?
+        /// Who wrote them, kept in the record while notes online are switched
+        /// on; nil otherwise.
+        var writer: MeetingNotesWriter?
+        /// Until when this month's online notes are used, when the Mac wrote
+        /// them for that reason.
+        var allowanceUntil: Date?
+        /// They could have been written online, and nobody has said whether
+        /// they may (`CloudNotesRoute.Reason.notAsked`): the question goes
+        /// under them.
+        var asksOnline = false
+    }
+
+    // MARK: - Speech
+
+    /// The call languages from Settings, or dictation's while none are
+    /// picked (`CallLanguage.wanted`), each with the recogniser that knows it
+    /// (`CallListening.resolved`: speech first, dictation for a language
+    /// only it knows, Catalan among them), the one audio format that suits
+    /// them all, and every language this Mac can follow the call into. Nil
+    /// when no model can serve.
+    private func speechSetup() async -> ([CallLanguageFollow.Listener], AVAudioFormat, CallListeners)? {
+        await Self.speechSetup(settings: .standard, log: log)
+    }
+
+    /// `speechSetup`, from the languages in `settings`: the app's own, or
+    /// the app's read from outside it (`RecordingReplay`).
+    static func speechSetup(settings: UserDefaults, log: (String) -> Void) async
+        -> ([CallLanguageFollow.Listener], AVAudioFormat, CallListeners)? {
+        let wanted = CallLanguage.wanted(
+            callPrimary: settings.string(forKey: CallLanguage.primaryKey) ?? "",
+            callSecondary: settings.string(forKey: CallLanguage.secondaryKey) ?? "",
+            dictationPrimary: settings.string(forKey: "dictation.locale") ?? "",
+            dictationSecondary: settings.string(forKey: "dictation.locale.secondary") ?? "")
+        let preferred = wanted.primary.isEmpty ? Locale.current : Locale(identifier: wanted.primary)
+        // As dictation does (`SpeechSession.resolvedLocale`): English when
+        // nothing knows the language asked for.
+        var primary = await CallListening.resolved(preferred)
+        if primary == nil { primary = await CallListening.resolved(Locale(identifier: "en_US")) }
+        guard let primary else { return nil }
+        var picked = [primary]
+        if !wanted.secondary.isEmpty,
+           let secondary = await CallListening.resolved(Locale(identifier: wanted.secondary)),
+           secondary.identifier != primary.identifier {
+            picked.append(secondary)
+        }
+        for listener in picked { await CallListening.prepare(listener) }
+        let listeners = await CallListeners.current()
+        if let format = await CallListening.format(for: picked) {
+            log("speech: \(picked.map { "\($0.identifier) (\($0.module.rawValue))" }.joined(separator: " + ")), "
+                + (wanted.fromDictation ? "dictation's languages" : "the call languages"))
+            return (picked, format, listeners)
+        }
+        // A second language never takes the notes down with it.
+        if picked.count > 1, let format = await CallListening.format(for: [primary]) {
+            log("speech: no shared format, second language dropped")
+            return ([primary], format, listeners)
+        }
+        log("speech: no model for \(primary.identifier)")
+        return nil
+    }
+}
+
+private extension MeetingNotesFlow.Phase {
+    var isRecording: Bool {
+        if case .recording = self { return true }
+        return false
+    }
+
+    /// The call this phase is about, if any.
+    var call: OngoingCall? {
+        switch self {
+        case let .offering(call), let .startingSoon(call, _), let .recording(call, _),
+             let .writing(call), let .ready(_, call):
+            return call
+        case .idle, .failed:
+            return nil
+        }
+    }
+}

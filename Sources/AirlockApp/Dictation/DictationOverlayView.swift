@@ -110,7 +110,23 @@ struct HoldNoticeCard: View {
                     sentence: notice.sentence,
                     tone: notice.tone == .problem ? .needs : .note,
                     button: notice.fix?.button,
-                    action: notice.fix == nil ? nil : fix)
+                    action: notice.fix == nil ? nil : fix,
+                    face: Self.face(for: notice))
+    }
+
+    /// The cloud stands in for the icon in two places. Where it was listening
+    /// and came away with nothing: the same cloud that was just listening,
+    /// puzzled. And where the trial has ended: the same smiling cloud as the
+    /// trial-ended panel, so a hold that is turned away reads as that
+    /// invitation in small rather than as a clock running out. Every other
+    /// notice is about the Mac, a permission or where the words went, and a
+    /// face on those would be the app being cute about a setting.
+    static func face(for notice: DictationHoldNotice) -> BloubExpression? {
+        switch notice {
+        case .nothingCaught: return .confused
+        case .noSubscription: return LicenseBlockedView.face
+        default: return nil
+        }
     }
 }
 
@@ -205,11 +221,19 @@ struct HeardNothingCard: View {
         // notice trains people to dismiss notices.
         let tint = isInputFault ? Theme.needs : Theme.running
         return HStack(alignment: .top, spacing: 12) {
-            Image(systemName: isInputFault ? "mic.slash" : "timer")
-                .font(.system(size: 15))
-                .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
-                .background(tint.opacity(0.14), in: .circle)
+            // The cloud, puzzled, where it listened and heard nothing. A hold
+            // that was too short keeps its timer: there the cause is the
+            // clock, and the glyph says so.
+            if isInputFault {
+                BloubView(expression: .confused, motion: .breathing, tint: BloubTint.attention.color)
+                    .frame(width: 30, height: 30)
+            } else {
+                Image(systemName: "timer")
+                    .font(.system(size: 15))
+                    .foregroundStyle(tint)
+                    .frame(width: 30, height: 30)
+                    .background(tint.opacity(0.14), in: .circle)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {

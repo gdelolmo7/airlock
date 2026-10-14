@@ -45,9 +45,10 @@ struct AgentsWidget: NotchWidget {
     /// Whether the agent surface is paid up. The nine free widgets never ask.
     let isEntitled: () -> Bool
     /// Buying, not configuring. The blocked card's whole job is to sell, so it
-    /// opens the purchase window rather than a preferences tree — "I already
-    /// have a key" is a door inside that window.
+    /// opens the purchase window rather than a preferences tree.
     var onOpenSettings: () -> Void = {}
+    /// The blocked card's "I have a key": Settings › Licence, at the key field.
+    var onEnterKey: () -> Void = {}
 
     var id: String { "agents" }
     var displayName: String { "AI agents" }
@@ -71,15 +72,24 @@ struct AgentsWidget: NotchWidget {
     /// until the user says no, and `.chosen(false)` is that no.
     ///
     /// Deliberately NOT routed through `AgentsPresence.showsAgents`: the compact
-    /// island's session glyphs and the Claude usage KPI keep following that, so
-    /// a Mac with no agents gets a tab explaining itself rather than a gutter
-    /// advertising a feature nobody asked for.
+    /// island's session glyphs and the Claude usage figures keep following
+    /// that, so a Mac with no agents gets a tab explaining itself rather than
+    /// figures for a feature nobody asked for.
     ///
     /// With the guide on, the switch is Developer mode (card 3.02) and the
     /// first-run welcome asks the question this tab used to stand in for, so
     /// a Mac with no hooks keeps the tab off until somebody says yes.
-    var isUnconfigured: Bool {
+    var isUnconfigured: Bool { Self.isUnconfigured(agents) }
+
+    static func isUnconfigured(_ agents: AgentsWidgetModel) -> Bool {
         agents.basis == .noHooksInstalled && !GuideSwitch.isOn
+    }
+
+    /// Whether the Agents tab is in the top bar while nothing is waiting:
+    /// switched on, or unconfigured. For Settings, which has no gates to
+    /// count and advises on the width the panel rests at.
+    static func showsTabAtRest(_ agents: AgentsWidgetModel) -> Bool {
+        agents.isEnabled || isUnconfigured(agents)
     }
 
     /// What the trial card names as locked, in the tab's own name — "The
@@ -97,6 +107,7 @@ struct AgentsWidget: NotchWidget {
         // ask.
         guard isEntitled() || !model.sessions.isEmpty else {
             return AnyView(LicenseBlockedView(onSubscribe: onOpenSettings,
+                                              onEnterKey: onEnterKey,
                                               surface: Self.lockedSurface))
         }
         return AnyView(AgentSessionsSectionView().environment(model).environment(agents))
@@ -276,6 +287,41 @@ struct CalendarWidget: NotchWidget {
         guard calendar.isEnabled else { return nil }
         // The section itself renders the grant CTA when access is missing.
         return AnyView(CalendarSectionView(onChooseCalendars: onChooseCalendars).environment(calendar))
+    }
+}
+
+/// The last few calls with notes, on a tab of their own: a way back to a
+/// call's notes from the notch itself.
+///
+/// It follows call notes and has no switch of its own. While call notes are
+/// switched off (`meetings.enabled`, on by default) it is not there at all: no Calls tab
+/// (a tab with nothing on leaves the strip), no row in Settings (it is not
+/// toggleable), and nothing in arrange mode (which lists only what is on).
+@MainActor
+struct CallsWidget: NotchWidget {
+    let meetings: MeetingNotesModel
+
+    var id: String { "calls" }
+    /// Its own tab, not a card on the Dashboard: squeezed into a column
+    /// beside the system rings the list looked cramped (the owner's call,
+    /// 2026-10-08).
+    var tab: NotchTab { .calls }
+    /// The tab is the list's alone, so it has the panel's whole width.
+    var column: WidgetColumn { .full }
+    var displayName: String { "Calls" }
+    /// Never opens the notch: past calls are looked up, they never need you.
+    var tier: WidgetTier { .ambient }
+    var isToggleable: Bool { false }
+    /// Call notes are switched on and off with their own setting, never from
+    /// a widget switch, so the setter does nothing.
+    var isEnabled: Bool {
+        get { meetings.isEnabled }
+        nonmutating set {}
+    }
+
+    func panelSection() -> AnyView? {
+        guard meetings.isEnabled else { return nil }
+        return AnyView(CallsSectionView(meetings: meetings))
     }
 }
 

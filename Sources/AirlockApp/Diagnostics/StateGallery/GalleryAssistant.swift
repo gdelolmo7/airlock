@@ -48,7 +48,7 @@ enum GalleryAssistant {
             },
             GalleryState("V7", area, "Typed bar locked under a card") {
                 VStack(spacing: 8) {
-                    GalleryIsland.topBar(usage: nil, arrange: false) {
+                    GalleryIsland.topBar(arrange: false) {
                         AirlockMark()
                         GalleryIsland.glyph("chevron.up")
                     }
@@ -102,7 +102,7 @@ enum GalleryAssistant {
     /// `ImageRenderer` could not.
     private static func typedBar(text: String, guideKeys: Bool) -> some View {
         VStack(spacing: 8) {
-            GalleryIsland.topBar(usage: nil, arrange: false) {
+            GalleryIsland.topBar(arrange: false) {
                 AirlockMark()
                 GalleryIsland.glyph("chevron.up")
             }

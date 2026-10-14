@@ -54,12 +54,16 @@ public enum LicenseNotice: Equatable, Sendable {
         return false
     }
 
-    /// Whether this notice replaces the panel rather than sitting above it.
-    /// Whether the PAID surfaces are blocked — not the app.
+    /// Whether this notice takes the panel's place rather than sitting above
+    /// it — true only for a finished trial.
     ///
-    /// The panel keeps its widgets in every state now; what `.blocked` takes is
-    /// the agent surface and voice. `LicenseNoticeTests` still asserts this
-    /// agrees with `Entitlement.allowsUse`, because the two disagreeing
-    /// is how you get a notice that says one thing while the panel does another.
+    /// The panel still opens, so the app reads as locked rather than crashed,
+    /// but everything in it is paid: the widgets give way to the subscribe
+    /// card, the typing bar is not drawn, and holds to dictate or ask are
+    /// refused. It used to say the widgets stayed and only agents and voice
+    /// went, which stopped being true when the widgets were gated again.
+    /// `LicenseNoticeTests` asserts this agrees with `Entitlement.allowsUse`,
+    /// because the two disagreeing is how you get a notice that says one
+    /// thing while the panel does another.
     public var isBlocking: Bool { self == .blocked }
 }

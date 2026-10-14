@@ -35,6 +35,16 @@ final class CallGlyphTests: XCTestCase {
         XCTAssertEqual(CallGlyph.kind(for: meet), .logo("googlemeet"))
     }
 
+    /// A past call on the Calls tab gets the logo the pill showed live.
+    func testAPastCallGetsTheLogoItHadLive() {
+        XCTAssertEqual(CallGlyph.kind(for: "com.google.Chrome", site: .googleMeet), .logo("googlemeet"))
+        XCTAssertEqual(CallGlyph.kind(for: "com.apple.Safari", site: .googleMeet), .logo("googlemeet"))
+        XCTAssertEqual(CallGlyph.kind(for: "com.google.Chrome", site: nil), .logo("chrome"))
+        XCTAssertEqual(CallGlyph.kind(for: "net.whatsapp.WhatsApp", site: nil), .logo("whatsapp"))
+        XCTAssertEqual(CallGlyph.kind(for: "us.zoom.xos", site: .zoom), .symbol("video.fill"))
+        XCTAssertEqual(CallGlyph.kind(for: "com.example.SomeApp", site: nil), .symbol("phone.fill"))
+    }
+
     func testMeetIsReadFromTheTabTitle() {
         XCTAssertEqual(CallGlyph.site(inWindowTitles: ["Inbox", "Meet – abc-defg-hij"]), .googleMeet)
         XCTAssertEqual(CallGlyph.site(inWindowTitles: ["Meet - Weekly sync - Google Chrome"]), .googleMeet)

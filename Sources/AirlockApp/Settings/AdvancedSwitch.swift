@@ -27,13 +27,9 @@ struct AdvancedSwitch: View {
     @AppStorage(AdvancedSwitch.key) private var advanced = false
 
     var body: some View {
-        Section {
-            Toggle("Show advanced settings", isOn: $advanced)
-            Text("Diagnostics, the rule tester and the file-level controls. Leave it off unless "
-                 + "something has gone wrong — nothing behind it is needed for everyday use.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        LookGroupLabel("Advanced")
+        LookToggleRow("Show advanced settings",
+                      subtitle: "Diagnostics and file-level controls, on every page",
+                      isOn: $advanced)
     }
 }

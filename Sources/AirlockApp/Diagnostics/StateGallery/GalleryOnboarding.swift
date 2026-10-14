@@ -2,12 +2,11 @@ import SwiftUI
 import AirlockCore
 
 /// The first-run rows (O): the setup wizard in the panel, where `--onboarding`
-/// runs it, and the everyday welcome.
+/// runs it, and in its window.
 ///
 /// The wizard's `OnboardingModel` is built from previews — fixed agent rows
 /// and an agents switch that read nothing from disk — plus widget models whose
-/// inits only read preferences. The welcome uses `WelcomeModel(previewing:)`,
-/// which has no guide behind it. Nothing is pressed: the gallery draws with
+/// inits only read preferences. Nothing is pressed: the gallery draws with
 /// hit testing off.
 @MainActor
 enum GalleryOnboarding {
@@ -34,26 +33,6 @@ enum GalleryOnboarding {
                     panel(at: .permissions).fixedSize(horizontal: false, vertical: true)
                     panel(at: .finish).fixedSize(horizontal: false, vertical: true)
                 }
-            },
-            GalleryState("O6", area, "Everyday welcome + practice", ground: .window, width: WelcomeView.width) {
-                welcome(WelcomePlan(hookStatuses: []))
-            },
-            GalleryState("O7", area, "Everyday welcome with a different ask key", ground: .window,
-                         width: WelcomeView.width) {
-                welcome(WelcomePlan(hookStatuses: []), askWay: .hold(HoldKeyMonitor.Key.command.displayName))
-            },
-            GalleryState("O7a", area, "Everyday welcome, asking switched off", ground: .window,
-                         width: WelcomeView.width) {
-                welcome(WelcomePlan(hookStatuses: []), askWay: .notOn)
-            },
-            GalleryState("O8", area, "Practice not reached, Developer mode already on", ground: .window,
-                         width: WelcomeView.width) {
-                // Back at the welcome, saying so, with another go or Done.
-                welcome(practiced(reached: false, hooks: [.installed]))
-            },
-            GalleryState("O9", area, "Practice reached / developer question", ground: .window,
-                         width: WelcomeView.width) {
-                welcome(practiced(reached: true))
             },
             GalleryState("O10", area, "Wizard: \"The rest of it\"", ground: .window, width: windowWidth) {
                 window(at: .features)
@@ -93,6 +72,9 @@ enum GalleryOnboarding {
                     WhatsNewCard(card: sample, arrives: false)
                 }
             },
+            GalleryState("O19", area, "After an unexpected quit: crash reports, asked once") {
+                CrashQuestionCard()
+            },
         ]
     }
 
@@ -125,13 +107,6 @@ enum GalleryOnboarding {
               status: .conflict("unmanaged Airlock entries in ~/.codex/config.toml")),
     ]
 
-    private static func practiced(reached: Bool, hooks: [HookInstallStatus] = []) -> WelcomePlan {
-        var plan = WelcomePlan(hookStatuses: hooks)
-        plan.startPractice()
-        _ = plan.practiceEnded(reached: reached)
-        return plan
-    }
-
     // MARK: - Drawing
 
     private static func model(at step: OnboardingPlan.Step, agents: [SettingsModel.AgentRow],
@@ -143,6 +118,9 @@ enum GalleryOnboarding {
                                     clipboard: ClipboardWidgetModel(history: ClipboardHistory(items: [])),
                                     assistant: AssistantModel(),
                                     agentsWidget: AgentsWidgetModel(previewing: basis))
+        // The last step as a release build draws it, with the crash-reports
+        // question, whether or not this build carries somewhere to send.
+        model.offersCrashReports = true
         model.restart(at: step, resumed: resumed)
         return model
     }
@@ -162,13 +140,5 @@ enum GalleryOnboarding {
         OnboardingView()
             .environment(model(at: step, agents: unwired, basis: .noHooksInstalled, calendar: calendar))
             .environment(\.onboardingFlatGlass, true)
-    }
-
-    private static func welcome(_ plan: WelcomePlan,
-                                askWay: WelcomePlan.AskWay = .hold(HoldKeyMonitor.Key.option.displayName))
-    -> some View {
-        WelcomeView()
-            .environment(WelcomeModel(previewing: plan, askWay: askWay))
-            .environment(\.welcomeHeroStill, true)
     }
 }

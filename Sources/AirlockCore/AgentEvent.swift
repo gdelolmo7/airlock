@@ -43,6 +43,10 @@ public struct AgentEvent: Codable, Sendable, Hashable {
         case questionAnswered(answer: String)
         case jumpTargetUpdated(JumpTarget)
         case sessionEnded
+        /// The agent left work running on its own — see `BackgroundTask`.
+        case backgroundTaskStarted(BackgroundTask)
+        /// The agent stopped one of those itself, by its id for it.
+        case backgroundTaskStopped(taskID: String)
         /// The user cleared a `QuestionReceipt`. Local — no agent sends this —
         /// but it goes through the transition table anyway, because a session
         /// mutated anywhere else is the thing `SessionState` exists to prevent.

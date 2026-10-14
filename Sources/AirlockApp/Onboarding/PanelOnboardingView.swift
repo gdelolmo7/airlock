@@ -51,14 +51,7 @@ struct PanelOnboardingView: View {
                             .foregroundStyle(Theme.textTertiary)
                     }
 
-                    Text(title)
-                        .font(Theme.chrome(13, .semibold))
-                        .foregroundStyle(Theme.textPrimary)
-
-                    Text(blurb)
-                        .font(Theme.chrome(11.5))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    heading
 
                     stepContent
                         .padding(.top, 2)
@@ -170,6 +163,42 @@ struct PanelOnboardingView: View {
         .keyboardShortcut(.defaultAction)
     }
 
+    /// The title and the blurb, with the cloud beside them on the pages that
+    /// have one. Beside rather than above, so the pages that gain a face
+    /// spend none of the height budget on it.
+    @ViewBuilder private var heading: some View {
+        let words = VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(Theme.chrome(13, .semibold))
+                .foregroundStyle(Theme.textPrimary)
+
+            Text(blurb)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if let face = Self.face(for: model.step) {
+            HStack(spacing: 12) {
+                BloubView(expression: face, motion: .breathing, tint: BloubTint.working.color)
+                    .frame(width: 34, height: 34)
+                words
+            }
+        } else {
+            words
+        }
+    }
+
+    /// Only the two pages that open and close setup get the cloud: pleased to
+    /// meet you, and pleased with how it went. The three between are lists of
+    /// things to do, where a face would sit beside work it has no part in.
+    static func face(for step: OnboardingPlan.Step) -> BloubExpression? {
+        switch step {
+        case .welcome: .excited
+        case .finish: .proud
+        case .agents, .features, .permissions: nil
+        }
+    }
+
     // MARK: - Copy
 
     private var title: String {
@@ -243,6 +272,7 @@ struct WelcomePanelStep: View {
         case .dashboard: "Your next meetings, and how busy the Mac is"
         case .tray: "Drop files here to move them somewhere else"
         case .clipboard: "Everything you copied, searchable"
+        case .calls: "Your last calls, and the notes from each"
         case .agents: "Approve, deny and answer your coding agents"
         }
     }
@@ -251,10 +281,19 @@ struct WelcomePanelStep: View {
         VStack(spacing: 4) {
             ForEach(tabs) { tab in
                 HStack(spacing: 9) {
-                    Image(systemName: tab.symbol)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(width: 16)
+                    // Home is the cloud in the strip (`NotchTopBar`), so it is
+                    // the cloud here too: a house would describe a tab nobody
+                    // can find. Still and grey, as the strip draws it when it
+                    // is not the one open.
+                    if tab == .home {
+                        BloubView(expression: .attentive, tint: Theme.textSecondary)
+                            .frame(width: 16, height: 14)
+                    } else {
+                        Image(systemName: tab.symbol)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.textSecondary)
+                            .frame(width: 16)
+                    }
                     Text(tab.label)
                         .font(Theme.chrome(12, .medium))
                         .foregroundStyle(Theme.textPrimary)
@@ -519,7 +558,7 @@ private struct FeaturesPanelStep: View {
         // The installed list can be empty (no speech assets yet, or the gallery),
         // and a raw code like `es_ES` is not a language anyone speaks.
         let id = model.secondDictationLanguage
-        return "Also hears \(chosen?.name ?? Locale.current.localizedString(forIdentifier: id) ?? id)"
+        return "Also hears \(chosen?.name ?? SpokenLanguages.name(id) ?? id)"
     }
 
     @ViewBuilder
@@ -701,6 +740,41 @@ private struct FinishPanelStep: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .controlSize(.mini)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.rowFill))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Theme.rowStroke, lineWidth: 1)
+                )
+            }
+
+            // Asked once, here, and off unless switched on. Only in a build
+            // that could send a report: the switch is a promise about where
+            // a crash goes, and a build without a DSN sends nothing anywhere.
+            if model.offersCrashReports {
+                HStack(spacing: 9) {
+                    Image(systemName: "ladybug")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 16)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Send crash reports?")
+                            .font(Theme.chrome(12, .medium))
+                            .foregroundStyle(Theme.textPrimary)
+                        Text("When Airlock crashes, a report helps us fix it. Nothing personal is included.")
+                            .font(Theme.chrome(10))
+                            .foregroundStyle(Theme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 6)
+                    Toggle("", isOn: Binding(get: { model.sendsCrashReports },
+                                             set: { model.sendsCrashReports = $0 }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .accessibilityLabel("Send crash reports")
                 }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 7)

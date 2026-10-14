@@ -36,6 +36,11 @@ struct ProblemCard: View {
     var tone: Tone = .needs
     var button: String?
     var action: (() -> Void)?
+    /// The cloud in place of `icon`, in the tone's colour, at the icon's
+    /// size. For the few cards about Airlock itself missing something, where
+    /// a face says it better than a glyph; nil everywhere else, which is
+    /// nearly everywhere. Settings keeps its form symbol either way.
+    var face: BloubExpression?
 
     /// Which surface it is drawn on. Set once per window (Settings sets
     /// `.settings` at its root), never per call, so a problem written once
@@ -83,8 +88,20 @@ struct ProblemCard: View {
 
     @ViewBuilder private var notchCard: some View {
         let card = ProblemCardRow {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
+            if let face {
+                // Still: a glyph-sized face on a card that is gone in seconds
+                // would close before its first blink came round.
+                BloubView(expression: face, tint: tone.tint)
+                    .frame(width: 15, height: 13)
+                    // It has no baseline of its own, so it stood on the
+                    // sentence's and rode above the words. Hung a
+                    // descender's depth lower, it fills the line as a glyph
+                    // does, and the card keeps its height.
+                    .alignmentGuide(.firstTextBaseline) { $0.height - 2.5 }
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .medium))
+            }
             Text(sentence)
                 .font(Theme.chrome(11, .medium))
             if let button, action != nil {

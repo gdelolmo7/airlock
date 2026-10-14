@@ -22,7 +22,9 @@ final class AgentsCardTextTests: XCTestCase {
     func testEveryStateHasOneWordAndTheLineNeverRestatesIt() {
         let all: [SessionStatus] = [.starting, .running, .needsAttention, .waitingQuestion,
                                     .idle, .done, .error]
-        XCTAssertEqual(Set(all.map(\.word)).count, all.count, "two states, one word")
+        // The two waiting states share theirs on purpose; every other pair is
+        // two states, one word.
+        XCTAssertEqual(Set(all.map(\.word)).count, all.count - 1, "two states, one word")
         for status in all {
             XCTAssertNil(SessionCardText.activity(of: session(status: status, line: status.word)),
                          "\(status) said twice")
@@ -152,6 +154,95 @@ final class AgentsCardTextTests: XCTestCase {
         XCTAssertNil(SessionCardText.terminalAsk(of: self.session()), "nothing asked")
     }
 
+    // MARK: Waiting on you, wherever it asked (A17, A24, A28)
+
+    /// Claude's hooks, through its own decoder, numbered on from `state`.
+    private func claude(_ state: inout SessionState, _ json: String) throws {
+        let context = HookContext(source: "claude-code", cwd: nil, terminal: nil, receivedAt: t0)
+        let next = state.sessions["s1"]?.lastSequence ?? 0
+        for (n, var event) in try ClaudeCodeIntegration().decodeEvents(from: Data(json.utf8),
+                                                                        context: context).enumerated() {
+            event.sequence = next + UInt64(1 + n)
+            state.apply(event)
+        }
+    }
+
+    /// A card Claude put on the notch and the notch gave back unanswered.
+    private func handedBack(_ request: PermissionRequest) -> SessionState {
+        var state = SessionState()
+        state.apply(AgentEvent(sessionID: "s1", agent: .claudeCode, sequence: 1, timestamp: t0,
+                               kind: .permissionRequested(request)))
+        state.apply(AgentEvent(sessionID: "s1", agent: .claudeCode, sequence: 2, timestamp: t0,
+                               kind: .permissionResolved(requestID: request.id, decision: .deferred)))
+        return state
+    }
+
+    func testAnAskHandedBackToTheTerminalStillSaysNeedsYou() throws {
+        let command = handedBack(PermissionRequest(id: "p", toolName: "Bash", summary: "Run shell command",
+                                                   command: "npm run deploy:prod", createdAt: t0))
+        let question = handedBack(PermissionRequest(id: "q", toolName: "AskUserQuestion", summary: "Which?",
+                                                    question: QuestionPrompt(question: "Which?", options: []),
+                                                    createdAt: t0))
+        for state in [command, question] {
+            let session = try XCTUnwrap(state.sessions["s1"])
+            XCTAssertEqual(SessionCardText.pillStatus(of: session).word, "Needs you",
+                           "not 'Working' beside 'Asking in its terminal instead'")
+            // The words only: nothing waits on the notch, so the island, the
+            // sound and the list order still read a running session.
+            XCTAssertEqual(session.status, .running)
+            XCTAssertFalse(session.status.wantsAttention)
+        }
+        XCTAssertEqual(question.sessions["s1"]?.questionReceipt?.reason, .ignored, "A28's receipt")
+    }
+
+    func testClaudesOwnPermissionNoticeKeepsItNeedsYouUntilItMovesOn() throws {
+        var state = handedBack(PermissionRequest(id: "p", toolName: "Bash", summary: "Run shell command",
+                                                 command: "npm run deploy:prod", createdAt: t0))
+        // Claude's prompt is up in the terminal and says so, over the line.
+        try claude(&state, #"{"session_id":"s1","hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}"#)
+        var session = try XCTUnwrap(state.sessions["s1"])
+        XCTAssertEqual(session.lastSummary, "Claude needs your permission to use Bash")
+        XCTAssertEqual(SessionCardText.pillStatus(of: session), .needsAttention)
+        XCTAssertEqual(session.status, .running)
+
+        // Answered there: the call runs, the line moves on, and so does the pill.
+        try claude(&state, #"{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"npm run deploy:prod"}}"#)
+        session = try XCTUnwrap(state.sessions["s1"])
+        XCTAssertEqual(SessionCardText.pillStatus(of: session).word, "Working")
+
+        // Any other notice is a line, not a wait.
+        try claude(&state, #"{"session_id":"s1","hook_event_name":"Notification","message":"Claude is compiling"}"#)
+        session = try XCTUnwrap(state.sessions["s1"])
+        XCTAssertEqual(SessionCardText.pillStatus(of: session), .running)
+    }
+
+    func testOnlyAWorkingSessionIsReadAsWaitingInItsTerminal() {
+        XCTAssertEqual(SessionCardText.pillStatus(of: session(line: "Editing Login.swift")), .running)
+        // Ten silent minutes put it to rest, and rest is what it says.
+        XCTAssertEqual(SessionCardText.pillStatus(of: session(status: .idle, line: SessionCardText.handedBack)),
+                       .idle)
+        XCTAssertEqual(SessionCardText.pillStatus(of: session(status: .done, line: SessionCardText.handedBack)),
+                       .done)
+        XCTAssertEqual(SessionCardText.pillStatus(of: session(status: .needsAttention, line: "Allow?")),
+                       .needsAttention)
+    }
+
+    func testAnApprovalReadsTheSameForEveryAgent() throws {
+        // Codex's ask in its own terminal (A17), next to Claude's on the card.
+        let codex = CodexIntegration()
+        let context = HookContext(source: "codex", cwd: nil, terminal: nil, receivedAt: t0)
+        var state = SessionState()
+        for (n, var event) in try codex.decodeEvents(from: Data(#"{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"npm install express-rate-limit"}}"#.utf8),
+                                                     context: context).enumerated() {
+            event.sequence = UInt64(1 + n)
+            state.apply(event)
+        }
+        let asking = try XCTUnwrap(state.sessions["s1"])
+        XCTAssertEqual(asking.status, .waitingQuestion)
+        XCTAssertEqual(SessionCardText.pillStatus(of: asking).word, SessionStatus.needsAttention.word,
+                       "not 'Question': it is an approval, and the card says where to give it")
+    }
+
     // MARK: Always (A20, A27)
 
     func testAlwaysIsOfferedOnlyWhereARuleWouldBeHonoured() {
@@ -210,7 +301,7 @@ final class AgentsCardTextTests: XCTestCase {
         XCTAssertFalse(silent.opensAutomationSettings)
     }
 
-    // MARK: Claude usage (I14, I15, A33)
+    // MARK: Claude usage (W67, W68, W69, A33)
 
     func testUsageSaysHowOldItIs() {
         XCTAssertEqual(UsageReadout.freshness(capturedAt: nil, now: t0), UsageReadout.Freshness.none)
@@ -229,5 +320,13 @@ final class AgentsCardTextTests: XCTestCase {
         XCTAssertFalse(UsageReadout.showsStopped(wanted: true, connection: .connected))
         XCTAssertFalse(UsageReadout.showsStopped(wanted: true, connection: .hooksMissing),
                        "nothing connected is the connect card's job")
+    }
+
+    func testTheUsageLineStepsAsideForAnythingWaiting() {
+        XCTAssertTrue(UsageReadout.showsLine(wanted: true, somethingWaits: false))
+        XCTAssertFalse(UsageReadout.showsLine(wanted: false, somethingWaits: false),
+                       "switched off, or the agents are")
+        XCTAssertFalse(UsageReadout.showsLine(wanted: true, somethingWaits: true),
+                       "a gate or a question has the top of the tab")
     }
 }

@@ -61,6 +61,10 @@ final class SystemControlsModel {
     struct Problem: Equatable {
         let sentence: String
         var pane: PermissionPage?
+        /// News rather than a fault. A hold that ended because its time was up
+        /// did exactly what it was asked to, so its line is drawn in the calm
+        /// note tone instead of as one more warning.
+        var isNote = false
     }
 
     // MARK: - Arrangement
@@ -178,6 +182,16 @@ final class SystemControlsModel {
             case .sleepDisplay: return "Put the display to sleep"
             }
         }
+
+        /// What the small menu button beside the tile is called, for the
+        /// controls that have one: a press keeps doing what it always did, and
+        /// the choices live behind this. Nil for the rest.
+        var menuLabel: String? {
+            switch self {
+            case .awake: return "How long to keep this Mac awake"
+            case .wifi, .dark, .capture, .record, .sleepDisplay: return nil
+            }
+        }
     }
 
     private(set) var isWiFiOn = false
@@ -259,6 +273,9 @@ final class SystemControlsModel {
             if wakeAssertion != nil {
                 releaseAwake()
                 holdAwake()
+                // A refused swap holds nothing, so there is no end left to
+                // count down to. A held one keeps the end it had.
+                if wakeAssertion == nil { clearAwakeEnd() }
                 refresh()
                 // The new hold can be refused; then nothing is held and the
                 // battery has nothing to watch for.
@@ -296,11 +313,38 @@ final class SystemControlsModel {
     /// When the panel first showed the cutoff's line — see
     /// `KeepAwakePolicy.keepsStoppedNotice`.
     @ObservationIgnored private var stoppedNoticeSeenAt: Date?
+    /// The line under the rail for a stop nobody pressed for: the cutoff's,
+    /// or the timer's. Both are news that arrives while somebody is away, so
+    /// both stay until seen, and `railShown` needs to know which line that is.
+    @ObservationIgnored private var stoppedNotice: String?
 
-    /// Raised when the cutoff lets go, so the controller can bring the island
-    /// up to say so — a stop is not something the island's own events would
-    /// notice in time.
-    @ObservationIgnored var onAwakeStoppedByCutoff: (() -> Void)?
+    /// Raised when keep awake lets go by itself, the cutoff or the timer, so
+    /// the controller redraws the island at once: the cup has to go, and the
+    /// cutoff also brings the island up to say why. Neither is something the
+    /// island's own events would notice in time.
+    @ObservationIgnored var onAwakeLetGo: (() -> Void)?
+
+    // MARK: Keep awake for a set time
+
+    /// When the switch's hold lets go by itself, or nil: off, or on until
+    /// somebody turns it off. A wall-clock moment, like everything in
+    /// `KeepAwakeTimer`, so a Mac that sleeps through it lets go on waking.
+    private(set) var awakeUntil: Date?
+    /// When that hold was given its end, so a clock that steps back past it
+    /// can be caught (`KeepAwakeTimer.hasEnded`).
+    @ObservationIgnored private var awakeSince: Date?
+    /// The one timer: asleep until the end, then a check. Re-armed when the
+    /// end moves and after anything that can jump the wall clock, so nothing
+    /// here polls.
+    @ObservationIgnored private var awakeDeadline: Task<Void, Never>?
+    @ObservationIgnored private var wakeWatch: Task<Void, Never>?
+    @ObservationIgnored private var clockWatch: Task<Void, Never>?
+
+    /// The time "Until…" was last set to, so somebody who keeps the Mac up
+    /// until 08:00 every night finds 08:00 waiting. Nil before the first pick.
+    private(set) var lastUntil: KeepAwakeTimer.TimeOfDay? =
+        (UserDefaults.standard.object(forKey: "keepAwake.untilMinute") as? Int)
+            .map { KeepAwakeTimer.TimeOfDay(hour: 0, minute: $0) }
 
     /// Held while `isAwake`. Releasing it is the only way to end the assertion,
     /// so it is the state as well as the effect.
@@ -318,12 +362,28 @@ final class SystemControlsModel {
     /// no timer here and nothing to keep alive while the panel is shut.
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
 
-    deinit { pathMonitor?.cancel() }
+    /// Takes and lets go of the two holds. IOKit itself in the app.
+    @ObservationIgnored private let power: PowerAssertions
+
+    init(power: PowerAssertions = .system) {
+        self.power = power
+    }
+
+    deinit {
+        pathMonitor?.cancel()
+        // The app's model lives as long as the app; a test's does not, and
+        // its sleeping timer should not outlive it by half an hour.
+        awakeDeadline?.cancel()
+        wakeWatch?.cancel()
+        clockWatch?.cancel()
+        agentWatch?.cancel()
+    }
 
     func start() {
         refresh()
         startWatchingPath()
         applyHotkey()
+        watchClock()
     }
 
     /// One monitor for the app's lifetime.
@@ -387,12 +447,19 @@ final class SystemControlsModel {
         isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
-    /// The panel is showing the rail. The battery cutoff's line is the one
-    /// failure nobody's press caused, so it is the one that has to know when
-    /// it has been read rather than wait for a press that may never come.
+    /// The switch's half of `refresh`. The keep-awake paths change nothing
+    /// but the hold, so they re-read nothing else, which also keeps them
+    /// drivable from a test with no running application.
+    private func syncAwake() {
+        isAwake = wakeAssertion != nil
+    }
+
+    /// The panel is showing the rail. The battery cutoff's line and the
+    /// timer's are the two nobody's press caused, so they are the ones that
+    /// have to know when they have been read rather than wait for a press
+    /// that may never come.
     func railShown(now: Date = Date()) {
-        guard stoppedByCutoffAt != nil,
-              failure?.sentence == KeepAwakePolicy.stoppedMessage(cutoff: stoppedCutoff) else { return }
+        guard let stoppedNotice, failure?.sentence == stoppedNotice else { return }
         if KeepAwakePolicy.keepsStoppedNotice(firstSeenAt: stoppedNoticeSeenAt, now: now) {
             if stoppedNoticeSeenAt == nil { stoppedNoticeSeenAt = now }
         } else {
@@ -467,13 +534,32 @@ final class SystemControlsModel {
     /// `letsScreenSleep` swaps it for `PreventUserIdleSystemSleep`, which
     /// keeps the Mac working while the display goes dark on its own timer —
     /// the island's cup still says it is held when the screen comes back.
+    ///
+    /// Off, a press starts `KeepAwakeTimer.singleClick`; on, it lets go, and
+    /// any end it had goes with it.
     private func toggleAwake() {
+        guard wakeAssertion != nil else {
+            keepAwake(KeepAwakeTimer.singleClick)
+            return
+        }
         failure = nil
         stoppedByCutoffAt = nil
-        if wakeAssertion != nil {
-            releaseAwake()
-            Moments.shared.announce(.keepAwakeStopped, "turned off")
-        } else {
+        clearAwakeEnd()
+        releaseAwake()
+        Moments.shared.announce(.keepAwakeStopped, "turned off")
+        syncAwake()
+        watchBattery()
+    }
+
+    /// Holds the Mac awake with the end `choice` gives it: the menu beside the
+    /// switch, and a single press through `toggleAwake`.
+    ///
+    /// Already held, only the end changes: the assertion stays, so picking
+    /// "2 hours" over a running hour never lets the Mac dip in between.
+    func keepAwake(_ choice: KeepAwakeTimer.Choice, now: Date = Date()) {
+        failure = nil
+        stoppedByCutoffAt = nil
+        if wakeAssertion == nil {
             let battery = Self.batteryReading()
             if let refusal = KeepAwakePolicy.refusal(cutoff: keepAwakeCutoff,
                                                      percentage: battery.percentage,
@@ -481,25 +567,127 @@ final class SystemControlsModel {
                 failure = Problem(sentence: refusal)
                 ControlDiagnostics.log(.awake, "not held: battery \(battery.percentage ?? -1)% "
                     + "on battery, below the \(keepAwakeCutoff)% cutoff")
-            } else {
-                holdAwake()
-                if wakeAssertion != nil { Moments.shared.announce(.keepAwakeOn) }
+                syncAwake()
+                return
+            }
+            holdAwake()
+            if wakeAssertion != nil { Moments.shared.announce(.keepAwakeOn) }
+        }
+        if wakeAssertion != nil {
+            if case .until(let time) = choice {
+                lastUntil = time
+                Defaults.set(time.hour * 60 + time.minute, "keepAwake.untilMinute")
+            }
+            setAwakeEnd(KeepAwakeTimer.deadline(for: choice, now: now, calendar: .current), now: now)
+        }
+        syncAwake()
+        watchBattery()
+    }
+
+    /// "+30 min": the end moves on and the timer is re-armed for it. Nothing
+    /// to add to a hold with no end.
+    func addAwakeTime(now: Date = Date()) {
+        guard wakeAssertion != nil, let awakeUntil else { return }
+        setAwakeEnd(KeepAwakeTimer.extended(deadline: awakeUntil, now: now), now: now, since: awakeSince)
+    }
+
+    /// Lets go if the hold's end has passed. True when it did.
+    ///
+    /// Only the switch's own assertion is released. An agent's hold is a
+    /// separate reason to stay up, with its own assertion, and the end of a
+    /// timer somebody set for themselves must never drop it.
+    @discardableResult
+    func endAwakeIfDue(now: Date = Date()) -> Bool {
+        guard let awakeUntil, let awakeSince,
+              KeepAwakeTimer.hasEnded(deadline: awakeUntil, startedAt: awakeSince, now: now) else { return false }
+        clearAwakeEnd()
+        guard wakeAssertion != nil else { return false }
+        ControlDiagnostics.log(.awake, "time up (\(Int(now.timeIntervalSince(awakeUntil)))s past the end) "
+            + "— letting go")
+        releaseAwake()
+        syncAwake()
+        watchBattery()
+        failure = Problem(sentence: KeepAwakeTimer.endedMessage, isNote: true)
+        stoppedNotice = KeepAwakeTimer.endedMessage
+        stoppedNoticeSeenAt = nil
+        // Silent, like every keep-awake moment: the time running out is what
+        // was asked for, and a chime for it would be a chime for nothing.
+        Moments.shared.announce(.keepAwakeStopped, "time up")
+        onAwakeLetGo?()
+        return true
+    }
+
+    /// `since` is kept by "+30 min", so the backwards-clock check still
+    /// measures from when the hold began.
+    private func setAwakeEnd(_ end: Date?, now: Date, since: Date? = nil) {
+        awakeUntil = end
+        awakeSince = end == nil ? nil : (since ?? now)
+        if let end {
+            ControlDiagnostics.log(.awake, "ends in \(Int(end.timeIntervalSince(now)))s")
+        }
+        armAwakeDeadline(now: now)
+    }
+
+    private func clearAwakeEnd() {
+        awakeUntil = nil
+        awakeSince = nil
+        awakeDeadline?.cancel()
+        awakeDeadline = nil
+    }
+
+    /// One sleep to the end, then a check that re-arms for whatever is left
+    /// when the wall clock says it is not over yet. `Task.sleep` counts on a
+    /// clock that keeps running through sleep, so a Mac that wakes after the
+    /// end finds the sleep already over.
+    private func armAwakeDeadline(now: Date = Date()) {
+        awakeDeadline?.cancel()
+        awakeDeadline = nil
+        guard let awakeUntil else { return }
+        let wait = max(awakeUntil.timeIntervalSince(now), 0)
+        awakeDeadline = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled, let self else { return }
+            self.awakeDeadline = nil
+            if !self.endAwakeIfDue() { self.armAwakeDeadline() }
+        }
+    }
+
+    /// A wake from sleep and a change of the clock are the two moments a
+    /// wall-clock end can pass without the timer seeing it: the timer counts
+    /// on a clock that runs through sleep but does not follow the wall clock
+    /// when somebody sets it. Both check now and re-arm for what is left.
+    private func watchClock() {
+        guard wakeWatch == nil, clockWatch == nil else { return }
+        wakeWatch = Task { [weak self] in
+            let wakes = NSWorkspace.shared.notificationCenter
+                .notifications(named: NSWorkspace.didWakeNotification)
+                .map(\.name)
+            for await _ in wakes {
+                guard let self else { return }
+                self.recheckAwakeEnd()
             }
         }
-        refresh()
-        watchBattery()
+        clockWatch = Task { [weak self] in
+            let changes = NotificationCenter.default
+                .notifications(named: .NSSystemClockDidChange)
+                .map(\.name)
+            for await _ in changes {
+                guard let self else { return }
+                self.recheckAwakeEnd()
+            }
+        }
+    }
+
+    private func recheckAwakeEnd() {
+        guard awakeUntil != nil else { return }
+        if !endAwakeIfDue() { armAwakeDeadline() }
     }
 
     private func holdAwake() {
         let type = letsScreenSleep ? kIOPMAssertionTypePreventUserIdleSystemSleep
                                    : kIOPMAssertionTypePreventUserIdleDisplaySleep
         let name = letsScreenSleep ? "PreventUserIdleSystemSleep" : "PreventUserIdleDisplaySleep"
-        var assertion: IOPMAssertionID = 0
-        let result = IOPMAssertionCreateWithName(
-            type as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            "Airlock — keep awake" as CFString,
-            &assertion)
+        let (result, assertion) = power.create(type as CFString, "Airlock — keep awake" as CFString)
         wakeAssertion = result == kIOReturnSuccess ? assertion : nil
         // A refusal here is the quietest failure on the rail: nothing is
         // held, no message is set, and the button simply does not light.
@@ -511,7 +699,7 @@ final class SystemControlsModel {
 
     private func releaseAwake() {
         guard let assertion = wakeAssertion else { return }
-        let result = IOPMAssertionRelease(assertion)
+        let result = power.release(assertion)
         wakeAssertion = nil
         ControlDiagnostics.log(
             .awake, "IOPMAssertionRelease(\(assertion)) → \(ControlDiagnostics.describe(ioReturn: result))")
@@ -545,14 +733,17 @@ final class SystemControlsModel {
                                          onBattery: battery.onBattery) else { return false }
         ControlDiagnostics.log(.awake, "battery \(battery.percentage ?? -1)% on battery, "
             + "below the \(keepAwakeCutoff)% cutoff — letting go")
+        // The cutoff applies on top of a timer, and ends it like a press would.
+        clearAwakeEnd()
         releaseAwake()
         refresh()
         failure = Problem(sentence: KeepAwakePolicy.stoppedMessage(cutoff: keepAwakeCutoff))
+        stoppedNotice = failure?.sentence
         stoppedCutoff = keepAwakeCutoff
         stoppedByCutoffAt = Date()
         stoppedNoticeSeenAt = nil
         Moments.shared.announce(.keepAwakeStopped, "battery cutoff")
-        onAwakeStoppedByCutoff?()
+        onAwakeLetGo?()
         return true
     }
 
@@ -604,12 +795,8 @@ final class SystemControlsModel {
     /// the display. Closing the lid still sleeps it — an idle assertion
     /// never holds a shut laptop up.
     private func holdForAgents() {
-        var assertion: IOPMAssertionID = 0
-        let result = IOPMAssertionCreateWithName(
-            kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            "Airlock — an agent is working" as CFString,
-            &assertion)
+        let (result, assertion) = power.create(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+                                               "Airlock — an agent is working" as CFString)
         agentAssertion = result == kIOReturnSuccess ? assertion : nil
         ControlDiagnostics.log(
             .awake, "agent working: IOPMAssertionCreateWithName(PreventUserIdleSystemSleep) → "
@@ -619,7 +806,7 @@ final class SystemControlsModel {
 
     private func releaseForAgents() {
         guard let assertion = agentAssertion else { return }
-        let result = IOPMAssertionRelease(assertion)
+        let result = power.release(assertion)
         agentAssertion = nil
         ControlDiagnostics.log(
             .awake, "agents done: IOPMAssertionRelease(\(assertion)) → "
@@ -824,3 +1011,22 @@ final class SystemControlsModel {
     }
 }
 
+/// The two IOKit calls behind both holds, as values, so a test can stand in
+/// for them. A test holding a real assertion would keep the Mac running the
+/// suite awake for as long as it ran, which is why no test did until the
+/// timer gave the holds logic worth testing.
+struct PowerAssertions: Sendable {
+    var create: @MainActor @Sendable (_ type: CFString, _ reason: CFString) -> (IOReturn, IOPMAssertionID)
+    var release: @MainActor @Sendable (IOPMAssertionID) -> IOReturn
+
+    static var system: PowerAssertions {
+        PowerAssertions(
+            create: { type, reason in
+                var assertion: IOPMAssertionID = 0
+                let result = IOPMAssertionCreateWithName(type, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                                         reason, &assertion)
+                return (result, assertion)
+            },
+            release: { IOPMAssertionRelease($0) })
+    }
+}

@@ -38,6 +38,18 @@ public struct OngoingCall: Codable, Equatable, Sendable {
         self.site = site
     }
 
+    /// Notes taken by hand with no call: a meeting in the room, heard
+    /// through the Mac's own microphone. Carried as a call of its own
+    /// so the notes, the pill and the past calls treat it as one, under a
+    /// bundle ID no app has.
+    public static let inPersonBundleID = "com.airlock.in-person"
+
+    public static func inPerson(at start: Date) -> OngoingCall {
+        OngoingCall(bundleID: inPersonBundleID, appName: "In person", startedAt: start)
+    }
+
+    public var isInPerson: Bool { bundleID == Self.inPersonBundleID }
+
     /// The running timer beside the icon: "0:42", "12:05", then "1h02" past an
     /// hour, because "1:02:14" is three characters wider than the compact
     /// island's one-glyph-plus-a-few budget and the seconds stop mattering.
@@ -137,10 +149,15 @@ public struct CallDetector: Equatable, Sendable {
     /// call is known, the same app still holding the mic is enough. The same
     /// goes for the call a previous run saved: it was already proven a call,
     /// and relaunching into a quiet moment left it unfound (build 741).
+    ///
+    /// An app on `NeverACall` is not on the microphone as far as this is
+    /// concerned, whoever gathered the samples: it can neither start a call
+    /// nor keep one, nor stand in for the call a previous run saved.
     @discardableResult
     public mutating func observe(_ users: [MicUser], at now: Date) -> Change? {
         // Sorted so two apps on the mic at once always resolve the same way.
-        let onMic = users.sorted { $0.bundleID < $1.bundleID }
+        let onMic = users.filter { !NeverACall.matches($0.bundleID) }
+            .sorted { $0.bundleID < $1.bundleID }
         let calling = onMic.filter(\.playing)
 
         if let current = call {

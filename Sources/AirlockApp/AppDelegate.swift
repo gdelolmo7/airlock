@@ -24,12 +24,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// stops being clickable, with nothing to see in either direction.
     private let notificationRouter = NotificationRouter()
     private var onboarding: OnboardingWindowController?
-    /// Shared by both surfaces. First run presents it in the panel; the menu
-    /// bar's "Set up Airlock…" presents the same object in the window, so hooks
-    /// installed in one are installed in the other and the completion flag is
-    /// settled in one place.
+    /// Shared by both surfaces. First run and the menu bar's "Set up Airlock…"
+    /// present it in the panel, the window only when there is no panel; one
+    /// object, so hooks installed in one are installed in the other and the
+    /// completion flag is settled in one place.
     private var onboardingModel: OnboardingModel?
+    #if AIRLOCK_GUIDE
     private var welcome: WelcomeWindowController?
+    #endif
     /// The once-only "permissions again after the rename" window, kept while
     /// it is up.
     private var permissionsAgain: PermissionsAgainWindowController?
@@ -47,7 +49,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var license: LicenseModel?
     private var systemControls: SystemControlsModel?
     private var tally: UsageTallyStore?
-    private var purchase: PurchaseFlow?
     private var purchaseWindow: PurchaseWindowController?
 
     /// `airlock://activate?key=…` coming back from a finished checkout.
@@ -64,14 +65,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let key = urls.lazy.compactMap({ ActivationURL.key(from: $0) }).first,
               let license else { return }
-        Task { @MainActor [weak self] in
-            let accepted = await license.apply(key)
-            guard accepted else { return }
-            // Only on success: a key that failed to verify leaves the flow
-            // waiting, which is the truth — the browser said something and it
-            // was not a licence.
-            self?.purchase?.succeed()
-        }
+        // The purchase window hears about a success through
+        // `LicenseModel.onApplied`, like a paste in Settings. A key that failed
+        // to verify leaves it waiting, which is the truth — the browser said
+        // something and it was not a licence.
+        Task { @MainActor in await license.apply(key) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -97,6 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // one of those would see an empty new-identity world if the copy had
         // not already happened.
         migrateFromLegacyIdentity()
+        // Right after the preferences are where they belong, since the answer
+        // is one of them, and as early as that allows: a crash later in this
+        // launch is one worth a report. Does nothing in a build without a DSN
+        // or for anyone who has not said yes. A demo run leaves it alone, so
+        // it never touches the marker the installed copy keeps.
+        if !Self.isDemoMode { CrashReporter.shared.launch() }
         // The hand over buttons, with another app in front — see the type.
         let cursorOK = BackgroundCursor.enable()
         HoverTrace.note("background cursor \(cursorOK ? "enabled" : "unavailable")")
@@ -157,14 +161,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appearance = NotchAppearanceModel()
         self.appearance = appearance
 
-        // Claude's usage figures reach the gutter through its status line, and
-        // one status line is all Claude has — so another tool writing that
+        // Claude's usage figures reach the Agents tab through its status line,
+        // and one status line is all Claude has — so another tool writing that
         // setting silently ends them. This puts ours back when the figures are
         // switched on, and takes it out when they are switched off. It never
         // installs hooks, and it cannot stop the launch. See `UsageConnection`.
         let usageConnection = UsageConnectionModel()
         self.usageConnection = usageConnection
-        switch usageConnection.sync(wantsUsage: appearance.showsUsageInGutter) {
+        switch usageConnection.sync(wantsUsage: appearance.showsClaudeUsage) {
         case .connected:
             Log.app.notice("put Airlock's usage bridge back into Claude's status line")
         case .disconnected:
@@ -236,6 +240,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboardWidget?.suppressNextCopy(of: text)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        }
+        // Questions about past calls are answered from them while call notes
+        // are on, and a source under the answer opens the call at that moment.
+        assistant.callNotesEnabled = { [weak model] in model?.meetings.isEnabled ?? false }
+        assistant.onShowCall = { [weak model] source in
+            model?.meetings.showCall(folder: source.folder, saidAt: source.time)
         }
         // Setup commands go to a VISIBLE terminal the user owns — never run
         // silently in-process. They read it, watch it, and can stop it.
@@ -385,10 +395,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let license = LicenseModel()
         // Wired here rather than beside the other spoken-action closures because
-        // this is where the licence exists. A finished trial stops actions and
-        // nothing else: answering a question still works, because every other
-        // licence state belongs to somebody who has paid and none of them is an
-        // outage.
+        // this is where the licence exists. Only a finished trial says no, and
+        // it says no to everything here: a hold to dictate or to ask is refused
+        // as it starts, and an action is not done. Typed questions get no
+        // answer either: the typing bar is not drawn, and the panel's widgets
+        // give way to the subscribe card (`LicenseBlockedView`). Every other
+        // licence state belongs to somebody who has paid, and none of them is
+        // an outage.
         dictation.isEntitled = { [weak license] in
             guard let entitlement = license?.entitlement else { return true }
             return entitlement.allowsUse
@@ -399,6 +412,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.license = license
         license.start()
+        // Meeting notes online ask the licence server with the licence's
+        // token, for subscribers only. Does nothing unless switched on by hand.
+        let cloudNotes = CloudNotesService.shared
+        cloudNotes.entitlement = { [weak license] in license?.entitlement ?? .free }
+        cloudNotes.access = { [weak license] in license?.notesAccess }
+        cloudNotes.hasServer = { [weak license] in license?.hasServer ?? false }
+        cloudNotes.start()
+        // Once the trial has ended, an agent's request goes straight back to
+        // its terminal rather than waiting on a card — see `GateHolding`. The
+        // value it starts from as well as every change: `init` has already
+        // read it.
+        license.onEntitlementChange = { [weak model] in model?.entitlementChanged($0) }
+        model.entitlementChanged(license.entitlement)
 
         // Reads every integration's hook status once, here, rather than from a
         // SwiftUI body — see `AgentsWidgetModel.hookStatuses`.
@@ -406,7 +432,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // through it, and a store handed over after the first approval would
         // start life already wrong.
         let purchase = PurchaseFlow()
-        self.purchase = purchase
 
         let tally = UsageTallyStore()
         self.tally = tally
@@ -418,7 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // For the Agents tab's "Claude usage stopped" card.
         agentsWidget.usage = usageConnection
         agentsWidget.wantsUsage = { [weak appearance, weak agentsWidget] in
-            (appearance?.showsUsageInGutter ?? false) && (agentsWidget?.isEnabled ?? false)
+            (appearance?.showsClaudeUsage ?? false) && (agentsWidget?.isEnabled ?? false)
         }
         // Registers the gate hotkey. The controller wires `onGateHotkey` when it
         // is built below; a press before then finds a nil handler and does
@@ -439,10 +464,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              guard let entitlement = license?.entitlement else { return true }
                              return entitlement.allowsUse
                          },
-                         onOpenSettings: { [weak license] in license?.showPurchase() }),
+                         onOpenSettings: { [weak license] in license?.showPurchase() },
+                         onEnterKey: { [weak license] in license?.showLicence(keyField: true) }),
             RepositoryWidget(repository: repositoryWidget),
             CalendarWidget(calendar: calendarWidget,
                            onChooseCalendars: { [weak self] in self?.settings?.show(anchor: .calendars) }),
+            CallsWidget(meetings: model.meetings),
         ]
         #if AIRLOCK_GUIDE
         // Above the banner: with the guide on, asking is what Home is for.
@@ -506,11 +533,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Hooks arriving are also what makes the usage bridge possible.
             // Without this it would wait for the next launch, and the pane that
             // just said "not connected" would go on saying it.
-            usageConnection?.sync(wantsUsage: appearance?.showsUsageInGutter ?? false)
+            usageConnection?.sync(wantsUsage: appearance?.showsClaudeUsage ?? false)
         }
+        settingsModel.onOpenPastCalls = { [weak model] in model?.meetings.showPastCalls() }
         // The day-one card installs hooks without going through Settings.
         agentsWidget.onHooksInstalled = { [weak usageConnection, weak appearance] in
-            usageConnection?.sync(wantsUsage: appearance?.showsUsageInGutter ?? false)
+            usageConnection?.sync(wantsUsage: appearance?.showsClaudeUsage ?? false)
         }
         settings = SettingsWindowController(model: settingsModel, media: media,
                                             sound: sound, appVolume: appVolume,
@@ -547,10 +575,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // hands off to its licence pane — and pointed at from the gate's
         // "Subscribe and approve" and the trial card's buttons.
         let purchaseWindow = PurchaseWindowController(
-            flow: purchase, license: license, model: model, tally: tally,
+            flow: purchase, license: license,
+            tally: { tally.tally },
+            pendingGate: { model.sessions.compactMap(\.pendingPermission?.command).first },
             openKeyField: { [weak self] in self?.settings?.show(anchor: .licenceKey) })
         self.purchaseWindow = purchaseWindow
-        license.onShowPurchase = { purchaseWindow.show() }
+        license.onShowPurchase = { plan in purchaseWindow.show(plan: plan) }
+        license.onApplied = { purchaseWindow.licenceApplied() }
         // The Licence page, never "whatever Settings page was open last".
         license.onShowLicence = { [weak self] keyField in
             if keyField { self?.settings?.show(anchor: .licenceKey) } else { self?.settings?.show(pane: .license) }
@@ -563,12 +594,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingModel.onReveal = { [weak notch] in notch?.reveal() }
         onboarding = OnboardingWindowController(model: onboardingModel)
         self.onboardingModel = onboardingModel
+        #if AIRLOCK_GUIDE
         let welcomeModel = WelcomeModel(agentsWidget: agentsWidget,
                                         dictation: dictation, assistant: assistant,
                                         hookStatuses: settingsModel.agents.map(\.status))
         welcomeModel.onReveal = { [weak notch] in notch?.reveal() }
         welcomeModel.onConnectAgents = { [weak self] in self?.connectAgentsAfterWelcome() }
         welcome = WelcomeWindowController(model: welcomeModel)
+        #endif
 
         // After the windows exist: a first-run update prompt must not race the
         // onboarding wizard for the screen.
@@ -597,21 +630,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and before onboarding, which a migrated install will not see anyway.
         presentPermissionNoticeIfNeeded()
         let firstRun = presentOnboardingIfNeeded(settingsModel)
-        presentWhatsNewIfNeeded(isFirstRun: firstRun)
+        let whatsNew = presentWhatsNewIfNeeded(isFirstRun: firstRun)
+        presentCrashQuestionIfNeeded(panelTaken: firstRun || whatsNew)
+    }
+
+    /// The question about crash reports, after a run that ended unexpectedly
+    /// (`CrashReporter.hasQuestionWaiting`). Last, and never over setup or a
+    /// new version's card: it stays waiting for a launch that has the panel
+    /// to itself. Forced with `--args --crash-question`, which never marks
+    /// it asked, so it can be looked at in any build.
+    private func presentCrashQuestionIfNeeded(panelTaken: Bool) {
+        guard !Self.isDemoMode, NotchScreen.target != nil else { return }
+        if ProcessInfo.processInfo.arguments.contains("--crash-question") {
+            notch?.showCrashQuestion(remember: false)
+            return
+        }
+        guard !panelTaken, CrashReporter.shared.hasQuestionWaiting else { return }
+        notch?.showCrashQuestion(remember: true)
     }
 
     /// A new version's card, once (`WhatsNew`). After setup, which it never
     /// shows on top of: a new user is told the version is seen instead.
     /// Forced with `--args --whats-new` or `--whats-new-sample`, which never
     /// mark it seen.
-    private func presentWhatsNewIfNeeded(isFirstRun: Bool) {
-        guard !Self.isDemoMode else { return }
+    /// - Returns: whether the card is now on screen.
+    @discardableResult
+    private func presentWhatsNewIfNeeded(isFirstRun: Bool) -> Bool {
+        guard !Self.isDemoMode else { return false }
         let forced = WhatsNewLaunch.forcedCard
-        guard let card = forced ?? WhatsNewLaunch.cardForLaunch(isFirstRun: isFirstRun) else { return }
+        guard let card = forced ?? WhatsNewLaunch.cardForLaunch(isFirstRun: isFirstRun) else { return false }
         // No panel to open (a shut lid with the monitor fallback off): left
         // unseen, so the next launch with a panel shows it.
-        guard NotchScreen.target != nil else { return }
-        notch?.showWhatsNew(card, remember: forced == nil)
+        guard NotchScreen.target != nil, let notch else { return false }
+        notch.showWhatsNew(card, remember: forced == nil)
+        return true
     }
 
     /// Sample sessions instead of live ones, and no first-run wizard in the way.
@@ -699,13 +751,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// It interrupts *in the panel*. Step one's whole job is "the app is up
     /// there", and a window explaining the notch is still explaining it
     /// somewhere else — where the panel wizard is the thing it is describing,
-    /// with the tab strip live above it. The window is not gone: it is what the
-    /// menu bar's "Set up Airlock…" opens, because someone who went looking for
-    /// the guide asked for the roomier one.
+    /// with the tab strip live above it. The menu bar's "Set up Airlock…" opens
+    /// it there too; the window is only the fallback below.
     ///
     /// Skipped under demo mode, which exists for screenshots and dev runs where
     /// a wizard is purely in the way.
-    /// - Returns: whether setup or the welcome opened.
+    /// - Returns: whether setup opened.
     @discardableResult
     private func presentOnboardingIfNeeded(_ settingsModel: SettingsModel) -> Bool {
         let process = ProcessInfo.processInfo
@@ -718,20 +769,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //   open output/package/Airlock.app --args --onboarding
         let forced = process.environment["AIRLOCK_ONBOARDING"] != nil
             || process.arguments.contains("--onboarding")
-        // The everyday first run (card 3.07), forced the same way:
+        #if AIRLOCK_GUIDE
+        // The guide's welcome window, on request only. A first run is the
+        // setup in the notch on every copy, the guide's included: the owner
+        // preferred it to a window in the middle of the screen (2026-10-08).
         //   open output/package/Airlock.app --args --welcome
-        let forcedWelcome = process.arguments.contains("--welcome")
-        guard forced || forcedWelcome || OnboardingModel.shouldPresentAtLaunch(settings: settingsModel)
-        else { return false }
-        // While the guide is on, a first run is the welcome and its practice
-        // rather than the hooks wizard; "Yes, I do" reaches the wizard after.
-        // Unless the wizard itself was left halfway (reached from the
-        // welcome's "Yes, I do"): that walk resumes where it was.
-        if forcedWelcome || (!forced && !OnboardingModel.wizardLeftHalfway
-                             && WelcomePlan.applies(guideEnabled: GuideSwitch.isOn)) {
+        if process.arguments.contains("--welcome") {
             welcome?.show()
             return true
         }
+        #endif
+        guard forced || OnboardingModel.shouldPresentAtLaunch(settings: settingsModel)
+        else { return false }
         // Falls back to the window if there is no panel to run in — a shut lid
         // with the external-display fallback off leaves nowhere to draw, and a
         // first run that silently does nothing is the exact failure this
@@ -744,6 +793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    #if AIRLOCK_GUIDE
     /// "Yes, I do" in the welcome: the setup wizard, straight to connecting
     /// agents, in the panel as a first run would show it.
     private func connectAgentsAfterWelcome() {
@@ -755,6 +805,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding?.show()
         }
     }
+    #endif
 
     /// Brings an agentic-notch install across to Airlock.
     ///
@@ -981,6 +1032,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = Self.statusMark()
         item.button?.toolTip = "Airlock"
+        item.menu = makeStatusMenu()
+        statusItem = item
+        #if AIRLOCK_GUIDE
+        watchGuideForStatusItem()
+        #endif
+    }
+
+    /// The status item's menu. Built apart from the item so a test can open
+    /// it without putting anything in the menu bar.
+    func makeStatusMenu() -> NSMenu {
         let menu = NSMenu()
         // No key equivalent. A status-menu one only fires while that menu is
         // already open, so ⌘T here advertised a shortcut the app did not have —
@@ -989,6 +1050,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // because `installMainMenu` claims them properly.
         menu.addItem(makeItem("Show / Hide Panel", #selector(togglePanel), ""))
         menu.addItem(makeItem("Settings…", #selector(openSettings), ","))
+        // Every call's notes, whenever, not only the one the island offers
+        // as it ends. Shown only while call notes are on (`menuNeedsUpdate`).
+        let callNotes = makeItem("Call Notes…", #selector(openCallNotes), "")
+        callNotes.tag = Self.callNotesMenuTag
+        menu.addItem(callNotes)
+        // Notes of a meeting in the room, with no call, or "Stop Notes"
+        // while notes are taken. Same rule as the row above.
+        let handNotes = makeItem("Take Notes", #selector(pressNotesButton), "")
+        handNotes.tag = Self.handNotesMenuTag
+        menu.addItem(handNotes)
+        // Notes from a recording somebody already has. Same rule again.
+        let addRecording = makeItem("Add Recording…", #selector(addRecording), "")
+        addRecording.tag = Self.addRecordingMenuTag
+        menu.addItem(addRecording)
         // Findable again on purpose: "walk me through it" is the first thing
         // anyone asks for support, and re-running setup should not require
         // deleting a preference key.
@@ -1006,22 +1081,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(.separator())
         menu.addItem(makeItem("Quit Airlock", #selector(quit), "q"))
-        #if AIRLOCK_GUIDE
-        // The guide's two rows are added each time the menu opens, from
-        // whatever the guide is doing then (`menuNeedsUpdate`).
+        // Rows that depend on a setting are settled each time the menu opens
+        // (`menuNeedsUpdate`).
         menu.delegate = self
-        #endif
-        item.menu = menu
-        statusItem = item
-        #if AIRLOCK_GUIDE
-        watchGuideForStatusItem()
-        #endif
+        return menu
+    }
+
+    /// Marks "Call Notes…", so `menuNeedsUpdate` can find it wherever the
+    /// guide's rows have pushed it. Any tag but 0 (every other row) and the
+    /// guide's.
+    static let callNotesMenuTag = 1
+
+    /// Shows "Call Notes…" only while call notes are on, as the Voice page
+    /// shows its call rows only then.
+    static func showCallNotes(in menu: NSMenu, when on: Bool) {
+        menu.items.first { $0.tag == callNotesMenuTag }?.isHidden = !on
+    }
+
+    /// Marks "Take Notes" / "Stop Notes", for `menuNeedsUpdate`.
+    static let handNotesMenuTag = 2
+
+    /// Names the notes row after what it does now (`MeetingNotesFlow.handButton`),
+    /// and hides it while call notes are off (nil) or the last notes are
+    /// still being written.
+    static func showHandNotes(in menu: NSMenu, as button: MeetingNotesFlow.HandButton?) {
+        guard let item = menu.items.first(where: { $0.tag == handNotesMenuTag }) else { return }
+        let title = button.flatMap(handNotesTitle)
+        item.isHidden = title == nil
+        if let title { item.title = title }
+    }
+
+    static func handNotesTitle(_ button: MeetingNotesFlow.HandButton) -> String? {
+        switch button {
+        case .takeNotes, .takeNotesOfCall: "Take Notes"
+        case .stop: "Stop Notes"
+        case .busy: nil
+        }
+    }
+
+    /// Marks "Add Recording…", for `menuNeedsUpdate`.
+    static let addRecordingMenuTag = 4
+
+    /// Shows "Add Recording…" only while call notes are on. While one is
+    /// being read it says so, and opens the window on it.
+    static func showAddRecording(in menu: NSMenu, when on: Bool, reading: Bool) {
+        guard let item = menu.items.first(where: { $0.tag == addRecordingMenuTag }) else { return }
+        item.isHidden = !on
+        item.title = reading ? "Reading a Recording…" : "Add Recording…"
     }
 
     #if AIRLOCK_GUIDE
     // MARK: - The guide in the menu bar (card 3.08)
 
-    /// Marks the rows `menuNeedsUpdate` owns, so it can take them out again.
+    /// Marks the rows `updateGuideRows` owns, so it can take them out again.
     private static let guideMenuTag = 3_08
 
     /// What the icon shows now, so a session change that leaves the dots
@@ -1074,6 +1186,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         image.isTemplate = true
         return image
+    }
+
+    /// The status menu's guide rows, from the guide as it is now: "Stop the
+    /// guide" while a task runs, "Ask for help…" while it is on and idle.
+    /// Never both — asking mid-task would replace the running one.
+    private func updateGuideRows(in menu: NSMenu) {
+        for item in menu.items where item.tag == Self.guideMenuTag {
+            menu.removeItem(item)
+        }
+        guard let guide, guide.isEnabled else { return }
+        let row = guide.session.isLive
+            ? makeItem("Stop the Guide", #selector(stopGuide), "")
+            : makeItem("Ask for Help…", #selector(askGuide), "")
+        row.tag = Self.guideMenuTag
+        let separator = NSMenuItem.separator()
+        separator.tag = Self.guideMenuTag
+        menu.insertItem(row, at: 0)
+        menu.insertItem(separator, at: 1)
     }
 
     @objc private func askGuide() {
@@ -1168,6 +1298,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // This run ended the way a run should, so the next launch does not
+        // ask about crash reports. See `CleanExitMarker`.
+        CrashReporter.shared.noteCleanExit()
         model?.persistNow()
         // Saves are debounced by a second, so a quit inside that second would
         // otherwise lose whatever you last copied — or the last gate answered.
@@ -1177,38 +1310,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePanel() { notch?.toggle() }
     @objc private func openSettings() { settings?.show() }
-    /// "Set up Airlock…" — the deliberate ask, which gets the roomier window.
+    @objc private func openCallNotes() { model?.meetings.showPastCalls() }
+    @objc private func pressNotesButton() { model?.meetings.pressHandButton() }
+    @objc private func addRecording() { model?.meetings.addRecording() }
+    /// "Set up Airlock…" — the same setup a first run gets, in the notch, from
+    /// the first step. The owner preferred it there to a window (2026-10-08).
     ///
-    /// Takes the wizard off the panel first. Both surfaces drive the same model,
-    /// so leaving the panel copy up would put two live views on one wizard,
-    /// each stepping the other.
+    /// Only one surface at a time: both drive the same model, so a window left
+    /// up beside the notch copy would be two live views on one wizard, each
+    /// stepping the other. The window is still the fallback when there is no
+    /// panel to run in, for the reason `presentOnboardingIfNeeded` gives.
     @objc private func openOnboarding() {
-        notch?.endOnboarding()
-        onboarding?.showFromStart()
+        guard let onboardingModel, NotchScreen.target != nil else {
+            notch?.endOnboarding()
+            onboarding?.showFromStart()
+            return
+        }
+        onboarding?.close()
+        onboardingModel.restart()
+        notch?.beginOnboarding(onboardingModel)
     }
     @objc private func checkForUpdates() { updater?.checkForUpdates() }
     @objc private func seedDemo() { model?.seedDemo() }
     @objc private func quit() { NSApp.terminate(nil) }
 }
 
-#if AIRLOCK_GUIDE
 extension AppDelegate: NSMenuDelegate {
-    /// The status menu's guide rows, from the guide as it is now: "Stop the
-    /// guide" while a task runs, "Ask for help…" while it is on and idle.
-    /// Never both — asking mid-task would replace the running one.
+    /// Settles the status menu just before it shows. Call notes being on is
+    /// read here rather than watched: the menu is the only place the row
+    /// shows, and nobody sees the menu closed. One method for both builds,
+    /// because a type can conform to `NSMenuDelegate` only once, so the
+    /// guide's rows are a call from here rather than a second conformance.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        for item in menu.items where item.tag == Self.guideMenuTag {
-            menu.removeItem(item)
-        }
-        guard let guide, guide.isEnabled else { return }
-        let row = guide.session.isLive
-            ? makeItem("Stop the Guide", #selector(stopGuide), "")
-            : makeItem("Ask for Help…", #selector(askGuide), "")
-        row.tag = Self.guideMenuTag
-        let separator = NSMenuItem.separator()
-        separator.tag = Self.guideMenuTag
-        menu.insertItem(row, at: 0)
-        menu.insertItem(separator, at: 1)
+        let notesOn = model?.meetings.isEnabled ?? false
+        Self.showCallNotes(in: menu, when: notesOn)
+        Self.showHandNotes(in: menu, as: notesOn ? model?.meetings.handButton : nil)
+        Self.showAddRecording(in: menu, when: notesOn, reading: model?.meetings.recordings.isBusy ?? false)
+        #if AIRLOCK_GUIDE
+        updateGuideRows(in: menu)
+        #endif
     }
 }
-#endif

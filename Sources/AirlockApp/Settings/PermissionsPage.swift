@@ -124,107 +124,109 @@ struct PermissionsPage: View {
     var askedForInputMonitoring = false
     var askedForScreenRecording = false
     var actions = PermissionActions()
+    @State var moreOptions = false
 
     var body: some View {
-        Form {
-            sweepSection
-            calendarSection
-            microphoneSection
-            inputMonitoringSection
-            accessibilitySection
+        LookPage("Permissions", subtitle: "What macOS lets Airlock do. Nothing here is required.",
+                 moreOptions: $moreOptions) {
+            sweepRow
+            calendarRows
+            microphoneRows
+            inputMonitoringRows
+            accessibilityRows
             if let screenRecording = facts.screenRecording {
-                screenRecordingSection(screenRecording)
+                screenRecordingRows(screenRecording)
             }
-            automationSection
+            automationRow
+        } more: {
+            LookGroupLabel("About permissions")
+            // The promise that makes every row safe to refuse. An app that
+            // asks for four permissions on launch is asking before it has
+            // earned any of them, and a refusal then costs features the person
+            // had not met yet.
+            LookNote("Airlock never asks for a permission on launch. Each one is asked for the first time the "
+                     + "feature that needs it is used, so saying no only ever costs you that one feature.")
+            LookNote("macOS gives these to an app, not to a person, so each one has to be allowed once. Every "
+                     + "feature that needs one simply stays off until you turn it on.")
+            LookNote("Ask for everything asks for each in turn, one at a time. Accessibility and Input Monitoring "
+                     + "can only be switched on by you, in System Settings — it takes you there.")
 
-            Section {
-                // The promise that makes every row above safe to refuse.
-                // An app that asks for four permissions on launch is asking
-                // before it has earned any of them, and a refusal then costs
-                // features the person had not met yet.
-                Text("Airlock never asks for a permission on launch. Each one is asked for the first time the feature that needs it is used, so saying no only ever costs you that one feature.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            LookGroupLabel("What each one is for")
+            LookNote("Calendar shows your next meetings in the notch, with one-click join links. Read-only, and "
+                     + "only the calendars you pick.")
+            LookNote("Microphone: hold your dictation key and speak. Audio is turned into text on this Mac and "
+                     + "never leaves it.")
+            // Its own row, because it is its own permission. The Accessibility
+            // row used to claim both jobs, and a user whose hold key did
+            // nothing was sent to a pane where Airlock was already allowed.
+            LookNote("Input Monitoring lets Airlock notice the dictation key you hold. It reads that a key went "
+                     + "down and nothing else — nothing you type.")
+            LookNote("Accessibility types your dictation into whatever app you are in, and reads where the cursor "
+                     + "is so it knows there is somewhere to type. It also lets the notch tell when an app is full "
+                     + "screen, so it can step aside.")
+            if facts.screenRecording != nil {
+                LookNote("Screen Recording lets the guide see your screen when you ask it for help, so it can point "
+                         + "at the next button. It looks only while it is guiding you.")
             }
+            LookNote("Automation: jumping back to your terminal, and playing or pausing Spotify or Music, need "
+                     + "macOS's permission to control that app. macOS asks the first time each one happens — say "
+                     + "OK and it works from then on. Airlock can't see the answer until then, so there is no tick.")
         }
-        .formStyle(.grouped)
     }
 
     // MARK: Ask for everything
 
-    @ViewBuilder private var sweepSection: some View {
-        Section {
-            Text("macOS gives these to an app, not to a person, so each one has to be allowed once. Nothing here is required — every feature that needs one simply stays off until you turn it on.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // One click for the hunting, which is the part that is actually
-            // tedious: five permissions across four panes under different
-            // names, and the one the dictation key needs is not where anyone
-            // looks for it.
-            //
-            // It ASKS. It cannot allow anything — macOS has no way to, by
-            // design — so the label says "Ask for" and the sentence under it
-            // says what you will still have to do by hand.
-            Button(sweep == .asking ? "Asking…" : "Ask for everything Airlock uses") {
+    // One click for the hunting, which is the part that is actually tedious:
+    // five permissions across four panes under different names, and the one
+    // the dictation key needs is not where anyone looks for it.
+    //
+    // It ASKS. It cannot allow anything — macOS has no way to, by design — so
+    // the label says "Ask for" and the line under it says what you will still
+    // have to do by hand.
+    private var sweepRow: some View {
+        LookRow("Ask for everything Airlock uses", subtitle: sweepSubtitle) {
+            LookButton(sweep == .asking ? "Asking…" : "Ask", prominent: true) {
                 actions.askForEverything()
             }
-            .buttonStyle(.borderedProminent)
             .disabled(sweep == .asking)
-
-            switch sweep {
-            case .ran:
-                let missing = facts.missing
-                if missing.isEmpty {
-                    Label("All allowed.", systemImage: "checkmark.circle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.green)
-                } else {
-                    // Named, because "some permissions are still missing" is
-                    // the kind of message that sends somebody back through
-                    // every row to find out which.
-                    Text("Still to allow by hand: \(missing.formatted(.list(type: .and))). The sections below have the buttons.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            case .notRun, .asking:
-                Text("Asks for each in turn, one at a time. Accessibility and Input Monitoring can only be switched on by you, in System Settings — this takes you there.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
+    }
+
+    private var sweepSubtitle: String {
+        guard sweep == .ran else { return "One at a time, each in turn" }
+        let missing = facts.missing
+        // Named, because "some permissions are still missing" is the kind of
+        // message that sends somebody back through every row to find out which.
+        return missing.isEmpty
+            ? "All allowed."
+            : "Still to allow by hand: \(missing.formatted(.list(type: .and)))."
     }
 
     // MARK: Calendar
 
-    @ViewBuilder private var calendarSection: some View {
-        Section("Calendar") {
-            if facts.calendar == .restricted {
-                RestrictedRow(what: "Calendar", cost: "so your meetings stay out of the notch")
-                    .settingsAnchor(.permissionCalendar)
-            } else {
-                PermissionStatusRow(state: facts.calendar, canTellTurnedOff: true,
-                                    detail: "Shows your next meetings in the notch, with one-click join links. Read-only, and only the calendars you pick.")
-                    .settingsAnchor(.permissionCalendar)
-                switch facts.calendar {
-                case .allowed:
-                    // Allowed is where the next question starts — which
-                    // calendars — and that answer is on another page.
-                    PaneReference(to: SettingsAnchor.calendars, label: "Pick calendars")
-                case .notAllowed:
-                    TurnedOffCard(kind: .calendar, cost: "so your meetings don't show in the notch")
-                    PermissionFixRow(kind: .calendar)
-                default:
-                    Button("Allow Calendar") { actions.allowCalendar() }
-                        .buttonStyle(.borderedProminent)
-                    if let note = facts.calendarNote {
-                        Text(note).font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+    @ViewBuilder private var calendarRows: some View {
+        if facts.calendar == .restricted {
+            RestrictedRow(what: "Calendar", cost: "so your meetings stay out of the notch")
+                .settingsAnchor(.permissionCalendar)
+        } else {
+            PermissionStatusRow(name: "Calendar", purpose: "Your next meetings, with join links",
+                                state: facts.calendar, canTellTurnedOff: true) {
+                if ![.allowed, .notAllowed].contains(facts.calendar) {
+                    LookButton("Allow", prominent: true) { actions.allowCalendar() }
+                }
+            }
+            .settingsAnchor(.permissionCalendar)
+            switch facts.calendar {
+            case .allowed:
+                // Allowed is where the next question starts — which calendars
+                // — and that answer is on another page.
+                PaneReference("Which calendars show is up to you", to: SettingsAnchor.calendars, label: "Pick calendars")
+            case .notAllowed:
+                TurnedOffCard(kind: .calendar, cost: "so your meetings don't show in the notch")
+                PermissionFixRow(kind: .calendar)
+            default:
+                if let note = facts.calendarNote {
+                    LookNote(note)
                 }
             }
         }
@@ -232,165 +234,142 @@ struct PermissionsPage: View {
 
     // MARK: Microphone
 
-    @ViewBuilder private var microphoneSection: some View {
-        Section("Microphone") {
-            if facts.microphone == .restricted {
-                RestrictedRow(what: "Microphone",
-                              cost: "so hold-to-talk is off and nothing here can turn it on")
-                    .settingsAnchor(.permissionMicrophone)
-            } else {
-                PermissionStatusRow(state: facts.microphone, canTellTurnedOff: true,
-                                    detail: "Hold your dictation key and speak. Audio is turned into text on this Mac and never leaves it.")
-                    .settingsAnchor(.permissionMicrophone)
-                switch facts.microphone {
-                case .allowed:
-                    EmptyView()
-                case .notAllowed:
-                    TurnedOffCard(kind: .microphone, cost: "so holding your dictation key records nothing")
-                    PermissionFixRow(kind: .microphone)
-                default:
-                    Button("Allow Microphone") { actions.allowMicrophone() }
-                        .buttonStyle(.borderedProminent)
+    @ViewBuilder private var microphoneRows: some View {
+        if facts.microphone == .restricted {
+            RestrictedRow(what: "Microphone",
+                          cost: "so hold-to-talk is off and nothing here can turn it on")
+                .settingsAnchor(.permissionMicrophone)
+        } else {
+            PermissionStatusRow(name: "Microphone", purpose: "Hold-to-talk dictation, turned into text on this Mac",
+                                state: facts.microphone, canTellTurnedOff: true) {
+                if ![.allowed, .notAllowed].contains(facts.microphone) {
+                    LookButton("Allow", prominent: true) { actions.allowMicrophone() }
                 }
+            }
+            .settingsAnchor(.permissionMicrophone)
+            if facts.microphone == .notAllowed {
+                TurnedOffCard(kind: .microphone, cost: "so holding your dictation key records nothing")
+                PermissionFixRow(kind: .microphone)
             }
         }
     }
 
     // MARK: Input Monitoring
 
-    // Its own section, because it is its own permission.
-    //
-    // The Accessibility row below used to claim both jobs — "typing your
-    // dictation into whatever app you are in, and watching for the hold
-    // key you press" — and only the first is true. Watching the keyboard
-    // is a different permission, switched on in a different pane, and the
-    // app neither asked for it nor read it. A user whose hold key did
-    // nothing was sent to Accessibility, found Airlock already allowed,
-    // and reasonably concluded the app was broken.
-    @ViewBuilder private var inputMonitoringSection: some View {
-        Section("Input Monitoring") {
-            PermissionStatusRow(state: facts.inputMonitoring, canTellTurnedOff: false,
-                                detail: "Lets Airlock notice the dictation key you hold. It reads that a key went down and nothing else — nothing you type.")
-                .settingsAnchor(.permissionInputMonitoring)
-            switch facts.inputMonitoring {
-            case .allowed:
-                EmptyView()
-            case .notWorking:
-                // The row says "On, but not working" while System Settings says
-                // on, and that contradiction is the finding. Asking again
-                // cannot fix it; clearing the old approval does.
-                PermissionFixRow(kind: .inputMonitoring, knownOldApproval: true)
-            default:
-                Text("Until it is allowed, holding your dictation key does nothing at all — nothing records, and nothing tells you why.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Allow Input Monitoring") { actions.allowInputMonitoring() }
-                    .buttonStyle(.borderedProminent)
-                if askedForInputMonitoring {
-                    Button(PermissionPage.button) { PermissionPage.permission(.inputMonitoring).open() }
-                    Text("macOS asks only once per app. If nothing came up, switch Airlock on under Input Monitoring there, or add it with + — this page notices within a second.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                PermissionFixRow(kind: .inputMonitoring)
+    @ViewBuilder private var inputMonitoringRows: some View {
+        PermissionStatusRow(name: "Input Monitoring", purpose: "Notices the dictation key you hold, nothing you type",
+                            state: facts.inputMonitoring, canTellTurnedOff: false) {
+            if facts.inputMonitoring != .allowed && facts.inputMonitoring != .notWorking {
+                LookButton("Allow", prominent: true) { actions.allowInputMonitoring() }
             }
+        }
+        .settingsAnchor(.permissionInputMonitoring)
+        switch facts.inputMonitoring {
+        case .allowed:
+            EmptyView()
+        case .notWorking:
+            // The row says "On, but not working" while System Settings says
+            // on, and that contradiction is the finding. Asking again cannot
+            // fix it; clearing the old approval does.
+            PermissionFixRow(kind: .inputMonitoring, knownOldApproval: true)
+        default:
+            LookNote("Until it is allowed, holding your dictation key does nothing at all — nothing records, "
+                     + "and nothing tells you why.")
+            if askedForInputMonitoring {
+                LookRow("Nothing came up?", subtitle: "macOS asks only once per app. Switch Airlock on there, or add it with +") {
+                    LookButton(PermissionPage.button) { PermissionPage.permission(.inputMonitoring).open() }
+                }
+            }
+            PermissionFixRow(kind: .inputMonitoring)
         }
     }
 
     // MARK: Accessibility
 
-    @ViewBuilder private var accessibilitySection: some View {
-        Section("Accessibility") {
-            PermissionStatusRow(state: facts.accessibility, canTellTurnedOff: false,
-                                detail: "Types your dictation into whatever app you are in, and reads where the cursor is so it knows there is somewhere to type. It also lets the notch tell when an app is full screen, so it can step aside.")
-                .settingsAnchor(.permissionAccessibility)
+    @ViewBuilder private var accessibilityRows: some View {
+        PermissionStatusRow(name: "Accessibility", purpose: "Types your dictation, and steps aside for full screen",
+                            state: facts.accessibility, canTellTurnedOff: false) {
             if facts.accessibility != .allowed {
-                // What refusing COSTS, which is the half a permission row
-                // usually leaves out. This one degrades rather than breaks.
-                Text("Without it, dictation still listens — it just puts your words on the clipboard instead of typing them. And the notch stays on top of full-screen apps.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
                 // macOS only offers this one in System Settings, so a button
                 // that claimed to allow it would lie.
-                Button(PermissionPage.button) { PermissionPage.permission(.accessibility).open() }
-                    .buttonStyle(.borderedProminent)
-                Text("Switch Airlock on in the list there, or add it with + — this page notices within a second.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                PermissionFixRow(kind: .accessibility)
+                LookButton(PermissionPage.button, prominent: true) {
+                    PermissionPage.permission(.accessibility).open()
+                }
             }
+        }
+        .settingsAnchor(.permissionAccessibility)
+        if facts.accessibility != .allowed {
+            // What refusing COSTS, which is the half a permission row usually
+            // leaves out. This one degrades rather than breaks.
+            LookNote("Without it, dictation still listens — it just puts your words on the clipboard instead of "
+                     + "typing them. And the notch stays on top of full-screen apps. Switch Airlock on in the list, "
+                     + "or add it with + — this page notices within a second.")
+            PermissionFixRow(kind: .accessibility)
         }
     }
 
     // MARK: Screen Recording
 
-    @ViewBuilder private func screenRecordingSection(_ state: DiagnosticsReport.PermissionState) -> some View {
-        Section("Screen Recording") {
-            PermissionStatusRow(state: state, canTellTurnedOff: false,
-                                detail: "Lets the guide see your screen when you ask it for help, so it can point at the next button. It looks only while it is guiding you.")
-                .settingsAnchor(.permissionScreenRecording)
+    @ViewBuilder private func screenRecordingRows(_ state: DiagnosticsReport.PermissionState) -> some View {
+        PermissionStatusRow(name: "Screen Recording", purpose: "Lets the guide see what to point at",
+                            state: state, canTellTurnedOff: false) {
             if state != .allowed {
-                Text("Without it, the guide cannot start: it has nothing to point at.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Allow Screen Recording") { actions.allowScreenRecording() }
-                    .buttonStyle(.borderedProminent)
-                if askedForScreenRecording {
-                    // macOS shows its question once per app; after that the
-                    // list is the only way.
-                    Button(PermissionPage.button) { PermissionPage.permission(.screenRecording).open() }
+                HStack(spacing: 6) {
+                    if askedForScreenRecording {
+                        // macOS shows its question once per app; after that
+                        // the list is the only way.
+                        LookButton(PermissionPage.button) { PermissionPage.permission(.screenRecording).open() }
+                    }
+                    LookButton("Allow", prominent: true) { actions.allowScreenRecording() }
                 }
-                Text("macOS applies it after Airlock reopens, and offers Quit & Reopen itself when you switch it on.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                PermissionFixRow(kind: .screenRecording)
             }
+        }
+        .settingsAnchor(.permissionScreenRecording)
+        if state != .allowed {
+            LookNote("Without it, the guide cannot start: it has nothing to point at. macOS applies it after "
+                     + "Airlock reopens, and offers Quit & Reopen itself when you switch it on.")
+            PermissionFixRow(kind: .screenRecording)
         }
     }
 
     // MARK: Automation
 
-    @ViewBuilder private var automationSection: some View {
-        Section("Automation") {
-            // No tick, and the row says why: macOS has no way to read this
-            // without asking, and asking to find out would raise the very
-            // question this row is describing.
-            Label("macOS asks the first time", systemImage: "clock")
-                .settingsAnchor(.permissionAutomation)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text("Jumping back to your terminal, and playing or pausing Spotify or Music, need macOS's permission to control that app. macOS asks the first time each one happens — say OK and it works from then on. Airlock can't see the answer until then, so there is no tick here.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(PermissionPage.button) { PermissionPage.automation.open() }
+    // No tick, and the row says why: macOS has no way to read this without
+    // asking, and asking to find out would raise the very question this row
+    // is describing.
+    private var automationRow: some View {
+        LookRow("Automation", subtitle: "Jumping to your terminal; Spotify and Music") {
+            HStack(spacing: 10) {
+                Label("Asked the first time", systemImage: "clock")
+                    .font(Theme.chrome(11.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize()
+                LookButton(PermissionPage.button) { PermissionPage.automation.open() }
+            }
         }
+        .settingsAnchor(.permissionAutomation)
     }
 }
 
-/// The status line at the top of a permission row, and what the permission
-/// is for under it.
-private struct PermissionStatusRow: View {
+/// One permission: its name, what it is for, its state and what to do.
+private struct PermissionStatusRow<Action: View>: View {
+    let name: String
+    let purpose: String
     let state: DiagnosticsReport.PermissionState
     /// Calendar and Microphone know a "no" from a "not yet"; the others read
     /// false for both, and calling that "turned off" would be a guess.
     let canTellTurnedOff: Bool
-    let detail: String
+    @ViewBuilder var action: () -> Action
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(title, systemImage: symbol)
-                .foregroundStyle(colour)
-            Text(detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        LookRow(name, subtitle: purpose) {
+            HStack(spacing: 10) {
+                Label(title, systemImage: symbol)
+                    .font(Theme.chrome(11.5))
+                    .foregroundStyle(colour)
+                    .fixedSize()
+                action()
+            }
         }
     }
 
@@ -413,12 +392,12 @@ private struct PermissionStatusRow: View {
         }
     }
 
-    private var colour: AnyShapeStyle {
+    private var colour: Color {
         switch state {
-        case .allowed: return AnyShapeStyle(Color.green)
-        case .notWorking: return AnyShapeStyle(Color.orange)
-        case .notAllowed where canTellTurnedOff: return AnyShapeStyle(Color.orange)
-        default: return AnyShapeStyle(.secondary)
+        case .allowed: return Theme.done
+        case .notWorking: return Theme.needs
+        case .notAllowed where canTellTurnedOff: return Theme.needs
+        default: return Theme.textSecondary
         }
     }
 }
@@ -449,13 +428,12 @@ struct RestrictedRow: View {
     let cost: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label("Your organisation decides this one", systemImage: "building.2.fill")
-                .foregroundStyle(.secondary)
-            Text("A profile on this Mac blocks \(what.lowercased()) access, \(cost). Nothing here can change it — ask whoever manages the Mac.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        LookRow(what, subtitle: "A profile on this Mac blocks \(what.lowercased()) access, \(cost). Nothing here "
+                + "can change it — ask whoever manages the Mac.") {
+            Label("Your organisation decides", systemImage: "building.2.fill")
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize()
         }
     }
 }

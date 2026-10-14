@@ -51,6 +51,42 @@ public enum SpokenLanguages {
         return nil
     }
 
+    // MARK: - Naming a language
+
+    /// The language and region a locale identifier is spoken as, without the
+    /// keywords macOS adds for formats: `en_US@rg=eszzzz`, which is how a Mac
+    /// set to English (US) with Spain as its region spells `Locale.current`,
+    /// is `en_US`. ICU spelling (`zh_Hans_CN`), the speech lists' own, for
+    /// BCP-47 input too.
+    ///
+    /// The keyword is about dates and currency, not speech: the speech
+    /// frameworks already match `en_US@rg=eszzzz` to their en_US model
+    /// (`supportedLocale(equivalentTo:)`, checked on such a Mac), and the
+    /// language code reads `en` either way. What it broke is naming:
+    /// `localizedString(forIdentifier:)` answers nil for it, so Settings
+    /// showed the raw identifier where "English (United States)" belonged.
+    ///
+    /// The region is the language's own (`US`), not the override (`ES`),
+    /// which is what `Locale.region` reads. A variant is kept (`ca_ES_VALENCIA`
+    /// is Valencian); an identifier with no language comes back as it was.
+    public static func plain(_ identifier: String) -> String {
+        let components = Locale.Language.Components(identifier: identifier)
+        guard let code = components.languageCode?.identifier, !code.isEmpty else { return identifier }
+        let parts = [code, components.script?.identifier, components.region?.identifier,
+                     Locale(identifier: identifier).variant?.identifier]
+        return parts.compactMap { $0 }.joined(separator: "_")
+    }
+
+    /// "English (United States)" for `en_US` and for `en_US@rg=eszzzz` alike,
+    /// in `displayLocale`'s words. Nil when nothing can name it, so the caller
+    /// picks the fallback that suits its sentence.
+    public static func name(_ identifier: String, displayLocale: Locale = .current) -> String? {
+        guard !identifier.isEmpty,
+              let name = displayLocale.localizedString(forIdentifier: plain(identifier)),
+              !name.isEmpty else { return nil }
+        return name
+    }
+
     /// `Locale.preferredLanguages` speaks BCP-47 (`es-ES`) and the speech list
     /// speaks ICU (`es_ES`). `Locale(identifier:)` reads both, so the codes can
     /// be compared without either side being rewritten first.

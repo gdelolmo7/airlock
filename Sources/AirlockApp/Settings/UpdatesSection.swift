@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Settings › General › Updates, from plain values.
+/// Settings › General › Updates, from plain values: three rows, with the
+/// two explanations (`notes`) behind "More options".
 ///
 /// Out of `AboutSettings` so the state gallery can draw it without starting
 /// Sparkle: the page itself needs the live updater model, and an updater that
@@ -17,40 +18,34 @@ struct UpdatesSection: View {
     var onCheck: () -> Void = {}
 
     var body: some View {
-        Section("Should Airlock keep itself up to date?") {
-            Toggle("Check for updates automatically", isOn: $checksAutomatically)
-                .settingsAnchor(.updates)
-            LabeledContent("Last checked") {
-                Text(lastCheckLabel).foregroundStyle(.secondary)
-            }
-            // Disabled rather than hidden while a check is already running:
-            // the button not being there would read as the updater having gone
-            // away. Greyed out, it now always has the line below saying why.
-            Button("Check Now", action: onCheck)
+        LookToggleRow("Check for updates automatically", isOn: $checksAutomatically)
+            .settingsAnchor(.updates)
+        // Disabled rather than hidden while a check is already running:
+        // the button not being there would read as the updater having gone
+        // away. Greyed out, it now always has the line below saying why.
+        LookRow("Last checked", subtitle: lastCheckLabel) {
+            LookButton("Check Now", action: onCheck)
                 .disabled(!canCheck)
-            if let statusLine {
-                Text(statusLine)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            // Sparkle asks once, on the second launch, and this switch is that
-            // answer — readable and changeable here forever after. It is never
-            // flipped on for somebody: the plist leaves
-            // `SUEnableAutomaticChecks` absent, which Sparkle treats as "ask".
-            //
-            // It also said checking was "the only outbound request Airlock ever
-            // makes", which stopped being true with the licence server and the
-            // guide. What is true about the check itself is what it says now.
-            Text("Airlock asks once, on its second launch, whether it may check for updates — and does nothing if you say no. A check fetches one small file and sends nothing about you.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Whatever arrives is checked against a signing key built into this copy of the app, so a web host that has been taken over can serve anything it likes and the update is refused rather than run.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        }
+        if let statusLine {
+            LookNote(statusLine)
         }
     }
+
+    /// Behind "More options" on General.
+    ///
+    /// Sparkle asks once, on the second launch, and the switch is that
+    /// answer — readable and changeable here forever after. It is never
+    /// flipped on for somebody: the plist leaves `SUEnableAutomaticChecks`
+    /// absent, which Sparkle treats as "ask".
+    ///
+    /// It also said checking was "the only outbound request Airlock ever
+    /// makes", which stopped being true with the licence server and the
+    /// guide. What is true about the check itself is what it says now.
+    static let notes = [
+        "Airlock asks once, on its second launch, whether it may check for updates — and does nothing if you say no. A check fetches one small file and sends nothing about you.",
+        "Whatever arrives is checked against a signing key built into this copy of the app, so a web host that has been taken over can serve anything it likes and the update is refused rather than run.",
+    ]
 
     private var lastCheckLabel: String {
         guard let lastCheck else { return "Never" }

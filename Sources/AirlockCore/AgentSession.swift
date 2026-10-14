@@ -88,6 +88,10 @@ public struct AgentSession: Codable, Sendable, Identifiable, Hashable {
     /// question, an approve or a deny. Never a rule settling it or a card
     /// handed back to the terminal, because neither is a person who is here.
     public var answeredAt: Date?
+    /// Work the agent sent to the background and has not heard back from,
+    /// oldest first. While any is out, a turn ending is a pause rather than a
+    /// finish — see `BackgroundTask`. Optional so older caches still decode.
+    public var backgroundTasks: [BackgroundTask]?
 
     public init(
         id: String,

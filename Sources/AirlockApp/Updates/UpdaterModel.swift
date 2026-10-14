@@ -4,8 +4,8 @@ import AirlockCore
 
 /// Auto-updates, via Sparkle.
 ///
-/// The one external dependency in the package, for the reason set out in
-/// Package.swift: an updater downloads code and runs it, which makes it the
+/// The package's first external dependency (crash reports are the second),
+/// for the reason set out in Package.swift: an updater downloads code and runs it, which makes it the
 /// most security-sensitive thing an app outside the App Store contains. Every
 /// update is verified against an **EdDSA public key compiled into the bundle**
 /// (`SUPublicEDKey`), so a compromised web host can serve whatever it likes and
@@ -13,9 +13,10 @@ import AirlockCore
 ///
 /// **It is not the app's only outbound request**, which this comment and the
 /// General page both used to say: the licence server is contacted to activate
-/// a key and around renewal, and the guide asks an online service. What stays
-/// true is the plist's "No telemetry.": Sparkle asks for one XML file and sends
-/// no identifiers with it. Automatic checking is a setting, and somebody who
+/// a key and around renewal, the guide asks an online service, and crash
+/// reports go out for anyone who said yes to them. What stays true is that a
+/// check is not telemetry: Sparkle asks for one XML file and sends no
+/// identifiers with it. Automatic checking is a setting, and somebody who
 /// turns it off is never contacted by the updater again.
 @MainActor
 @Observable

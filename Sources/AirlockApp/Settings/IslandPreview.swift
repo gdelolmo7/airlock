@@ -47,7 +47,7 @@ struct IslandPreview: View {
         }
         .environment(ui)
         // The picture is the notch, so its problems wear the notch's look
-        // even though Settings set the form's around it.
+        // wherever it is drawn.
         .environment(\.problemCardLook, .notch)
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
@@ -59,7 +59,7 @@ struct IslandPreview: View {
     private var previewScale: CGFloat { min(1, 520 / appearance.panelWidth) }
 
     private func caption(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary)
+        Text(text.uppercased()).font(Theme.label).foregroundStyle(Theme.textTertiary)
     }
 
     /// The closed island keeps the kit's black on every surface

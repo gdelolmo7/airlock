@@ -70,8 +70,11 @@ final class NotchAppearanceModel {
         }
     }
 
-    var showsUsageInGutter: Bool {
-        didSet { store(showsUsageInGutter, Keys.showsUsage) }
+    /// Claude's usage figures, at the top of the Agents tab. Stored under the
+    /// key from when they sat beside the camera: a new key would read as never
+    /// set, and switch them back on for everyone who had turned them off.
+    var showsClaudeUsage: Bool {
+        didSet { store(showsClaudeUsage, Keys.showsUsage) }
     }
 
     var showsBatteryPercentage: Bool {
@@ -82,6 +85,7 @@ final class NotchAppearanceModel {
         static let panelWidth = "notch.panelWidth"
         static let centreTightening = "notch.centreTightening"
         static let surface = "notch.surface"
+        /// Historical, and must not change. See `showsClaudeUsage`.
         static let showsUsage = "notch.showsUsageInGutter"
         static let showsBatteryPercentage = "notch.showsBatteryPercentage"
         static let textScale = "notch.textScale"
@@ -108,7 +112,7 @@ final class NotchAppearanceModel {
         storedPanelWidth = stored.map { CGFloat($0) } ?? Self.defaultPanelWidth
         centreTightening = CGFloat(defaults.double(forKey: Keys.centreTightening))
         surface = defaults.string(forKey: Keys.surface).flatMap(NotchSurface.init(rawValue:)) ?? .black
-        showsUsageInGutter = defaults.object(forKey: Keys.showsUsage) as? Bool ?? true
+        showsClaudeUsage = defaults.object(forKey: Keys.showsUsage) as? Bool ?? true
         showsBatteryPercentage = defaults.object(forKey: Keys.showsBatteryPercentage) as? Bool ?? true
         let scale = defaults.object(forKey: Keys.textScale) as? Double
         textScale = scale.map { CGFloat($0) } ?? 1
@@ -158,12 +162,16 @@ final class NotchAppearanceModel {
     /// What the trailing gutter needs at the current settings. Measured off the
     /// rendered cluster rather than guessed.
     ///
-    /// Both flags are passed in rather than read here, for the same reason: what
+    /// The flags are passed in rather than read here, for the same reason: what
     /// actually reaches the gutter is decided by the Widgets toggles, which this
-    /// model doesn't own. `showsUsageInGutter` alone is not enough — the usage
-    /// figures also disappear with the agent surfaces — and assuming either one
-    /// always shows overstated demand and advised widening a panel that fitted.
-    func trailingGutterDemand(batteryVisible: Bool, usageVisible: Bool) -> CGFloat {
+    /// model doesn't own, and assuming either one always shows overstated
+    /// demand and advised widening a panel that fitted.
+    ///
+    /// The Agents tab sits in this gutter too, beside the gear. Counted at its
+    /// widest, with a session count beside the sparkle, since sessions come
+    /// and go while the panel is open and the advice should not. Claude's
+    /// usage figures are not counted: they are on the Agents tab now, not here.
+    func trailingGutterDemand(batteryVisible: Bool, agentsTabVisible: Bool) -> CGFloat {
         var demand: CGFloat = 30 // the settings gear, always present
         if batteryVisible {
             demand += 36
@@ -171,7 +179,7 @@ final class NotchAppearanceModel {
             // does not, which is why only this part is multiplied.
             if showsBatteryPercentage { demand += 30 * gutterTextScale }
         }
-        if usageVisible { demand += 126 * gutterTextScale }
+        if agentsTabVisible { demand += 48 + 8 }
         return demand
     }
 
@@ -180,14 +188,15 @@ final class NotchAppearanceModel {
     /// text, not derived from the font size. Multiplying a measurement is an
     /// estimate, so this errs on the side of over-reporting demand: an advice
     /// line that appears slightly early costs a sentence, while one that appears
-    /// slightly late means the usage figures are already behind the camera
-    /// housing, which is the exact bug the advice exists to prevent.
+    /// slightly late means the gutter is already behind the camera housing,
+    /// which is the exact bug the advice exists to prevent.
     private var gutterTextScale: CGFloat { min(textScale, 1.25) }
 
     /// Non-nil when the trailing gutter can't hold its contents, which is the
-    /// failure that puts the usage sparkle behind the camera.
-    func widthAdvice(batteryVisible: Bool, usageVisible: Bool) -> String? {
-        let demand = trailingGutterDemand(batteryVisible: batteryVisible, usageVisible: usageVisible)
+    /// failure that puts the Agents tab, the gear or the battery behind the
+    /// camera.
+    func widthAdvice(batteryVisible: Bool, agentsTabVisible: Bool) -> String? {
+        let demand = trailingGutterDemand(batteryVisible: batteryVisible, agentsTabVisible: agentsTabVisible)
         let budget = budget
         guard !budget.fits(demand) else { return nil }
         let needed = budget.widthNeeded(for: demand)

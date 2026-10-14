@@ -15,14 +15,25 @@ enum GallerySettings {
 
     static var states: [GalleryState] {
         [
-            .notYet("X1", area, "Window, sidebar",
-                    why: "The sidebar is Liquid Glass, which the offscreen export draws as a blank white column."),
+            GalleryState("X1", area, "Window: pages down the side, Voice open", ground: .window, width: 760) {
+                window
+            },
             .notYet("X2", area, "Search: nothing found / results",
                     why: "What is typed in the search box is the window's private state; there is no way to set it."),
             .notYet("X3", area, "General: About",
                     why: "General builds a live health report and needs Sparkle's updater model."),
             GalleryState("X4", area, "General: Updates", ground: .window, width: paneWidth) {
                 GalleryLicence.updates(.quiet, canCheck: true)
+            },
+            GalleryState("X4a", area, "General: Send crash reports, and what a report is", ground: .window,
+                         width: paneWidth) {
+                // The switch as it ships, off, then the notes under More
+                // options. Only a build with somewhere to send shows it.
+                LookColumn {
+                    CrashReportsSection(isOn: .constant(false))
+                    LookGroupLabel("Crash reports")
+                    ForEach(CrashReportsSection.notes, id: \.self) { LookNote($0) }
+                }
             },
             GalleryState("X5", area, "General: Health", ground: .window, width: paneWidth) {
                 health(inputMonitoring: .allowed)
@@ -50,13 +61,17 @@ enum GallerySettings {
                     why: "The page needs a dozen widget models whose switches read the real preferences."),
             .notYet("X14", area, "Voice: keys clash / microphone missing",
                     why: "The Voice page re-checks the hold key's event tap on appear, which can raise the Input Monitoring prompt."),
-            GalleryState("X15", area, "Voice: language", ground: .window, width: paneWidth) {
-                voice
+            GalleryState("X15", area, "Voice: the six rows", ground: .window, width: paneWidth) {
+                voice(moreOptions: false, height: 500)
+            },
+            GalleryState("X15a", area, "Voice: Catalan on calls, a language only dictation knows",
+                         ground: .window, width: paneWidth) {
+                voice(moreOptions: true, height: 2300, store: catalanCallsStore, callListeners: catalanListeners)
             },
             .notYet("X16", area, "Voice: Input Monitoring stale",
                     why: "The hold key's fault is private to the dictation model; the row is the same Fix as X34, drawn there."),
-            GalleryState("X17", area, "Voice: acting section", ground: .window, width: paneWidth) {
-                voice
+            GalleryState("X17", area, "Voice: more options open", ground: .window, width: paneWidth) {
+                voice(moreOptions: true, height: 2200)
             },
             .notYet("X18", area, "Voice: typed-bar section",
                     why: "The sentence shows only with the typed bar switched on, and switching it on writes a real preference."),
@@ -69,7 +84,7 @@ enum GallerySettings {
                 clipboard
             },
             GalleryState("X22", area, "Clipboard: where it's kept", ground: .window, width: paneWidth) {
-                clipboard
+                clipboard(moreOptions: true)
             },
             GalleryState("X23", area, "Clipboard: last copy skipped", ground: .window, width: paneWidth) {
                 clipboard(lastSkip: .ignoredApp("com.bitwarden.desktop"))
@@ -137,9 +152,19 @@ enum GallerySettings {
                 permissions(allowed.with { $0.accessibility = .notAllowed }, height: 1400)
             },
             GalleryState("X37", area, "Permissions: footer", ground: .window, width: paneWidth) {
-                permissions(allowed, height: 1120)
+                permissions(allowed, moreOptions: true, height: 1900)
             },
-        ] + guideStates
+        ] + guideStates + [
+            GalleryState("X41", area, "Voice: call notes on, with Open past calls", ground: .window,
+                         width: paneWidth) {
+                voice(moreOptions: false, height: 720, store: callNotesStore)
+            },
+            GalleryState("X41a", area, "Voice: call notes on, words to know listed", ground: .window,
+                         width: paneWidth) {
+                voice(moreOptions: false, height: 740, store: callNotesStore,
+                      knownWords: ["Brightwell", "Velaroja", "Quintela", "Rosamar Ortiz", "Zentrix CRM"])
+            },
+        ]
     }
 
     /// The guide's two pages, only in a build that has the guide.
@@ -147,10 +172,10 @@ enum GallerySettings {
         #if AIRLOCK_GUIDE
         [
             GalleryState("X38", area, "Guide page: no key, no Screen Recording", ground: .window, width: paneWidth) {
-                guide(GuideReadiness(keySaved: false, screenRecording: false), height: 640)
+                guide(GuideReadiness(keySaved: false, screenRecording: false), height: 780)
             },
             GalleryState("X38a", area, "Guide page: ready to run", ground: .window, width: paneWidth) {
-                guide(GuideReadiness(keySaved: true, screenRecording: true), height: 540)
+                guide(GuideReadiness(keySaved: true, screenRecording: true), height: 660)
             },
             GalleryState("X39", area, "Privacy page", ground: .window, width: paneWidth) {
                 privacy
@@ -205,6 +230,14 @@ enum GallerySettings {
     /// domain cannot leak into the plain pictures.
     private static let plainStore = UserDefaults(suiteName: "com.airlock.state-gallery") ?? .standard
 
+    /// Call notes registered on, the same way: the Voice page's call rows
+    /// show only then.
+    private static let callNotesStore: UserDefaults = {
+        let store = UserDefaults(suiteName: "com.airlock.state-gallery.call-notes") ?? .standard
+        store.register(defaults: [MeetingNotesModel.enabledKey: true])
+        return store
+    }()
+
     private static var clipboardItems: [ClipboardItem] {
         let now = Date(timeIntervalSince1970: 1_791_000_000)
         return [
@@ -230,32 +263,30 @@ enum GallerySettings {
             updater: .configured(automaticChecks: true), license: .trial(daysRemaining: 10),
             widgets: [.init("Agents", isEnabled: true), .init("Calendar", isEnabled: true)],
             secureInput: .off)
-        return Form {
-            Section("Health") {
-                DiagnosticsHealthView(health: DiagnosticsHealth.from(report),
-                                      summary: "Mac16,7 · notch yes · 1 display",
-                                      onCopy: {}, onOpen: { _ in })
-            }
+        return LookColumn {
+            LookGroupLabel("Health")
+            DiagnosticsHealthView(health: DiagnosticsHealth.from(report),
+                                  summary: "Mac16,7 · notch yes · 1 display",
+                                  onCopy: {}, onOpen: { _ in })
+                .lookRowBox()
         }
-        .formStyle(.grouped)
-        .frame(height: 390)
     }
 
     private static var clipboard: some View { clipboard() }
 
     /// The previewing model: nothing starts watching the pasteboard, and the
     /// last skip is a value.
-    private static func clipboard(lastSkip: ClipboardSkipReason? = nil) -> some View {
-        ClipboardPane()
+    private static func clipboard(lastSkip: ClipboardSkipReason? = nil, moreOptions: Bool = false) -> some View {
+        ClipboardPane(moreOptions: moreOptions)
             .environment(ClipboardWidgetModel(previewing: ClipboardHistory(items: clipboardItems),
                                               lastSkip: lastSkip))
             .environment(SettingsModel(previewing: []))
-            .frame(height: 1100)
+            .frame(height: moreOptions ? 1900 : 1100)
     }
 
     private static func agents(_ rows: [SettingsModel.AgentRow], policy: SettingsModel.PolicyInfo = noPolicy,
                                advanced: Bool = false) -> some View {
-        AgentsPane()
+        AgentsPane(moreOptions: advanced)
             .environment(SettingsModel(previewing: rows, policy: policy))
             .environment(AgentsWidgetModel(previewing: .hooksInstalled))
             .environment(DictationModel())
@@ -273,10 +304,12 @@ enum GallerySettings {
     private static func permissions(_ facts: PermissionFacts, sweep: PermissionSweepState = .notRun,
                                     askedForInputMonitoring: Bool = false,
                                     askedForScreenRecording: Bool = false,
+                                    moreOptions: Bool = false,
                                     height: CGFloat) -> some View {
         PermissionsPage(facts: facts, sweep: sweep,
                         askedForInputMonitoring: askedForInputMonitoring,
-                        askedForScreenRecording: askedForScreenRecording)
+                        askedForScreenRecording: askedForScreenRecording,
+                        moreOptions: moreOptions)
             .environment(SettingsModel(previewing: []))
             .frame(height: height)
     }
@@ -284,13 +317,47 @@ enum GallerySettings {
     /// The Voice page as a fresh install sees it. Nothing here re-checks the
     /// hold key: that happens only when a permission changes or Airlock comes
     /// back to the front, and neither happens in an export.
-    private static var voice: some View {
-        DictationPane()
+    /// `knownWords` stands in for the saved list, so no picture shows this
+    /// Mac's own words.
+    private static func voice(moreOptions: Bool, height: CGFloat, store: UserDefaults = plainStore,
+                              callListeners: CallListeners? = nil, knownWords: [String] = []) -> some View {
+        DictationPane(moreOptions: moreOptions, callListeners: callListeners, knownWords: knownWords)
             .environment(DictationModel())
             .environment(AssistantModel())
             .environment(SettingsModel(previewing: []))
-            .defaultAppStorage(plainStore)
-            .frame(height: 2720)
+            .defaultAppStorage(store)
+            .frame(height: height)
+    }
+
+    /// Call notes on, and calls set to Catalan with nothing beside it.
+    /// Registered only, like `advancedStore`.
+    private static let catalanCallsStore: UserDefaults = {
+        let store = UserDefaults(suiteName: "com.airlock.state-gallery.calls") ?? .standard
+        store.register(defaults: [MeetingNotesModel.enabledKey: true, CallLanguage.primaryKey: "ca_ES"])
+        return store
+    }()
+
+    /// A few of this Mac's languages, as the two recognisers list them, with
+    /// Catalan known to dictation alone and not downloaded yet.
+    private static let catalanListeners = CallListeners(
+        speech: ["en_GB", "en_US", "es_ES", "fr_FR", "it_IT"],
+        dictation: ["ca_ES", "en_GB", "en_US", "es_ES", "eu_ES", "fr_FR", "gl_ES", "it_IT"])
+
+    /// The whole window: every page the guide build shows (the most there
+    /// can be) down the side, and the Voice page beside them. Drawn here
+    /// rather than taken from `SettingsView`, whose pages read live models;
+    /// the pieces are the same ones.
+    private static var window: some View {
+        HStack(alignment: .top, spacing: 0) {
+            LookSidebar(pages: SettingsPane.sidebar(guideOn: true, free: false),
+                        selection: .constant(.voice), query: .constant(""))
+            voice(moreOptions: false, height: 570)
+                .padding(.top, 2)
+        }
+        // The real window's title bar, which the page and column sit under.
+        .safeAreaPadding(.top, 28)
+        .frame(width: 760, height: 600)
+        .background(SettingsLook.ground)
     }
 
     #if AIRLOCK_GUIDE
@@ -306,7 +373,7 @@ enum GallerySettings {
     private static var privacy: some View {
         PrivacyPane(readsKey: false)
             .environment(SettingsModel(previewing: []))
-            .frame(height: 500)
+            .frame(height: 560)
     }
     #endif
 }
