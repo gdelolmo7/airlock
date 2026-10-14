@@ -212,8 +212,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     @MainActor
     static var callNotesAreOn: Bool { MeetingNotesModel.isOn }
 
-    /// "Write notes online" is there only while notes online are switched on
-    /// by hand, and for a subscriber: nobody else's notes go online.
+    /// "Write notes online" is there only while notes online are switched on,
+    /// and for a subscriber: nobody else's notes go online.
     @MainActor
     static var notesOnlineShown: Bool {
         CloudNotesService.shared.isOn && CloudNotesService.shared.entitlement().isPaid

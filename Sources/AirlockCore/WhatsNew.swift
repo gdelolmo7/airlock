@@ -54,6 +54,12 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.0.20", title: "Better call notes, online", items: [
+            Item("sparkles", "Subscribers can have call notes written online, with better summaries and to-dos."),
+            Item("hand.raised", "Airlock asks you first, under your next notes. Nothing leaves your Mac before you say yes."),
+            Item("lock.shield", "Nobody keeps your call. Offline, or if you'd rather not, your Mac writes the notes."),
+            Item("gearshape", "Change your mind any time on the Voice page in Settings."),
+        ]),
         Notes(version: "1.0.19", title: "Notes from your calls", items: [
             Item("phone.bubble", "When a call starts, the notch offers to take notes. A summary and to-dos come when it ends."),
             Item("captions.bubble", "Watch the words appear as they're said, in a small window beside the call."),

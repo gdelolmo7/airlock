@@ -23,9 +23,9 @@ struct DictationPane: View {
     @AppStorage(CallLanguage.secondaryKey) private var callSecondaryLocale = ""
     /// On unless turned off, once the voice model is on this Mac.
     @AppStorage(CallVoiceModel.enabledKey) private var callVoicesOn = true
-    /// Notes online are switched on by hand while they are tried; their row
-    /// shows only then, and only for a subscriber.
-    @AppStorage(CloudNotesService.enabledKey) private var cloudNotesOn = false
+    /// Notes online: on unless the hidden switch says false. Their row shows
+    /// only then, and only for a subscriber.
+    @AppStorage(CloudNotesService.enabledKey) private var cloudNotesOn = CloudNotesService.onByDefault
     /// The person's answer, three ways: nil until asked under some notes.
     /// The switch is off until a yes (`CloudNotesQuestion.switchIsOn`).
     @AppStorage(CloudNotesService.settingKey) private var notesOnline: Bool?

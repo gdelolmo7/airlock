@@ -7,7 +7,8 @@ import Network
 /// write them and answers with the notes. The app never holds a model's key:
 /// it asks with the licence token, and only the server holds the key.
 ///
-/// Nothing here runs unless `meetings.cloudNotes.enabled` is set by hand, and
+/// Nothing here runs while `meetings.cloudNotes.enabled` is set to false (on
+/// for everyone from 1.0.20, a switch nobody sees that turns it all off), and
 /// then only when every condition in `CloudNotesRoute.decide` holds, the
 /// person's yes included: they are asked once, under the first notes that
 /// could have gone online, before any transcript leaves (`CloudNotesQuestion`).
@@ -25,8 +26,12 @@ import Network
 final class CloudNotesService {
     static let shared = CloudNotesService()
 
-    /// Set by hand while notes online are tried. Off: today's notes, untouched.
+    /// On unless set to false. Off: notes on the Mac only, nothing asked,
+    /// nothing sent. It was set by hand on the owner's Mac while notes online
+    /// were tried, and is on for everyone from 1.0.20.
     static let enabledKey = "meetings.cloudNotes.enabled"
+    /// What the switch says before anybody has set it.
+    static let onByDefault = true
     /// The person's answer, three ways (`answer`): the question under the
     /// notes and "Write notes online" in Settings both write it.
     static let settingKey = "meetings.cloudNotes.online"
@@ -69,8 +74,9 @@ final class CloudNotesService {
         self.transport = transport ?? { await CloudNotesService.send(prompt: $0, to: $1, token: $2) }
     }
 
-    /// The hidden switch.
-    var isOn: Bool { defaults.bool(forKey: Self.enabledKey) }
+    /// The hidden switch. `object(forKey:)`, not `bool(forKey:)`, which reads
+    /// a missing key as false.
+    var isOn: Bool { defaults.object(forKey: Self.enabledKey) as? Bool ?? Self.onByDefault }
 
     /// The person's answer: nil when not asked yet, which sends nothing and
     /// asks under the next notes that could go online; true for yes; false

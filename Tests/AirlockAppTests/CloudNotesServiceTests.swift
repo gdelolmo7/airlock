@@ -58,10 +58,15 @@ final class CloudNotesServiceTests: XCTestCase {
     }
 
     /// `answered` is the person's answer to writing notes online: yes unless
-    /// a test says otherwise, nil for not asked yet.
-    private func service(_ server: Server, switchedOn: Bool = true, paid: Bool = true,
+    /// a test says otherwise, nil for not asked yet. `switchedOn` nil leaves
+    /// the hidden switch unset, as on every Mac that never touched it.
+    private func service(_ server: Server, switchedOn: Bool? = true, paid: Bool = true,
                          answered: Bool? = true) -> CloudNotesService {
-        defaults.set(switchedOn, forKey: CloudNotesService.enabledKey)
+        if let switchedOn {
+            defaults.set(switchedOn, forKey: CloudNotesService.enabledKey)
+        } else {
+            defaults.removeObject(forKey: CloudNotesService.enabledKey)
+        }
         if let answered {
             defaults.set(answered, forKey: CloudNotesService.settingKey)
         } else {
@@ -101,6 +106,24 @@ final class CloudNotesServiceTests: XCTestCase {
         guard case .mac(.hiddenSwitchOff) = attempt else { return XCTFail("\(attempt)") }
         let asked = await server.asked
         XCTAssertEqual(asked, 0)
+    }
+
+    /// On for everyone from 1.0.20: a Mac that never set the hidden switch
+    /// sends a subscriber's notes once they said yes, and nobody else's.
+    func testAnUnsetSwitchIsOn() async {
+        let server = Server([])
+        let subscriber = service(server, switchedOn: nil)
+        XCTAssertTrue(subscriber.isOn)
+        _ = await subscriber.write(Self.record(), log: { _ in })
+        let asked = await server.asked
+        XCTAssertEqual(asked, 1)
+
+        let free = await service(server, switchedOn: nil, paid: false).write(Self.record(), log: { _ in })
+        guard case .mac(.notSubscribed) = free else { return XCTFail("\(free)") }
+        let notAsked = await service(server, switchedOn: nil, answered: nil).write(Self.record(), log: { _ in })
+        guard case .mac(.notAsked) = notAsked else { return XCTFail("\(notAsked)") }
+        let stillOnce = await server.asked
+        XCTAssertEqual(stillOnce, 1, "a trial, or nobody asked yet: nothing leaves")
     }
 
     func testOnlyASubscriberWithTheSettingOnIsAsked() async {

@@ -222,7 +222,7 @@ public enum CloudNotes {
 
 /// What decides where a meeting's notes are written.
 public struct CloudNotesConditions: Equatable, Sendable {
-    /// `meetings.cloudNotes.enabled`, set by hand while this is tried.
+    /// `meetings.cloudNotes.enabled`: on unless set to false (from 1.0.20).
     public var hiddenSwitch: Bool
     /// The person's answer to writing notes online, from the question under
     /// the notes or "Write notes online" in Settings: nil when not asked yet,
