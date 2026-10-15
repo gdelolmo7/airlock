@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 import AirlockCore
 
-/// Owns the (single) settings window. The app is an accessory-policy agent, so
-/// showing settings explicitly activates us; closing hands focus back.
+/// Owns the (single) settings window. Showing it makes Airlock an ordinary
+/// app for as long as it is open (`DockPresenceController`) and activates it;
+/// closing it hands focus back to the app you were in.
 @MainActor
 final class SettingsWindowController {
     /// Injected rather than owned: onboarding drives the same hook installs, and
@@ -143,6 +144,7 @@ final class SettingsWindowController {
             self.window = window
         }
         model.refresh()
+        if let window { DockPresenceController.shared.willShow(window) }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         // Opens with nothing focused. AppKit hands a newly shown window's

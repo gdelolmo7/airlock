@@ -570,6 +570,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Notifications.openSettings = { [weak self] pane, anchor in
             if let anchor { self?.settings?.show(anchor: anchor) } else { self?.settings?.show(pane: pane) }
         }
+        // "Call notes ready" lands on that call's notes.
+        Notifications.openCall = { [weak model] folder in model?.meetings.showCall(folder: folder) }
 
         // Built here, after the settings window, because "I already have a key"
         // hands off to its licence pane — and pointed at from the gate's
@@ -1225,8 +1227,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    /// The main menu — which an `LSUIElement` app never displays, and needs
-    /// anyway.
+    /// The main menu — drawn in the menu bar only while a full window of ours
+    /// is open, and needed at every other moment too.
     ///
     /// `NSApplication` dispatches command-key equivalents through `mainMenu`,
     /// and only through it. With none installed, ⌘V did nothing in ANY text
@@ -1238,10 +1240,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `OnboardingWindowController` counts ⌘W as one of the ways its window
     /// closes.
     ///
-    /// A menu bar changes nothing about activation. The policy stays
-    /// `.accessory`, no menu bar is ever drawn, and the notch panel remains a
-    /// non-activating panel — the menu only matters while a window of ours is
-    /// already key, which is exactly when someone is typing into one.
+    /// It changes nothing about activation. At rest the policy is
+    /// `.accessory` and no menu bar is drawn; while a full window is open or
+    /// minimised Airlock is an ordinary app and these menus are in the menu
+    /// bar (`DockPresenceController`). The notch panel remains a
+    /// non-activating panel either way, so its shortcuts reach this menu only
+    /// while it holds the keyboard for typing.
     private func installMainMenu() {
         let main = NSMenu()
 
@@ -1250,14 +1254,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(makeItem("Settings…", #selector(openSettings), ","))
         appMenu.addItem(makeItem("Setup Guide…", #selector(openOnboarding), ""))
         appMenu.addItem(.separator())
-        // No Hide item, and therefore no ⌘H. `NSApplication.hide(_:)` orders
-        // out every window with `canHide` set — which includes the kit's notch
-        // panel, whose state machine has no idea it happened: it thinks it is
-        // still `.compact`, so the branch that would call `showWindow()` again
-        // is the one it never takes. An accessory app has no Dock icon and no
-        // ⌘Tab entry to unhide from either. That is a stray keystroke in the
-        // settings window costing someone their notch, in exchange for hiding
-        // an app that shows nothing to begin with.
+        // No Hide item, and therefore no ⌘H. Hiding is safe now: every panel
+        // that must stay (the notch, the drop catcher, the window beside a
+        // live call, the guide's overlays) has `canHide = false`, because
+        // `NSApplication.hide(_:)` orders out every window that allows it and
+        // the kit's state machine never orders its panel back in. And the
+        // Dock icon offers Hide whenever there is a window to hide. A ⌘H here
+        // would add only a way to hide the windows from inside the notch,
+        // whose search field takes the keyboard while you are in another app.
         appMenu.addItem(makeItem("Quit Airlock", #selector(quit), "q"))
         appItem.submenu = appMenu
         main.addItem(appItem)
@@ -1295,6 +1299,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // of our windows in there, and the notch panel is not a window anyone
         // should be offered by name. The two shortcuts are the whole point.
         NSApp.mainMenu = main
+    }
+
+    /// Every quit comes through here, whichever menu, key or Dock item
+    /// started it. While call notes are being taken it asks first
+    /// (`QuitQuestion`); at any other time it says yes at once, as it always
+    /// has.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        QuitQuestion.reply(takingNotes: model?.meetings.takingNotes)
+    }
+
+    /// A click on the Dock icon, or Airlock opened again from Finder or
+    /// Spotlight while it runs. `hasVisibleWindows` is no help: the notch
+    /// panel is always a visible window. So the full windows are asked
+    /// instead, and a minimised one comes back; with none, the click does
+    /// what it always did, which is nothing beyond bringing Airlock forward.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        !DockPresenceController.shared.reopen()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

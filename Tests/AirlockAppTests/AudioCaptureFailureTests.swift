@@ -206,6 +206,60 @@ final class AudioCaptureFailureTests: XCTestCase {
         withExtendedLifetime(capture) {}
     }
 
+    /// One hardware change often arrives as several notifications, all posted
+    /// before the first is handled. The first replaces the engine; the rest
+    /// are about the engine it replaced, and must not replace the new one.
+    func testSeveralNotificationsForOneChangeReplaceTheEngineOnce() async throws {
+        let (capture, engines, log) = makeCapture()
+        post(for: engines.made[0])
+        post(for: engines.made[0])
+        post(for: engines.made[0])
+        let replaced = await eventually { engines.made.count == 2 }
+        XCTAssertTrue(replaced, "\(log.lines)")
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(engines.made.count, 2, "\(log.lines)")
+        withExtendedLifetime(capture) {}
+    }
+
+    /// What crashed the app a few seconds after a call ended. A retired engine
+    /// posts a change as it is deallocated, when nothing can retain it any
+    /// more; the next engine can be given its address. A watch that kept that
+    /// notification and matched it by address took the dead engine for the
+    /// new one, replaced the new one, and the notification's late release
+    /// freed the engine the capture was still holding.
+    ///
+    /// Every engine here posts as it goes, and none is kept by the test, so
+    /// the third replacement — the one that lets the first engine go — is
+    /// exactly the moment of the crash.
+    func testAnEngineThatPostsAsItGoesIsNotTakenForTheNextOne() async throws {
+        let engines = Engines()
+        engines.keeps = false
+        let farewells = Farewells()
+        engines.queued = Array(repeating: {
+            let engine = LastWordsEngine()
+            engine.farewells = farewells
+            return engine
+        }, count: 8)
+        let log = Lines()
+        let capture = AudioCapture(makeEngine: { engines.make() }, log: { log.lines.append($0) })
+
+        for replacements in 1...3 {
+            post(for: try XCTUnwrap(engines.latest))
+            let replaced = await eventually { engines.count == replacements + 1 }
+            XCTAssertTrue(replaced, "\(log.lines)")
+        }
+        XCTAssertEqual(farewells.count, 1, "the first engine must really be gone, or this proves nothing")
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(engines.count, 4, "a change from an engine that is gone replaced the current one")
+        XCTAssertEqual(log.lines.filter { $0.contains("replacing the idle engine") }.count, 3, "\(log.lines)")
+
+        // The engine the capture holds is whole: a hold starts on it.
+        _ = try capture.start(analyzerFormat: analyzerFormat)
+        XCTAssertTrue(capture.isCapturing)
+        XCTAssertEqual(engines.count, 4, "the hold needed no retry")
+        capture.stop()
+    }
+
     /// Mid-hold, a change the engine survived is left alone — rebuilding on it
     /// would cost every routed hold its first words — while one that stopped
     /// the engine gets it replaced, once the hold is over and not before.
@@ -316,6 +370,13 @@ final class AudioCaptureFailureTests: XCTestCase {
 /// every one, so a test can look at the engine a failure left behind.
 private final class Engines {
     private(set) var made: [AVAudioEngine] = []
+    /// Every engine made, kept or not.
+    private(set) var count = 0
+    /// The newest engine, while something else still holds it.
+    private(set) weak var latest: AVAudioEngine?
+    /// Off, `made` stays empty and the capture holds the only reference to
+    /// each engine, so one it lets go is really gone.
+    var keeps = true
     /// Built instead of a plain engine, in order, while any are left.
     var queued: [() -> AVAudioEngine] = []
 
@@ -331,13 +392,31 @@ private final class Engines {
             // moment its input node was touched. Stopping here is the lesser evil.
             preconditionFailure("manual rendering refused (\(error)); not handing out a hardware engine")
         }
-        made.append(engine)
+        count += 1
+        latest = engine
+        if keeps { made.append(engine) }
         return engine
     }
 }
 
 private final class Lines {
     var lines: [String] = []
+}
+
+private final class Farewells {
+    var count = 0
+}
+
+/// Posts a configuration change while it is being deallocated, as the
+/// retired engines in the crash did. A retain at that point does nothing, so
+/// whoever keeps the notification is keeping a pointer to freed memory.
+private final class LastWordsEngine: AVAudioEngine {
+    var farewells: Farewells?
+
+    deinit {
+        farewells?.count += 1
+        NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: self)
+    }
 }
 
 /// `prepare()` raising the way AVFAudio does — after the tap is installed.

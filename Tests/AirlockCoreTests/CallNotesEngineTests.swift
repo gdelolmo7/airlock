@@ -689,6 +689,57 @@ final class CallNotesPromptsTests: XCTestCase {
         XCTAssertEqual(CallNotesPrompts.inLanguage(nil), "")
     }
 
+    /// Read as names, the labels went into the notes as names: "el padre
+    /// de You", "Them finalizará", "Avisar a Them". Every writer is told
+    /// they are not, and how the person the notes are for is said.
+    func testTheRulesSayYouAndThemAreLabelsNotNames() {
+        let rules = CallNotesPrompts.factsInstructions
+        XCTAssertTrue(rules.contains(#""You" and "Them" are labels, not names."#))
+        XCTAssertTrue(rules.contains(#"In the notes, the person they are for is "you", in the notes' language "#
+            + #"("your father", "you'll send it"; "tu padre", "enviarás"), and Them is what the question says."#))
+        XCTAssertTrue(rules.contains(#"An owner is still "You"."#), "owners are still read as You (MeetingPeople.owner)")
+        XCTAssertTrue(CallNotesPrompts.cloudInstructions.contains(#""You" and "Them" are labels, not names."#))
+        XCTAssertTrue(CallNotesPrompts.wrapUpInstructions.contains(
+            #""You" is the person the summary is for, not a name: write "you", in the summary's language"#))
+        XCTAssertTrue(CallNotesPlainText.instructions.contains(#""You" and "Them" are labels, not names."#))
+    }
+
+    /// "Them" is given its words in the notes' language, so the notes read
+    /// as the language does and a name given later can find them.
+    func testThePromptSaysWhatToCallThem() {
+        let alone = MeetingPeople(others: [])
+        XCTAssertEqual(CallNotesPrompts.them(alone, language: "Spanish"), #"In the notes, Them is "la otra persona"."#)
+        XCTAssertEqual(CallNotesPrompts.them(alone, language: "English"), #"In the notes, Them is "the other person"."#)
+        XCTAssertEqual(CallNotesPrompts.them(alone, language: "Catalan"), #"In the notes, Them is "l'altra persona"."#)
+        XCTAssertEqual(CallNotesPrompts.them(alone, language: nil),
+                       #"In the notes, Them is "the other person", in the notes' language."#)
+        XCTAssertEqual(CallNotesPrompts.them(alone, language: "Japanese"),
+                       #"In the notes, Them is "the other person", in the notes' language."#)
+        // Several on the invite, heard as one voice.
+        XCTAssertEqual(CallNotesPrompts.them(MeetingPeople(others: ["Ana García", "Luis Pérez"]), language: "Spanish"),
+                       #"In the notes, Them is "los demás"."#)
+
+        // No "Them" in the transcript: the calendar's one name, voices told
+        // apart, the room.
+        XCTAssertNil(CallNotesPrompts.them(MeetingPeople(others: ["Ana García"]), language: "Spanish"))
+        XCTAssertNil(CallNotesPrompts.them(MeetingPeople(others: [], voices: 2), language: "Spanish"))
+        XCTAssertNil(CallNotesPrompts.them(MeetingPeople(others: [], inPerson: true), language: "Spanish"))
+        XCTAssertNil(CallNotesPrompts.them(MeetingPeople(others: [], voices: 3, inPerson: true), language: "Spanish"))
+
+        let prompt = CallNotesPrompts.facts(for: chunk(1, from: 0, to: 5), part: 1, of: 1, language: "Spanish",
+                                            people: alone, jots: [])
+        XCTAssertTrue(prompt.hasPrefix("""
+            Take notes from this call. Write them in Spanish.
+            People on the call: You, and Them (everyone else on the call).
+            In the notes, Them is "la otra persona".
+
+            TRANSCRIPT START
+            """), prompt)
+        let named = CallNotesPrompts.facts(for: chunk(1, from: 0, to: 5), part: 1, of: 1, language: "Spanish",
+                                           people: MeetingPeople(others: ["Ana García"]), jots: [])
+        XCTAssertFalse(named.contains("In the notes, Them"))
+    }
+
     func testTheFinalPromptListsTheFacts() {
         var ledger = MeetingLedger(record: Fixture.record())
         ledger.add(MeetingDraft(decisions: [.init(text: "Launch on the twentieth", sources: ["S3"])]),

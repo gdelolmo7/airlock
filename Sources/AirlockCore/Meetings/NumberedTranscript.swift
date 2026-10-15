@@ -102,17 +102,18 @@ public struct NumberedTranscript: Equatable, Sendable {
 
     /// Characters of transcript the model reads at once.
     ///
-    /// Apple's model has 4,096 tokens for everything: the rules (about 400),
-    /// the shape of the answer (about 520), the person's own notes (up to
-    /// about 270), the transcript and the answer (capped at 1,000; a dense
-    /// part's measured 520–560). It was measured with a list of what earlier
-    /// parts found in the prompt too, since dropped (`CallNotesPrompts.facts`),
-    /// so about 270 tokens are spare. That left about 1,650 for the
-    /// transcript, which measured 3
-    /// characters a token in both English and Spanish, numbered prefixes
-    /// included (`CallNotesModelProbe`). 7,000 characters, the first guess,
-    /// ran out of room halfway through the answer. A part that still does
-    /// not fit is halved (`TranscriptChunk.halved`).
+    /// Apple's model has 4,096 tokens for everything: the rules (about 400,
+    /// and about 70 more since they say what to call "You" and "Them",
+    /// counted from their length rather than measured), the shape of the
+    /// answer (about 520), the person's own notes (up to about 270), the
+    /// transcript and the answer (capped at 1,000; a dense part's measured
+    /// 520–560). It was measured with a list of what earlier parts found in
+    /// the prompt too, since dropped (`CallNotesPrompts.facts`), so about
+    /// 200 tokens are spare. That left about 1,650 for the transcript, which
+    /// measured 3 characters a token in both English and Spanish, numbered
+    /// prefixes included (`CallNotesModelProbe`). 7,000 characters, the
+    /// first guess, ran out of room halfway through the answer. A part that
+    /// still does not fit is halved (`TranscriptChunk.halved`).
     public static let chunkBudget = 4_800
 
     /// The turns packed, in order, into parts of at most `budget` characters.

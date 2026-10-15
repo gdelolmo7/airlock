@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Whether this process was launched from a real `.app` bundle.
 ///
@@ -16,4 +16,19 @@ import Foundation
 /// that needs a bundle asks here, so the next one gets the same answer.
 enum AppBundle {
     static var isBundled: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+}
+
+extension NSRunningApplication {
+    /// This very app — matched by process, and by bundle ID for a copy
+    /// started some other way.
+    ///
+    /// Lists of "apps the person is using" filter on `.regular`, which used to
+    /// leave Airlock out for free: it was an accessory app. While one of its
+    /// full windows is open it is an ordinary app too (`DockPresence`), so
+    /// anything that lists apps — the call it is taking notes on, the sound
+    /// mixer, what the guide is told is open — leaves it out by name.
+    var isAirlock: Bool {
+        processIdentifier == ProcessInfo.processInfo.processIdentifier
+            || (bundleIdentifier != nil && bundleIdentifier == Bundle.main.bundleIdentifier)
+    }
 }

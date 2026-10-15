@@ -25,12 +25,12 @@ import XCTest
 /// hierarchy right, does anything wrap badly", not "does this fit the panel".
 @MainActor
 final class SystemSectionSnapshot: XCTestCase {
-    /// The stack is inset 10pt a side, and paired columns are 25pt apart
+    /// The stack is inset 10pt a side, and paired columns a column gap apart
     /// (`NotchExpandedView`). The card lives in the Dashboard's right-hand
     /// column since 2026-10-01, so that is its default width here.
-    private static let sectionWidth: CGFloat = (640 - 2 * 10 - 25) / 2
+    private static let sectionWidth: CGFloat = (640 - 2 * 10 - PanelStackMetrics.columnGap) / 2
     private static let sideColumnWidth: CGFloat =
-        (NotchAppearanceModel.requestedWidthRange.lowerBound - 2 * 10 - 25) / 2
+        (NotchAppearanceModel.requestedWidthRange.lowerBound - 2 * 10 - PanelStackMetrics.columnGap) / 2
 
     /// The list's own heights at text size 1: an 8pt gap over a 13pt caption,
     /// then a 16pt row and 3pt between rows for each line (`CPUByAppView`).

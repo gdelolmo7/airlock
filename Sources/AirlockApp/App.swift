@@ -22,7 +22,9 @@ enum AgenticNotchMain {
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
-        // Menu-bar / notch utility — no Dock icon, never steals focus.
+        // Starts as a menu-bar / notch utility: no Dock icon, never steals
+        // focus. It becomes an ordinary app only while one of its full windows
+        // is open or minimised — see `DockPresence`.
         app.setActivationPolicy(.accessory)
         app.run()
     }

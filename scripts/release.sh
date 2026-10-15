@@ -47,7 +47,7 @@ cd "$(dirname "$0")/.."
 # Notarization failed three times that way with `completedParts: []` — it
 # authenticates, opens the multipart upload, and transfers nothing — and worked
 # first time from Terminal.app.
-VERSION="${AIRLOCK_VERSION:-1.0.21}"
+VERSION="${AIRLOCK_VERSION:-1.0.22}"
 PROFILE="${AIRLOCK_NOTARY_PROFILE:-airlock}"
 OUT=output/package
 APP="$OUT/Airlock.app"

@@ -104,10 +104,6 @@ final class MeetingNotesModel {
     private(set) var readyAllowance: Date?
     /// To-dos in those notes, for the line to mention.
     var readyTodoCount: Int { readyNotes?.todos.count ?? 0 }
-    /// The last few things said, for the panel's "Show transcript". Kept
-    /// here rather than read off the record, so the record can change with
-    /// every sentence without redrawing anything that does not show them.
-    private(set) var recentLines: [CallNotesPanel.Line] = []
 
     /// The call pill's mark. Stored rather than read off the flow, because
     /// it also hangs on the clock (the ask's ten seconds) and on the call
@@ -122,6 +118,14 @@ final class MeetingNotesModel {
     private(set) var glanceAt: Date?
 
     var isPaused: Bool { flow.pausedSince != nil }
+
+    /// The call or meeting being written down right now, paused included:
+    /// what a quit would stop (`QuitCheck`). Nil before the notes start and
+    /// once they are being written up, which a relaunch finishes anyway.
+    var takingNotes: OngoingCall? {
+        if case let .recording(call, _) = flow.phase { return call }
+        return nil
+    }
 
     /// Read from the switch every time, so a call that starts just after it
     /// moved goes by the new answer. `seenSwitch` is read too only so that a
@@ -182,6 +186,10 @@ final class MeetingNotesModel {
     /// Words written down for each side, and when the minute's line on both
     /// sides was last written.
     @ObservationIgnored private var wordsHeard: [MeetingSpeaker: Int] = [:]
+    /// The lines each side has finished but holds back while its language
+    /// is decided (`MeetingTrack.onHearing`): in the recent lines, never in
+    /// the record.
+    @ObservationIgnored private var heldLines: [MeetingSpeaker: [MeetingSegment]] = [:]
     @ObservationIgnored private var sidesLoggedAt: Date?
     @ObservationIgnored private var mute: CallMuteWatcher?
     /// Made the first time it is asked for.
@@ -299,7 +307,6 @@ final class MeetingNotesModel {
         readyAllowance = allowanceUntil
         readyOutcome = record.map { CallNotesPanel.ready(of: $0, notes: notes) } ?? .notes
         jotCount = record?.jots.count ?? 0
-        recentLines = record.map { CallNotesPanel.recentLines(of: $0) } ?? []
         if let event, let call = flow.phase.call {
             eventCall = call
             callEvent = event
@@ -522,7 +529,7 @@ final class MeetingNotesModel {
                 self?.liveWindow?.close()
             },
             close: { [weak self] in self?.liveWindow?.close() },
-            canName: { [weak self] voice in voice != MeetingRecord.otherSide || self?.splittingVoices != true },
+            canName: { [weak self] voice in self?.canNameLive(voice) ?? true },
             name: { [weak self] names in self?.nameLiveCall(names) }))
         liveWindow = shown
         shown.show()
@@ -575,11 +582,25 @@ final class MeetingNotesModel {
     }
 
     /// Names given in the side window, to the call it shows: during the
-    /// call, as its voices are told apart, or once it is over.
+    /// call, as its voices are told apart, or once it is over. The other
+    /// side named before any of it was told apart is one person from then
+    /// on, and the voice model stops.
     private func nameLiveCall(_ names: [MeetingVoiceName]) {
         guard let folder = live.folder else { return }
         saveNames(names, in: folder)
         live.rename(names, in: folder)
+        guard folder == self.folder, let record else { return }
+        if CallVoices.isNamedAsOne(record) { stopTellingVoicesApart() }
+    }
+
+    /// Whether the side window can name `voice` now. While the voices are
+    /// told apart, the other side heard as one can be named until any of
+    /// its lines has a number (`CallVoices.canName`), and not at all while
+    /// the call's last pass numbers them.
+    private func canNameLive(_ voice: Int) -> Bool {
+        guard splittingVoices else { return true }
+        guard voices != nil, let record else { return voice != MeetingRecord.otherSide }
+        return CallVoices.canName(voice, of: record)
     }
 
     /// The name the panel gives a call: Meet once the tab has said so, even
@@ -1041,7 +1062,6 @@ final class MeetingNotesModel {
             record.droppedAt = nil
             self.record = record
             jotCount = record.jots.count
-            recentLines = CallNotesPanel.recentLines(of: record)
             log("notes: continuing \(folder.lastPathComponent)")
         } else {
             // The event found when the call started, if it is this call's.
@@ -1051,7 +1071,6 @@ final class MeetingNotesModel {
             let record = MeetingRecord(bundleID: call.bundleID, appName: call.appName,
                                        site: call.site, startedAt: now, event: event)
             jotCount = 0
-            recentLines = []
             do {
                 folder = try store.makeFolder(for: record)
             } catch {
@@ -1099,7 +1118,7 @@ final class MeetingNotesModel {
         startMicrophone(into: mine, format: format)
         let track = MeetingTrack(speaker: .me, listeners: listeners, canRead: CallNotesWriter.canRead,
                                  log: log) { [weak self] in self?.heard($0, from: .me) }
-        track.onHearing = { [weak self] in self?.hearing($0, from: .me) }
+        track.onHearing = { [weak self] in self?.hearing($0, $1, from: .me) }
         let heard = startEchoRemoval().map { $0.cleaning(mine.output) } ?? mine.output
         track.begin(picked, format: format, offset: offset, input: gate.silencing(heard))
         me = track
@@ -1111,6 +1130,7 @@ final class MeetingNotesModel {
         callTapStartedAt = nil
         theirFormat = format
         wordsHeard = [:]
+        heldLines = [:]
         sidesLoggedAt = Date()
         log(await OutputWake.wakeIfBluetooth())
         startThem(call, picked: picked, listeners: listeners, format: format, attempt: 0)
@@ -1128,10 +1148,11 @@ final class MeetingNotesModel {
         micFormat = format
         micRestart = MicRestart()
         wordsHeard = [:]
+        heldLines = [:]
         startMicrophone(into: room, format: format)
         let track = MeetingTrack(speaker: .them, listeners: listeners, canRead: CallNotesWriter.canRead,
                                  log: log) { [weak self] in self?.heard($0, from: .them) }
-        track.onHearing = { [weak self] in self?.hearing($0, from: .them) }
+        track.onHearing = { [weak self] in self?.hearing($0, $1, from: .them) }
         track.begin(picked, format: format, offset: offset, input: room.output)
         them = track
         holdAwake()
@@ -1215,21 +1236,35 @@ final class MeetingNotesModel {
         return line
     }
 
-    /// The call tap gone dead while the Mac plays a voice (`CallTapWatch`):
-    /// started again once, then, if that brought nothing, replaced by
-    /// everything the Mac plays for the rest of the notes. Only once the call
-    /// tap has started, and only with the speakers tap running, since that
-    /// is what tells a dead call tap from a quiet call.
+    /// The call tap gone dead while the call goes on (`CallTapWatch`):
+    /// started again, then, if the speakers hear the other side, replaced by
+    /// everything the Mac plays for the rest of the notes, and if they do
+    /// not, both taps started again for as long as the call app plays on.
+    /// Only once the call tap has started. Without the speakers tap (echo
+    /// removal off, or it would not start) only the call app playing can
+    /// give a dead call tap away.
     private func watchCallTap(_ call: OngoingCall, now: Date) {
-        guard let theirs, let tap, let speakers, let callTapStartedAt, let theirFormat else { return }
-        let speaking = speakers.lastSpeech.map { now.timeIntervalSince($0) < Self.speakingWithin } ?? false
-        switch tapWatch.look(now: now, callTapSince: callTapStartedAt,
-                             callTapLastSound: theirs.reading.lastSound, speakersSpeaking: speaking) {
+        guard let theirs, let tap, let callTapStartedAt, let theirFormat else { return }
+        let speaking = speakers?.lastSpeech.map { now.timeIntervalSince($0) < Self.speakingWithin } ?? false
+        let action = tapWatch.look(now: now, callTapSince: callTapStartedAt,
+                                   callTapLastSound: theirs.reading.lastSound, speakersSpeaking: speaking,
+                                   callAppPlaying: { Self.isPlaying(callApp: call.bundleID) })
+        switch action {
         case .none:
             return
-        case .restartCallTap:
-            log("call tap quiet while the Mac plays a voice, starting it again; playing: "
-                + Self.playing(callApp: call.bundleID))
+        case .restartCallTap, .restartBoth:
+            if action == .restartBoth {
+                log("call tap and speakers tap hear nothing while the call app plays, starting both again"
+                    + " (\(tapWatch.restarts)); playing: " + Self.playing(callApp: call.bundleID))
+                if let speakers, let echo {
+                    do { try speakers.start(into: echo) } catch {
+                        log("echo: speakers tap restart FAILED: \(error.localizedDescription)")
+                    }
+                }
+            } else {
+                log("call tap quiet while the Mac plays a voice, starting it again; playing: "
+                    + Self.playing(callApp: call.bundleID))
+            }
             self.callTapStartedAt = now
             do {
                 theirs.feed(try tap.start(bundleID: call.bundleID, analyzerFormat: theirFormat))
@@ -1237,7 +1272,7 @@ final class MeetingNotesModel {
                 log("call tap restart FAILED: \(error.localizedDescription)")
             }
         case .useSpeakers:
-            guard let stream = speakers.otherSide(format: theirFormat) else {
+            guard let speakers, let stream = speakers.otherSide(format: theirFormat) else {
                 log("call tap still quiet, and the speakers cannot stand in (format \(theirFormat))")
                 return
             }
@@ -1246,6 +1281,12 @@ final class MeetingNotesModel {
             log("call tap still quiet, the other side now comes from everything the Mac plays; playing: "
                 + Self.playing(callApp: call.bundleID))
         }
+    }
+
+    /// Whether any of the call app's processes is playing sound now.
+    private static func isPlaying(callApp bundleID: String) -> Bool {
+        CallMonitor.audioProcesses(ofCallApp: bundleID)
+            .contains { AudioProcesses.bool($0, kAudioProcessPropertyIsRunningOutput) }
     }
 
     /// The processes playing sound now, the call app's marked: what tells a
@@ -1320,7 +1361,7 @@ final class MeetingNotesModel {
                 let offset = record.map { Date().timeIntervalSince($0.startedAt) } ?? 0
                 let track = MeetingTrack(speaker: .them, listeners: listeners, canRead: CallNotesWriter.canRead,
                                          log: log) { [weak self] in self?.heard($0, from: .them) }
-                track.onHearing = { [weak self] in self?.hearing($0, from: .them) }
+                track.onHearing = { [weak self] in self?.hearing($0, $1, from: .them) }
                 track.begin(picked, format: format, offset: offset, input: theirs.output)
                 them = track
                 listenForVoices(on: track)
@@ -1337,10 +1378,11 @@ final class MeetingNotesModel {
     }
 
     /// Starts the voice model on the other side's audio, unless this call
-    /// is a one-to-one with a known name (nothing to tell apart) or the
-    /// model is off or not here.
+    /// is a one-to-one with a known name or the other side was named as one
+    /// person (nothing to tell apart), or the model is off or not here.
     private func listenForVoices(on track: MeetingTrack) {
-        guard voices == nil, CallVoiceModel.isOn, let record, record.otherName == nil else { return }
+        guard voices == nil, CallVoiceModel.isOn, let record, record.otherName == nil,
+              !CallVoices.isNamedAsOne(record) else { return }
         let (stream, offset) = track.voiceInput()
         let listener = CallVoiceListener(offset: offset)
         voices = listener
@@ -1358,6 +1400,20 @@ final class MeetingNotesModel {
             }
         }
         log("voices: listening from \(Int(offset))s")
+    }
+
+    /// The other side was named while its voices were being told apart: it
+    /// is one person now (`CallVoices.isNamedAsOne`), so the voice model
+    /// stops for the rest of the call and the call's last pass is not made.
+    /// A look still out finds the listener gone and numbers nothing.
+    private func stopTellingVoicesApart() {
+        guard let listener = voices else { return }
+        voicesLooking?.cancel()
+        voicesLooking = nil
+        voices = nil
+        splittingVoices = false
+        Task { await listener.cancel() }
+        log("voices: stopped, the other side was named")
     }
 
     /// How often the voices heard so far are laid over the lines. The model
@@ -1384,8 +1440,6 @@ final class MeetingNotesModel {
                 + (outcome.reason.map { " (\($0))" } ?? ""))
         }
         self.record = record
-        let lines = CallNotesPanel.recentLines(of: record)
-        if lines != recentLines { recentLines = lines }
         saveSoon()
     }
 
@@ -1422,8 +1476,6 @@ final class MeetingNotesModel {
             let kept = lines.filter { !said(during: $0, in: record) }
             record.switchLanguage(of: speaker, at: seam, to: language, lines: kept, keptAs: keptAs)
             self.record = record
-            let shown = CallNotesPanel.recentLines(of: record)
-            if shown != recentLines { recentLines = shown }
             saveSoon()
         case .shadow(let line):
             guard let record, !said(during: line.segment, in: record) else { return }
@@ -1433,8 +1485,15 @@ final class MeetingNotesModel {
     }
 
     /// What a side is saying before it is a line, for the transcript to
-    /// show as it comes. Nothing said while paused is shown.
-    private func hearing(_ text: String, from speaker: MeetingSpeaker) {
+    /// show as it comes, and the lines it holds back while its language is
+    /// decided, to show where they were said. Nothing said while paused is
+    /// shown, as nothing said then is written down.
+    private func hearing(_ held: [MeetingSegment], _ text: String, from speaker: MeetingSpeaker) {
+        let shown = record.map { record in held.filter { !said(during: $0, in: record) } } ?? []
+        if shown != heldLines[speaker, default: []] {
+            heldLines[speaker] = shown.isEmpty ? nil : shown
+            live.hold(shown, from: speaker)
+        }
         live.hear(isPaused ? "" : text, from: speaker)
     }
 
@@ -1453,8 +1512,6 @@ final class MeetingNotesModel {
         if let record {
             let spoken = record.startedAt.addingTimeInterval(segment.end)
             lastWords = max(lastWords ?? spoken, spoken)
-            let lines = CallNotesPanel.recentLines(of: record)
-            if lines != recentLines { recentLines = lines }
         }
         if record?.site == nil, let record, let site = current(nil, bundleID: record.bundleID)?.site {
             self.record?.site = site
@@ -1662,6 +1719,15 @@ final class MeetingNotesModel {
                     self.live.settle(folder, as: .saved(self.readyOutcome, todos: self.savedTodos),
                                      title: written?.title)
                     self.send(.saved(folder: folder.lastPathComponent))
+                    // The notch says so for a few seconds; the Mac's own
+                    // notification stays in its list, since nobody watches
+                    // a call's notes being written.
+                    if let notice = CallNotesPanel.readyNotice(of: record, ready: self.readyOutcome,
+                                                               todos: self.savedTodos) {
+                        Notifications.post(title: notice.title, body: notice.body,
+                                           identifier: Notifications.ID.notesReady(folder.lastPathComponent),
+                                           opensCall: folder.lastPathComponent)
+                    }
                     if case let .ready(name, _) = self.flow.phase, name == folder.lastPathComponent {
                         self.readyNotes = written
                         // Once a month, where the notes say they are ready.

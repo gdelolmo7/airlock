@@ -89,10 +89,12 @@ final class MeetingTrack {
     /// before it finishes the sentence: "" once they are a line, or nothing
     /// is being said. Set before `begin`; without it no guess is asked for
     /// and no quick recogniser runs.
-    /// During the race the words already finished but held for it come
-    /// first, so nothing said vanishes while the language is decided.
-    var onHearing: ((String) -> Void)?
+    /// During the race, `held` is the lines already finished but held for
+    /// it, by the take the screen follows, so nothing said vanishes while
+    /// the language is decided; none once it is, when they are lines.
+    var onHearing: ((_ held: [MeetingSegment], _ words: String) -> Void)?
     private var lastHeard = ""
+    private var lastHeld: [MeetingSegment] = []
     private let listeners: CallListeners
     private let canRead: (String) -> Bool
     /// The words typed in Settings, for the recogniser to expect. Only the
@@ -546,21 +548,25 @@ final class MeetingTrack {
 
     /// Tells the screen what is being said: the winner's words past its
     /// lines, or before the race is decided the held lines and words of the
-    /// take that is understanding it best (`shownTake`). Only a change is
-    /// told.
+    /// take that is understanding it best (`shownTake`). The held lines go
+    /// as lines, each with its time, to be shown where they were said
+    /// (`CallLive.withHeld`). Only a change is told.
     private func showHearing() {
         guard let onHearing else { return }
+        var held: [MeetingSegment] = []
         let text: String
         if let winner {
             text = unfinished(of: winner)
         } else if let shown = shownTake() {
-            text = CallLive.inProgress(held: shown.held.map(\.segment.text), guess: unfinished(of: shown))
+            held = shown.held.map(\.segment)
+            text = unfinished(of: shown)
         } else {
             text = ""
         }
-        guard text != lastHeard else { return }
+        guard text != lastHeard || held != lastHeld else { return }
         lastHeard = text
-        onHearing(text)
+        lastHeld = held
+        onHearing(held, text)
     }
 
     /// What `take` is heard saying past its finished lines: its quick

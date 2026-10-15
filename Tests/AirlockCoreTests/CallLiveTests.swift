@@ -168,9 +168,36 @@ final class CallLiveTests: XCTestCase {
         XCTAssertEqual(CallLive.headed(talk, in: room).entries, [true, false, false, false, true])
     }
 
-    func testHeldLinesStayOnScreenAheadOfTheGuess() {
-        // Deciding the language, the recogniser holds its finished lines:
-        // they stay in front of what it is hearing, so nothing vanishes.
+    func testHeldLinesShowWhereTheyWereSaidAmongTheOtherSidesTurns() {
+        // A back-and-forth where "you" say little, so your language is
+        // still being decided: your lines are held. Shown as one block
+        // under everything, their three lines ran into one turn.
+        let them = [MeetingSegment(speaker: .them, start: 1, end: 4, text: "Hola, ¿qué tal el contrato?"),
+                    MeetingSegment(speaker: .them, start: 9, end: 12, text: "Vale, lo miro mañana."),
+                    MeetingSegment(speaker: .them, start: 17, end: 20, text: "Perfecto, hablamos.")]
+        let call = MeetingRecord(bundleID: "com.google.Chrome", appName: "Google Chrome", startedAt: start,
+                                 segments: them)
+        let held = [MeetingSegment(speaker: .me, start: 5, end: 8, text: "Bien, te lo mando hoy."),
+                    MeetingSegment(speaker: .me, start: 13, end: 16, text: "Genial, gracias.")]
+
+        func speakers(_ record: MeetingRecord) -> [MeetingSpeaker] {
+            MeetingTimeline.entries(of: record).compactMap { entry in
+                guard case .speech(let turn, _) = entry else { return nil }
+                return turn.speaker
+            }
+        }
+        XCTAssertEqual(speakers(call), [.them])
+        let shown = CallLive.withHeld(held, in: call)
+        XCTAssertEqual(speakers(shown), [.them, .me, .them, .me, .them])
+        XCTAssertEqual(shown.segments.map(\.start), [1, 5, 9, 13, 17])
+        // Only shown: the call itself is unchanged, and none held is none added.
+        XCTAssertEqual(call.segments, them)
+        XCTAssertEqual(CallLive.withHeld([], in: call), call)
+    }
+
+    func testInProgressReadsTheHeldLinesThenTheGuess() {
+        // Deciding the language, each recogniser holds its finished lines:
+        // the take the screen follows is chosen on them and its guess.
         XCTAssertEqual(CallLive.inProgress(held: ["Okay, so this is the test.", "It works."], guess: "and now"),
                        "Okay, so this is the test. It works. and now")
         XCTAssertEqual(CallLive.inProgress(held: [], guess: "  every  word\nappears "), "every word appears")

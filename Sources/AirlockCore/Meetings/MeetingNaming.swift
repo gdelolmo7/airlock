@@ -14,12 +14,18 @@ import Foundation
 public enum MeetingNaming {
     /// `page` with every named voice called by its name. "Person 2" and the
     /// model's Spanish "Persona 2" both become "Ana", and "You" for "That's
-    /// me" ("you" inside a sentence). The other side of a call heard as one
-    /// voice is named where the page says who owns a to-do ("— Them · 2:15"),
-    /// and wherever the calendar's name for it was written: "them" is a word
-    /// as well as a label, so it is not replaced anywhere else. A room that
-    /// was one voice is named only where it owns a to-do, for the same
-    /// reason: "someone" is a word too.
+    /// me" ("you" inside a sentence).
+    ///
+    /// The other side of a call heard as one voice is named wherever the
+    /// page has its label, "Them" with its capital ("Them finalizará",
+    /// "— Them · 2:15"), and wherever the calendar's name for it was
+    /// written. Where the notes were told to call it "the other person"
+    /// (`CallNotesPrompts.them`), those words in any listed language are
+    /// its name too: "Avisar a la otra persona" becomes "Avisar a Alex".
+    /// Each is matched as whole words, so "them" without the capital, the
+    /// word, is never replaced, nor is "otra persona" alone, nor "the
+    /// others". A room that was one voice is named only where it owns a
+    /// to-do: "someone" is a word too.
     public static func apply(_ record: MeetingRecord, to page: String) -> String {
         var page = page
         for given in record.names {
@@ -28,9 +34,16 @@ public enum MeetingNaming {
                 page = replaceOwner(MeetingRecord.someone, with: name, in: page)
             } else if given.voice == MeetingRecord.otherSide {
                 guard !given.isYou else { continue }
-                page = replaceOwner(MeetingSpeaker.them.label, with: given.name, in: page)
+                page = replace(pattern: NSRegularExpression.escapedPattern(for: MeetingSpeaker.them.label),
+                               options: [], in: page) { _ in given.name }
                 if let calendar = record.event?.oneToOne {
                     page = replace(pattern: NSRegularExpression.escapedPattern(for: calendar), in: page) { _ in given.name }
+                }
+                if CallNotesPrompts.themIsOnePerson(MeetingPeople(record: record)) {
+                    for words in CallNotesPrompts.otherPersonWords {
+                        page = replace(pattern: apostrophes(NSRegularExpression.escapedPattern(for: words)),
+                                       in: page) { _ in given.name }
+                    }
                 }
             } else {
                 let pattern = #"(?<![\p{L}\p{N}])[Pp]ersona? "# + String(given.voice) + #"(?![\p{N}])"#
@@ -53,18 +66,25 @@ public enum MeetingNaming {
         return ".!?:—–-*_(\"“«¿¡".contains(last) ? MeetingSpeaker.me.label : MeetingSpeaker.me.label.lowercased()
     }
 
-    /// The owner of a to-do, "— Them · 2:15" or "— Them" at a line's end.
+    /// The owner of a to-do, "— Someone · 2:15" or "— Someone" at a line's end.
     private static func replaceOwner(_ owner: String, with name: String, in page: String) -> String {
         let pattern = "(?<= — )" + NSRegularExpression.escapedPattern(for: owner) + "(?= · |$)"
-        return replace(pattern: pattern, options: [.anchorsMatchLines], in: page) { _ in name }
+        return replace(pattern: pattern, options: [.anchorsMatchLines, .caseInsensitive], in: page) { _ in name }
+    }
+
+    /// `pattern` with each apostrophe matching the curly one as well:
+    /// "l'altra persona" is often written "l’altra persona".
+    private static func apostrophes(_ pattern: String) -> String {
+        pattern.replacingOccurrences(of: "'", with: "['’]")
     }
 
     /// Every match of `pattern`, whole words only, replaced by what `with`
-    /// says for the text before it. Case-insensitive, accents included.
-    private static func replace(pattern: String, options: NSRegularExpression.Options = [],
+    /// says for the text before it. Case-insensitive unless `options` say
+    /// otherwise, accents included.
+    private static func replace(pattern: String, options: NSRegularExpression.Options = .caseInsensitive,
                                 in text: String, with: (Substring) -> String) -> String {
         let bounded = #"(?<![\p{L}\p{N}])(?:"# + pattern + #")(?![\p{L}\p{N}])"#
-        guard let regex = try? NSRegularExpression(pattern: bounded, options: options.union(.caseInsensitive))
+        guard let regex = try? NSRegularExpression(pattern: bounded, options: options)
         else { return text }
         var result = text
         let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))

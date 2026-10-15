@@ -223,9 +223,9 @@ final class MeetingNamingTests: XCTestCase {
         XCTAssertTrue(named.contains("— You · 1:00"))
     }
 
-    /// "them" is a word as well as a label: only the owner of a to-do and
-    /// the calendar's name are replaced.
-    func testTheOtherSidesNameReplacesOnlyTheOwnerAndTheCalendarsName() {
+    /// "them" is a word as well as a label: the label, with its capital,
+    /// and the calendar's name are replaced, the word is not.
+    func testTheOtherSidesNameReplacesItsLabelAndTheCalendarsNameButNotTheWord() {
         var record = call()
         record.name(MeetingRecord.otherSide, as: "Marc")
         let named = MeetingNaming.apply(record, to: page)
@@ -235,6 +235,86 @@ final class MeetingNamingTests: XCTestCase {
         var oneToOne = call(invited: ["Ana García"])
         oneToOne.name(MeetingRecord.otherSide, as: "Ana")
         XCTAssertTrue(MeetingNaming.apply(oneToOne, to: page).contains("Book a room for them — Ana · 3:00"))
+    }
+
+    /// Notes from a call whose other side was "Them": written before the
+    /// model was told it is a label ("Them finalizará"), and after, with
+    /// the words it was given ("la otra persona").
+    private let spanish = """
+    # Notes: contrato
+
+    ## Summary
+
+    La otra persona finalizará la ingeniería inversa esta semana y le avisarás tras el push. \
+    Them reorganiza el backend con su equipo.
+
+    ## To-dos
+
+    - [ ] Enviar el cuestionario a tu padre — You · 43:26
+    - [ ] Avisar a la otra persona tras el push — You · 1:12:40
+    - [ ] Revisar el esquema con Them · 34:22
+
+    ## Key points
+
+    - Book a room for them and the other person's team · 40:00
+    - Parlar amb l’altra persona del pressupost · 5:00
+    - Themes for the launch: another person joins later, otra persona del equipo y los demás · 2:04
+
+    """
+
+    /// What the owner saw: a voice named after the notes were saved, and
+    /// the notes still saying "Them". Named, the label and the words the
+    /// notes were told to use become the name; "you", "them" the word, "the
+    /// others" and anything that only contains the words stay as written.
+    func testTheOtherSidesNameReplacesThemAndTheOtherPersonInTheNotes() {
+        var record = call()
+        record.name(MeetingRecord.otherSide, as: "Alex")
+        XCTAssertEqual(MeetingNaming.apply(record, to: spanish), """
+            # Notes: contrato
+
+            ## Summary
+
+            Alex finalizará la ingeniería inversa esta semana y le avisarás tras el push. \
+            Alex reorganiza el backend con su equipo.
+
+            ## To-dos
+
+            - [ ] Enviar el cuestionario a tu padre — You · 43:26
+            - [ ] Avisar a Alex tras el push — You · 1:12:40
+            - [ ] Revisar el esquema con Alex · 34:22
+
+            ## Key points
+
+            - Book a room for them and Alex's team · 40:00
+            - Parlar amb Alex del pressupost · 5:00
+            - Themes for the launch: another person joins later, otra persona del equipo y los demás · 2:04
+
+            """)
+        XCTAssertEqual(MeetingNaming.apply(call(), to: spanish), spanish, "nothing named, nothing changed")
+    }
+
+    /// The words are the other side's only where the notes were told so:
+    /// not where the calendar named it, nor where the invite had several
+    /// people, who were "los demás". The label is still its name there.
+    func testTheOtherPersonIsANameOnlyWhereTheNotesWereToldSo() {
+        var oneToOne = call(invited: ["Marta Vidal"])
+        oneToOne.name(MeetingRecord.otherSide, as: "Marta")
+        let toMarta = MeetingNaming.apply(oneToOne, to: spanish)
+        XCTAssertTrue(toMarta.contains("La otra persona finalizará"))
+        XCTAssertTrue(toMarta.contains("Marta reorganiza el backend"))
+
+        var group = call(invited: ["Ana García", "Luis Pérez"])
+        group.name(MeetingRecord.otherSide, as: "Ana")
+        let toAna = MeetingNaming.apply(group, to: spanish)
+        XCTAssertTrue(toAna.contains("La otra persona finalizará"))
+        XCTAssertTrue(toAna.contains("- [ ] Revisar el esquema con Ana · 34:22"))
+
+        // Voices told apart, and a stretch that stayed "Them".
+        var apart = call(voices: [1, 2, nil])
+        apart.name(MeetingRecord.otherSide, as: "Pau")
+        let toPau = MeetingNaming.apply(apart, to: spanish)
+        XCTAssertTrue(toPau.contains("La otra persona finalizará"))
+        XCTAssertTrue(toPau.contains("Pau reorganiza el backend"))
     }
 
     // MARK: - Suggestions
@@ -328,6 +408,43 @@ final class MeetingNamingTests: XCTestCase {
         // The page as written is hidden: the folder is still one call.
         XCTAssertEqual(store.calls().count, 1)
         XCTAssertTrue(store.unfinishedFolders().isEmpty)
+    }
+
+    /// The other side named after the notes were saved, then named again,
+    /// then not: the notes follow each time, the page as written never
+    /// changes.
+    func testNamingTheOtherSideRewritesTheNotesAndKeepsThePageAsWritten() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-naming-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingStore(root: root)
+        var record = call()
+        let folder = try store.makeFolder(for: record)
+        try store.saveTranscript(record, in: folder)
+        try store.saveNotes(spanish, in: folder)
+        let kept = folder.appendingPathComponent(MeetingStore.notesAsWrittenName)
+
+        record.name(MeetingRecord.otherSide, as: "Nico")
+        try store.saveNames(of: record, in: folder)
+        let named = try XCTUnwrap(store.notesPage(in: folder))
+        XCTAssertTrue(named.contains("Nico finalizará la ingeniería inversa"))
+        XCTAssertTrue(named.contains("- [ ] Avisar a Nico tras el push — You · 1:12:40"))
+        XCTAssertTrue(named.contains("Nico reorganiza el backend"))
+        XCTAssertFalse(named.contains("Them "))
+        XCTAssertTrue(try String(contentsOf: folder.appendingPathComponent(MeetingFiles.transcriptName),
+                                 encoding: .utf8).contains("**Nico**"))
+        XCTAssertEqual(try String(contentsOf: kept, encoding: .utf8), spanish)
+
+        record.name(MeetingRecord.otherSide, as: "Nico Ruiz")
+        try store.saveNames(of: record, in: folder)
+        XCTAssertTrue(store.notesPage(in: folder)?.contains("Nico Ruiz finalizará") == true)
+        XCTAssertFalse(store.notesPage(in: folder)?.contains("Ruiz Ruiz") == true)
+        XCTAssertEqual(try String(contentsOf: kept, encoding: .utf8), spanish)
+
+        record.name(MeetingRecord.otherSide, as: "")
+        try store.saveNames(of: record, in: folder)
+        XCTAssertEqual(store.notesPage(in: folder), spanish)
+        XCTAssertEqual(try String(contentsOf: kept, encoding: .utf8), spanish)
     }
 
     /// Notes written before names existed are the page as written already.

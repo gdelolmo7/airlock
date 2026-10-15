@@ -181,6 +181,13 @@ final class UpdaterEvents: NSObject, SPUUpdaterDelegate {
         send(.finished(errorCode: error.map { ($0 as NSError).code }))
     }
 
+    /// "Install and Relaunch": the quit that follows is Airlock's own, so it
+    /// must not stop to ask about call notes (`QuitQuestion`). Set here, before
+    /// the installer asks the app to quit.
+    func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        QuitQuestion.quittingOnPurpose()
+    }
+
     /// `false` keeps Sparkle's own behaviour — it installs on quit either way.
     /// This only notes that it will.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,

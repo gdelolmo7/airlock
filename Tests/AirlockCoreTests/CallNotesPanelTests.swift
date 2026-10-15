@@ -173,6 +173,59 @@ final class CallNotesPanelTests: XCTestCase {
         }
     }
 
+    // MARK: - The Mac notification
+
+    private let madrid: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Madrid")!
+        calendar.locale = Locale(identifier: "en_GB")
+        return calendar
+    }()
+
+    private func ended(after minutes: Double) -> MeetingRecord {
+        var call = record([MeetingSegment(speaker: .them, start: 0, end: 9, text: "Sobre el contrato de Jorge")],
+                          with: ["Jorge"])
+        call.endedAt = start.addingTimeInterval(minutes * 60)
+        return call
+    }
+
+    /// When the call was and what is left to do: what tells two calls apart
+    /// in the list the notification opens on.
+    func testTheNotificationSaysWhenTheCallWasAndItsToDos() {
+        XCTAssertEqual(CallNotesPanel.readyNotice(of: ended(after: 74), ready: .notes, todos: 3, calendar: madrid),
+                       .init(title: "Call notes ready", body: "16:10–17:24 · 74 min · 3 to-dos"))
+        XCTAssertEqual(CallNotesPanel.readyNotice(of: ended(after: 74), ready: .notes, todos: 1,
+                                                  calendar: madrid)?.body,
+                       "16:10–17:24 · 74 min · 1 to-do")
+        XCTAssertEqual(CallNotesPanel.readyNotice(of: ended(after: 74), ready: .notes, todos: 0,
+                                                  calendar: madrid)?.body,
+                       "16:10–17:24 · 74 min")
+    }
+
+    /// It can land on a shared screen: nothing said in the call, its title
+    /// (written from what was said) and the people in it included.
+    func testTheNotificationCarriesNothingThatWasSaid() throws {
+        var call = ended(after: 30)
+        call.topic = "Contrato Jorge"
+        let notice = try XCTUnwrap(CallNotesPanel.readyNotice(of: call, ready: .notes, todos: 2, calendar: madrid))
+        for said in ["contrato", "Jorge", "Stand-up", "Zoom"] {
+            XCTAssertFalse("\(notice.title) \(notice.body)".localizedCaseInsensitiveContains(said), said)
+        }
+    }
+
+    /// Nothing was made when too little was said, so nothing is announced.
+    func testNoNotificationWhenTooLittleWasSaid() {
+        XCTAssertNil(CallNotesPanel.readyNotice(of: ended(after: 2), ready: .tooLittleSaid, todos: 0))
+    }
+
+    /// A call saved without its end still gets one, saying only what it can.
+    func testACallWithoutItsEndStillGetsOne() {
+        var call = ended(after: 10)
+        call.endedAt = nil
+        XCTAssertEqual(CallNotesPanel.readyNotice(of: call, ready: .notes, todos: 2)?.body, "2 to-dos")
+        XCTAssertEqual(CallNotesPanel.readyNotice(of: call, ready: .notes, todos: 0)?.body, "Click to read them.")
+    }
+
     func testTheSummaryIsCutAfterTwoSentences() {
         let summary = "The team went over the budget. Ana will send it by Friday. Bo asked about March."
         XCTAssertEqual(CallNotesPanel.summaryLead(summary),

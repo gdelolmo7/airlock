@@ -66,6 +66,12 @@ final class AudioCapture {
     /// The two engines before this one — see `replaceEngine` for why they are
     /// not simply let go.
     private var retiredEngines: [AVAudioEngine] = []
+    /// Which engine `engine` is, counting from the first. A configuration
+    /// change is matched to its engine by this, never by address — see `watch`.
+    private var engineNumber = 0
+    /// The current engine's, and only its: a retired engine's goes as it
+    /// retires.
+    private var configurationObserver: (any NSObjectProtocol)?
     private let makeEngine: () -> AVAudioEngine
     private let log: (String) -> Void
     private var continuation: AsyncStream<AnalyzerInput>.Continuation?
@@ -79,7 +85,6 @@ final class AudioCapture {
     /// The engine can no longer be trusted but this hold is still using it.
     /// It is replaced at the next `stop()` — never mid-hold.
     private var engineIsStale = false
-    private var configurationWatch: Task<Void, Never>?
 
     /// Both parameters exist for the tests. An engine in manual rendering mode
     /// has an input node, a tap and a start but no hardware, so no microphone
@@ -90,27 +95,15 @@ final class AudioCapture {
         self.makeEngine = makeEngine
         self.log = log
         engine = makeEngine()
-        // Matched by identity rather than filtered with `object:`, which wants
-        // a Sendable object; an engine is not one. The sequence is made out
-        // here, not inside the task, because the observer registers when it is
-        // created — so nothing posted before the task first runs is lost,
-        // measured. A notification keeps its engine alive until it is read, so
-        // the identity cannot have been reused by the time it is compared.
-        let changes = NotificationCenter.default
-            .notifications(named: .AVAudioEngineConfigurationChange)
-            .map { ($0.object as AnyObject?).map(ObjectIdentifier.init) }
-        configurationWatch = Task { [weak self] in
-            for await changed in changes {
-                guard let self else { return }
-                // A retired engine's changes, or another engine's entirely.
-                guard changed == ObjectIdentifier(self.engine) else { continue }
-                self.configurationChanged()
-            }
-        }
+        watch(engine)
     }
 
-    deinit {
-        configurationWatch?.cancel()
+    // Isolated because the observer is not Sendable, and a nonisolated
+    // deinit may not touch it.
+    isolated deinit {
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
     }
 
     /// Whether the engine is actually up. `DictationModel` compares this against
@@ -346,14 +339,55 @@ final class AudioCapture {
         retiredEngines.append(engine)
         if retiredEngines.count > 2 { retiredEngines.removeFirst() }
         engine = makeEngine()
+        watch(engine)
         engineIsStale = false
+    }
+
+    /// Listens for `engine`'s configuration changes and nobody else's. Each
+    /// choice here is load-bearing: the watch before this one crashed the app
+    /// a few seconds after a call ended.
+    ///
+    /// That watch heard every engine's changes, queued them for the main
+    /// actor, and matched them by address. But an engine can post a change
+    /// while it is being deallocated — a retired one did, as `replaceEngine`
+    /// let it go — and a retain at that point does nothing, so the queued
+    /// notification held a pointer to freed memory. The next engine was given
+    /// the same address, the dead engine's change matched it, and the
+    /// notification's late release freed the engine still in use.
+    ///
+    /// So the filter is `object:`, applied as the change is posted, and the
+    /// observer goes as its engine retires, while that engine is still alive:
+    /// `NotificationCenter` does not retain `object`, so an observer that
+    /// outlived its engine would answer to the next one at that address. The
+    /// block runs with `queue: nil`, on the posting thread, and keeps neither
+    /// the notification nor the engine — only the engine's number, which,
+    /// unlike an address, is never handed out twice. Not `.main` with
+    /// `assumeIsolated`, as elsewhere in the app: a post waits until a block
+    /// given a queue has run (measured), so the engine's queue would be held
+    /// while the main thread replaced the engine and let an old one go — the
+    /// teardown inside the callback that the header warns can deadlock.
+    private func watch(_ engine: AVAudioEngine) {
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+        engineNumber += 1
+        let number = engineNumber
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.configurationChanged(engine: number) }
+        }
     }
 
     /// The engine stops itself when the hardware's rate or channel count
     /// changes, and its nodes keep the formats they had — which is how a
     /// long-lived engine goes stale, when its header insists that an input
     /// chain follow the hardware's rate.
-    private func configurationChanged() {
+    private func configurationChanged(engine number: Int) {
+        // From an engine since retired: one change often arrives as several
+        // notifications and the first replaced it, or a post raced the
+        // observer's removal.
+        guard number == engineNumber else { return }
         if !isRunning {
             log("audio configuration changed — replacing the idle engine")
             replaceEngine()

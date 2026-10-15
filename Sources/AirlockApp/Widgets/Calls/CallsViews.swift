@@ -9,14 +9,14 @@ struct CallsSectionView: View {
 
     var body: some View {
         let recent = meetings.recentCalls
+        let takingNotes = if case .recording = meetings.flow.phase { true } else { false }
         CallsCardContent(rows: recent.rows, loaded: recent.loaded, week: recent.week,
-                         live: CallsLiveNotes(meetings),
+                         takingNotes: takingNotes,
                          hand: meetings.handButton,
                          reading: meetings.recordings.reading,
                          onOpen: { meetings.showCall(folder: $0.folder) },
                          onAllCalls: { meetings.showPastCalls(fromIsland: true) },
                          onHand: { meetings.pressHandButton() },
-                         onOpenLive: { meetings.openLiveWindow() },
                          onAddRecording: { meetings.addRecording() },
                          onStopReading: { meetings.recordings.stop() })
             .onAppear {
@@ -27,31 +27,11 @@ struct CallsSectionView: View {
     }
 }
 
-/// The call notes are being taken of right now, for the row at the top of
-/// the tab: the app, the name the banner gives it, and since when.
-struct CallsLiveNotes: Equatable {
-    let kind: CallGlyph.Kind
-    let title: String
-    /// When notes first started on this call, as the banner counts from.
-    let since: Date
-    let paused: Bool
-}
-
-extension CallsLiveNotes {
-    /// Nil unless notes are being taken.
-    @MainActor init?(_ meetings: MeetingNotesModel) {
-        guard case let .recording(call, since) = meetings.flow.phase else { return nil }
-        self.init(kind: CallGlyph.kind(for: call), title: meetings.callTitle(call),
-                  since: meetings.flow.firstStarted ?? since, paused: meetings.isPaused)
-    }
-}
-
 /// The tab as a function of what it shows, so the state gallery can draw it
 /// from made-up calls.
 ///
-/// A header with how many calls this week, the call notes are being taken
-/// of (if any), the recording being read (if any), then the calls by day,
-/// newest first: each day a small heading
+/// A header with how many calls this week, the recording being read (if
+/// any), then the calls by day, newest first: each day a small heading
 /// over its own rounded box, each call a row with the app's tile, the name,
 /// the clock and how many were on it, and the to-dos it left. A call's name
 /// and facts only, never what was said: the panel opens in front of whoever
@@ -62,8 +42,9 @@ struct CallsCardContent: View {
     var loaded = true
     /// Finished calls begun this week (`CallsCard.thisWeek`).
     var week = 0
-    /// The call notes are being taken of; nil when none.
-    var live: CallsLiveNotes?
+    /// Notes are being taken. The card above the tabs has the call, so the
+    /// tab draws no row for it, and no "No calls yet" under the card.
+    var takingNotes = false
     /// What "Today" and "Yesterday" are counted from. Nil is now.
     var now: Date?
     /// "Take notes" (`MeetingNotesFlow.handButton`); nil draws no button, as
@@ -75,9 +56,6 @@ struct CallsCardContent: View {
     var onOpen: (CallsCard.Row) -> Void = { _ in }
     var onAllCalls: () -> Void = {}
     var onHand: () -> Void = {}
-    /// "Open in a window" on the live row: the transcript as it is written,
-    /// in a window beside the call. Nil draws no button.
-    var onOpenLive: (() -> Void)?
     /// "Add recording"; nil draws no button, as in a gallery row about
     /// something else.
     var onAddRecording: (() -> Void)?
@@ -89,12 +67,6 @@ struct CallsCardContent: View {
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.bottom, 10)
-            if let live {
-                CallsLiveRow(live: live, openWindow: onOpenLive)
-                    .padding(.top, 2)
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
-            }
             if let reading {
                 CallsReadingRow(reading: reading, stop: onStopReading)
                     .padding(.top, 2)
@@ -107,15 +79,15 @@ struct CallsCardContent: View {
                         daySection(day)
                     }
                 }
-            } else if loaded, live == nil, reading == nil {
+            } else if loaded, !takingNotes, reading == nil {
                 emptyState
             }
         }
         // A call whose notes land while the panel is open joins the list as
         // a Swap, not in one frame; so does a row leaving for the Bin, and
-        // the live row as notes start and stop.
+        // "No calls yet" as notes start and stop.
         .animation(Motion.swap.animation(reduceMotion: reduceMotion), value: rows.map(\.id))
-        .animation(Motion.swap.animation(reduceMotion: reduceMotion), value: live?.since)
+        .animation(Motion.swap.animation(reduceMotion: reduceMotion), value: takingNotes)
         .animation(Motion.swap.animation(reduceMotion: reduceMotion), value: reading == nil)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(CallsCard.title)
@@ -467,55 +439,6 @@ private struct CallsTodoChip: View {
         .background(Capsule().fill(Theme.needs.opacity(0.14)))
         .overlay(Capsule().strokeBorder(Theme.needs.opacity(0.22), lineWidth: 1))
         .fixedSize()
-    }
-}
-
-/// The call notes are being taken of, in Airlock's purple like the banner
-/// and the call pill: its tile with the breathing dot, its name, since
-/// when, and "Open in a window", since this is where notes started with
-/// Take notes are looked for. No clock and no Stop: the banner right above
-/// has both.
-private struct CallsLiveRow: View {
-    let live: CallsLiveNotes
-    var openWindow: (() -> Void)?
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        HStack(spacing: 12) {
-            CallAppTile(kind: live.kind, size: 34)
-                .overlay(alignment: .topTrailing) {
-                    if !live.paused {
-                        NotesBreathingDot(size: 9)
-                            .padding(2)
-                            .background(Circle().fill(Color.black))
-                            .offset(x: 4, y: -4)
-                    }
-                }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(live.title)
-                    .font(Theme.chrome(13.5, .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(live.paused ? "Paused" : "Taking notes · since \(CallsCard.time(live.since))")
-                    .font(Theme.chrome(11, .semibold))
-                    .foregroundStyle(live.paused ? Theme.textSecondary : CallsLook.saidText)
-                    .monospacedDigit()
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
-            if let openWindow {
-                NotesOpenInWindow(action: openWindow)
-            }
-        }
-        .padding(10)
-        .background(
-            shape.fill(LinearGradient(colors: [Theme.assistant.opacity(0.14), Theme.assistant.opacity(0.05)],
-                                      startPoint: .leading, endPoint: .trailing))
-        )
-        .overlay(shape.strokeBorder(Theme.assistant.opacity(0.28), lineWidth: 1))
-        .accessibilityElement(children: .contain)
     }
 }
 

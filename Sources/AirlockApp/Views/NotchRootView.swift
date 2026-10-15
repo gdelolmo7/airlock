@@ -63,7 +63,14 @@ struct NotchExpandedView: View {
                         onClear: model.sessions.isEmpty ? nil : { model.clearAllSessions() },
                         onCollapse: onCollapse,
                         onOpenSettings: onOpenSettings)
-                .frame(height: bandHeight)
+                // The bar is two gutters, the camera and its own 8 + 10 of
+                // padding: 18pt wider than the panel. Left free it widened this
+                // whole column, and the panel's frame centred the overflow, so
+                // every card below sat 9pt left — 16pt from the left edge, 34
+                // from the right (owner, 2026-10-15). Pinned to the panel, it
+                // overflows its own frame instead, by the same 9pt a side, so
+                // the bar stays exactly where it was drawn and the cards centre.
+                .frame(width: appearance.panelWidth, height: bandHeight)
 
             // While the key is held the panel has exactly one job, so the
             // widgets step aside entirely rather than sitting underneath.
@@ -255,10 +262,11 @@ struct NotchExpandedView: View {
                     // Paired columns — media beside calendar rather than
                     // stacked, which is what the extra width bought us.
                     if !leadingSections.isEmpty || !trailingSections.isEmpty {
-                        // 25, which is the 12 + hairline + 12 this used to be.
-                        // The columns keep the gutter they were drawn with; only
-                        // the line in the middle of it is gone.
-                        HStack(alignment: .top, spacing: 25) {
+                        // The same gap as between cards above and below each
+                        // other. It was 25, the 12 + hairline + 12 of a line that
+                        // has since gone, and beside the 8pt everywhere else it
+                        // read as a mistake (owner, 2026-10-15).
+                        HStack(alignment: .top, spacing: PanelStackMetrics.columnGap) {
                             // An empty column claims nothing. Holding its half
                             // open kept the survivor from moving, but the cost
                             // was a blank half-panel whenever the music stopped
@@ -280,7 +288,7 @@ struct NotchExpandedView: View {
                             // heights. They are measured now, for the room the
                             // System list is offered (`PanelStackLayout`), but a
                             // hairline is still not worth drawing where two
-                            // strokes and 25pt of air already do its work.
+                            // strokes and a gap already do its work.
                             if !trailingSections.isEmpty { column(trailingSections, in: .trailing) }
                         }
                         .fixedSize(horizontal: false, vertical: true)
@@ -630,11 +638,20 @@ struct NotchExpandedView: View {
     private static let rowSpacing: CGFloat = 8
     /// The answer card's own header, actions row and padding, around the text.
     private static let answerChrome: CGFloat = 64
-    private static let bottomPadding: CGFloat = 6
+    /// With the kit's 15pt inset, 25pt under the last card: the same as the
+    /// sides. It was 6, which left the bottom 4pt tighter than either edge.
+    private static let bottomPadding: CGFloat = 10
     private static let quickPromptHeight: CGFloat = 30
     /// Notch-less displays still need a usable bar.
     private static let minBandHeight: CGFloat = 26
 
+}
+
+/// The tab stack's spacing, for the views and pictures that copy its layout.
+enum PanelStackMetrics {
+    /// Between two paired columns: the stack's own row spacing, so a card has
+    /// the same air beside it as above and below it.
+    static let columnGap: CGFloat = 8
 }
 
 // MARK: - Room for the content that gives way

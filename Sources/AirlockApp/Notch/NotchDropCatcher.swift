@@ -87,6 +87,9 @@ final class NotchDropCatcher {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.ignoresMouseEvents = false // drag tracking needs hit-testing
+        // Stays when the app is hidden from its Dock icon, as the panel it
+        // sits over does.
+        panel.canHide = false
         // One step above the notch panel, which now also sits at .statusBar.
         //
         // Both halves of this matter, each learned by breaking it. Too HIGH

@@ -772,6 +772,10 @@ final class AppVolumeModel {
                   // through — a menu-bar-only app is `.accessory` and has no
                   // window to have turned the sound on from.
                   app.activationPolicy == .regular,
+                  // Not ourselves, whatever our bundle ID: Airlock is
+                  // `.regular` while a full window is open, and a slider on
+                  // our own sound would tap the tap.
+                  !app.isAirlock,
                   let bundleID = app.bundleIdentifier,
                   !AppMix.isSystemProcess(bundleID: bundleID) else { continue }
             grouped[bundleID, default: (app.localizedName ?? bundleID, [])].pids.append(pid)

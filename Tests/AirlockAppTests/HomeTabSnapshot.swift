@@ -17,7 +17,7 @@ import XCTest
 @MainActor
 final class HomeTabSnapshot: XCTestCase {
     private static let sectionWidth: CGFloat = 640 - 2 * 10
-    private static let sideColumn: CGFloat = (640 - 2 * 10 - 25) / 2
+    private static let sideColumn: CGFloat = (640 - 2 * 10 - PanelStackMetrics.columnGap) / 2
 
     func testDrawHome() throws {
         let destination = ProcessInfo.processInfo.environment["AIRLOCK_HOME_PNG"] ?? ""
@@ -66,11 +66,12 @@ final class HomeTabSnapshot: XCTestCase {
     }
 
     /// The controls beside the Sound card, as Home lays them out since
-    /// 2026-10-01: leading and trailing columns, 25pt apart, each card alone in
-    /// its column and so filling the row (`fillsPairedRow`), with Sound's
-    /// levels at its foot as `SoundSectionView` puts them.
+    /// 2026-10-01: leading and trailing columns, `PanelStackMetrics.columnGap`
+    /// apart, each card alone in its column and so filling the row
+    /// (`fillsPairedRow`), with Sound's levels at its foot as
+    /// `SoundSectionView` puts them.
     private func controls(on: Set<SystemControlsModel.Control>, openWiFi: Bool = false) -> some View {
-        HStack(alignment: .top, spacing: 25) {
+        HStack(alignment: .top, spacing: PanelStackMetrics.columnGap) {
             ControlRail(shown: SystemControlsModel.Control.allCases,
                         isOn: { on.contains($0) },
                         openStrip: openWiFi ? .wifi : nil)

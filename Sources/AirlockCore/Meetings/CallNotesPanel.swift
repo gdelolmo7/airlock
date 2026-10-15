@@ -166,6 +166,28 @@ public enum CallNotesPanel {
         ready(words: NumberedTranscript(record).wordCount, notes: notes)
     }
 
+    /// The Mac notification once a call's notes are saved.
+    public struct Notice: Equatable, Sendable {
+        public var title: String
+        public var body: String
+    }
+
+    /// "Call notes ready", "11:30–12:44 · 74 min · 3 to-dos": said by the
+    /// Mac as well, because the notch says it for a few seconds only, and
+    /// the notes are written a while after the call, when nobody is looking
+    /// at it. Nil when too little was said: nothing was made to go and read.
+    ///
+    /// When it was and how much is left to do, and nothing that was said:
+    /// a notification can land on a shared screen, and the call's title is
+    /// written from its words.
+    public static func readyNotice(of record: MeetingRecord, ready: Ready, todos: Int,
+                                   calendar: Calendar = .current) -> Notice? {
+        guard ready == .notes else { return nil }
+        let when = record.endedAt.map { CallsCard.span(from: record.startedAt, to: $0, calendar: calendar) }
+        let body = [when, CallsCard.todos(todos)].compactMap { $0 }.joined(separator: " · ")
+        return Notice(title: "Call notes ready", body: body.isEmpty ? "Click to read them." : body)
+    }
+
     /// How many sentences of the summary the panel shows. The rest is one
     /// tap away, in the notes themselves.
     public static let summarySentences = 2

@@ -102,6 +102,22 @@ final class CloudNotesPromptTests: XCTestCase {
         let record = Fixture.record(bundleID: OngoingCall.inPersonBundleID, attendees: nil)
         XCTAssertTrue(CallNotesPrompts.cloud(for: record, language: nil).hasPrefix("Take notes from this meeting.\n"))
     }
+
+    /// A call nobody on the calendar names: the transcript says "Them", and
+    /// the prompt says what the notes call them instead.
+    func testACallWithNoNameSaysWhatToCallThem() {
+        let record = Fixture.record(attendees: nil)
+        XCTAssertTrue(CallNotesPrompts.cloud(for: record, language: "Spanish").hasPrefix("""
+            Take notes from this call. Write them in Spanish.
+            People on the call: You, and Them (everyone else on the call).
+            In the notes, Them is "la otra persona".
+
+            TRANSCRIPT START
+            [S1 0:05 Them] Can you send me the budget by Friday?
+            [S2 0:14 You] Sure, I'll send it on Thursday.
+            """))
+        XCTAssertFalse(CallNotesPrompts.cloud(for: Fixture.record(), language: "Spanish").contains("In the notes, Them"))
+    }
 }
 
 // MARK: - Reading the answer

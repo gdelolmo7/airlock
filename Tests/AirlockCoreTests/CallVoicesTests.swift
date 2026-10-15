@@ -297,6 +297,107 @@ final class CallVoicesTests: XCTestCase {
         XCTAssertEqual(call.segments.map(\.person), [1, 2, 3, 4])
     }
 
+    // MARK: - Naming the other side while the call goes on
+
+    func testTheOtherSideCanBeNamedUntilAnyOfItsLinesHasANumber() {
+        let heardAsOne = record([said(.them, 1, 19, first), said(.them, 21, 44, second)])
+        XCTAssertTrue(CallVoices.canName(MeetingRecord.otherSide, of: heardAsOne))
+        XCTAssertTrue(CallVoices.canName(2, of: heardAsOne))
+
+        let toldApart = record([said(.them, 1, 19, first, person: 1), said(.them, 21, 44, second, person: 2)])
+        XCTAssertFalse(CallVoices.canName(MeetingRecord.otherSide, of: toldApart))
+        XCTAssertTrue(CallVoices.canName(1, of: toldApart))
+        XCTAssertTrue(CallVoices.canName(2, of: toldApart))
+    }
+
+    func testInTheRoomTheOtherSideWaitsForTheEndToBeNamed() {
+        let room = MeetingRecord(bundleID: OngoingCall.inPersonBundleID, appName: "In person", startedAt: start,
+                                 segments: [said(.them, 1, 19, first), said(.them, 21, 44, second)])
+        XCTAssertFalse(CallVoices.canName(MeetingRecord.otherSide, of: room))
+        XCTAssertTrue(CallVoices.canName(2, of: room))
+    }
+
+    func testOnlyTheOtherSideNamedBeforeAnyNumberIsOnePerson() {
+        var call = record([said(.them, 1, 19, first), said(.them, 21, 44, second)])
+        XCTAssertFalse(CallVoices.isNamedAsOne(call))
+        call.name(MeetingRecord.otherSide, as: "Ana")
+        XCTAssertTrue(CallVoices.isNamedAsOne(call))
+
+        var toldApart = record([said(.them, 1, 19, first, person: 1), said(.them, 21, 44, second, person: 2)])
+        toldApart.name(MeetingRecord.otherSide, as: "Ana")
+        toldApart.name(2, as: "Marc")
+        XCTAssertFalse(CallVoices.isNamedAsOne(toldApart))
+
+        var room = MeetingRecord(bundleID: OngoingCall.inPersonBundleID, appName: "In person", startedAt: start,
+                                 segments: [said(.them, 1, 19, first)])
+        room.name(MeetingRecord.otherSide, as: "Ana")
+        XCTAssertFalse(CallVoices.isNamedAsOne(room))
+    }
+
+    func testTheOtherSideNamedBeforeAnyNumberIsNeverSplit() {
+        var call = record([said(.them, 1, 19, first), said(.me, 19, 20, "Okay."), said(.them, 21, 44, second)])
+        let spans = [span(3, 0, 20), span(0, 20, 45), span(3, 45, 60)]
+        var words = timed(first, 1, 19) + timed(second, 21, 44)
+        var numbering = CallVoices.Numbering()
+        call.name(MeetingRecord.otherSide, as: "Ana")
+
+        // Two voices heard so far, but the person said who the other side is.
+        let soFar = CallVoices.number(&call, through: 45, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(soFar.reason, "the other side was named")
+        XCTAssertEqual(call.segments.map(\.person), [nil, nil, nil])
+        XCTAssertEqual(call.segments.map { call.label(for: $0) }, ["Ana", "You", "Ana"])
+
+        // A line said after the name has it too, and the last pass keeps it.
+        call.add(said(.them, 46, 59, third))
+        words += timed(third, 46, 59)
+        let last = CallVoices.number(&call, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(last.reason, "the other side was named")
+        XCTAssertEqual(call.segments.map(\.person), [nil, nil, nil, nil])
+        XCTAssertEqual(call.segments.map { call.label(for: $0) }, ["Ana", "You", "Ana", "Ana"])
+        XCTAssertEqual(call.names, [MeetingVoiceName(voice: MeetingRecord.otherSide, name: "Ana")])
+    }
+
+    func testTheOtherSideNamedWhenOneVoiceWasHeardStaysOnePerson() {
+        var call = record([said(.them, 1, 19, first), said(.them, 21, 44, second), said(.them, 46, 59, third)])
+        let spans = [span(3, 0, 20), span(0, 20, 45), span(3, 45, 60)]
+        let words = timed(first, 1, 19) + timed(second, 21, 44) + timed(third, 46, 59)
+        var numbering = CallVoices.Numbering()
+
+        let soFar = CallVoices.number(&call, through: 20, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(soFar.reason, "one voice heard")
+        XCTAssertTrue(CallVoices.canName(MeetingRecord.otherSide, of: call))
+        call.name(MeetingRecord.otherSide, as: "Ana")
+
+        // The second voice is heard only after the name was given.
+        let last = CallVoices.number(&call, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(last.reason, "the other side was named")
+        XCTAssertEqual(call.segments.map(\.person), [nil, nil, nil])
+        XCTAssertEqual(call.segments.map { call.label(for: $0) }, ["Ana", "Ana", "Ana"])
+    }
+
+    func testANameTheOtherSideTookOverAtAFoldStillLetsTheVoicesBeToldApartAgain() {
+        // Two voices; then one says so much that the other's five seconds
+        // are folded away and its name goes to the other side; then the
+        // other says enough to be believed again.
+        var call = record([said(.them, 0, 14, first), said(.them, 14, 19, "Sorry go on"),
+                           said(.them, 20, 200, second)])
+        var spans = [span(0, 0, 14), span(1, 14, 19), span(0, 19, 200)]
+        var words = timed(first, 0, 14) + timed("Sorry go on", 14, 19) + timed(second, 20, 200)
+        var numbering = CallVoices.Numbering()
+        _ = CallVoices.number(&call, through: 19.5, spans: spans, words: words, numbering: &numbering)
+        call.name(1, as: "Marc")
+        _ = CallVoices.number(&call, through: 200, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(call.names, [MeetingVoiceName(voice: MeetingRecord.otherSide, name: "Marc")])
+        XCTAssertTrue(CallVoices.isNamedAsOne(call))
+
+        call.add(said(.them, 200, 320, third))
+        spans.append(span(1, 200, 320))
+        words += timed(third, 200, 320)
+        let outcome = CallVoices.number(&call, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(outcome.people, 2)
+        XCTAssertEqual(call.segments.map(\.person), [1, 2, 1, 2])
+    }
+
     func testTheModelsStretchesSoFarCloseTheOpenOnesAtTheLastFrame() {
         var tracker = CallVoices.Tracker(origin: 10)
         tracker.add(Array(repeating: [0.9, 0], count: 50).flatMap { $0 }, frames: 50, voices: 2)

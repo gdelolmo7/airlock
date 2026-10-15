@@ -979,6 +979,12 @@ final class NotchController {
         // panel. .statusBar still clears the menu bar but sits under the drag
         // image.
         notch?.windowController?.window?.level = .statusBar
+        // Hide from the Dock icon (there is one while a full window is open)
+        // hides every window that allows it, and the kit's state machine never
+        // orders a panel it thinks is showing back in: the island would be
+        // gone until something made it change state. Set here, on the host's
+        // side, because the kit builds a fresh panel on every rebuild.
+        notch?.windowController?.window?.canHide = false
         // NOT `becomesKeyOnlyIfNeeded` — that was tried against the sink
         // bounce and measurably changed nothing, because it feeds NSPanel's
         // DEFAULT `canBecomeKey`, which the kit's panel overrides outright.

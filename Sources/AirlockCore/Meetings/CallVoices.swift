@@ -12,7 +12,9 @@ import Foundation
 ///
 /// It is built to say less rather than something wrong:
 /// - **A one-to-one call is never split.** The calendar says the other side
-///   is one person, so it is labelled with their name, as before.
+///   is one person, so it is labelled with their name, as before. So does
+///   the person, by naming "Them" before anyone in it was told apart
+///   (`isNamedAsOne`).
 /// - **A voice heard too little is folded into its neighbour.** A cough, a
 ///   laugh, a moment of crosstalk, the same person further from their mic:
 ///   a voice model makes extra "people" out of all of these. Under
@@ -186,6 +188,14 @@ public enum CallVoices {
             outcome.reason = "one-to-one call"
             return outcome
         }
+        // Named before anybody in this stretch was told apart. A name the
+        // other side took over from the one voice left after a fold
+        // (`Numbering.carry`) is not the person saying so: those voices can
+        // still be told apart again.
+        if numbering.order.isEmpty, isNamedAsOne(record) {
+            outcome.reason = "the other side was named"
+            return outcome
+        }
         let before = numbering.people
         // The people of an earlier stretch, which this one numbers after.
         let base = record.segments.filter { $0.speaker == .them && $0.start < from }.compactMap(\.person).max() ?? 0
@@ -314,6 +324,27 @@ public enum CallVoices {
             if words[middle].start! < time { low = middle + 1 } else { high = middle }
         }
         return low
+    }
+
+    // MARK: - Naming while the call goes on
+
+    /// Whether `voice` of `record` can be named while the call goes on and
+    /// its voices are still being told apart. Person 2 can, as soon as there
+    /// is one. The other side heard as one can on a call until any of its
+    /// lines has a number: named then, it is one person (`isNamedAsOne`).
+    /// In the room it waits for the end, as the room's one voice can still
+    /// turn out to be several.
+    public static func canName(_ voice: Int, of record: MeetingRecord) -> Bool {
+        voice != MeetingRecord.otherSide || (!record.isInPerson && record.lastPerson == 0)
+    }
+
+    /// Whether the other side of a call was given a name while none of its
+    /// lines had a number: the person said who "Them" is, so it is one
+    /// person, as when the calendar says so (`MeetingRecord.otherName`).
+    /// Its lines are not numbered from then on, and a call that drops and
+    /// carries on is not listened to for voices again.
+    public static func isNamedAsOne(_ record: MeetingRecord) -> Bool {
+        !record.isInPerson && record.lastPerson == 0 && record.givenName(of: MeetingRecord.otherSide) != nil
     }
 
     // MARK: - Voice activity to spans

@@ -13,10 +13,13 @@ import UserNotifications
 /// **Authorization is asked for at the moment it is first needed, never at
 /// launch.** That is the same rule the microphone follows, and for the same
 /// reason recorded there: a prompt at launch is the one people deny reflexively.
-/// A dictation that just failed is an explicit user action that earns the ask.
+/// A dictation that just failed is an explicit user action that earns the ask,
+/// and so are notes the user asked for being ready.
 ///
 /// **Nothing the user said ever goes in a notification.** The transcript is
 /// theirs and may be anything; the body says where it went, not what it was.
+/// A call's notes are announced by when the call was, never by its title,
+/// which is written from its words.
 enum Notifications {
     /// The notification center, or nil in a process with no app bundle.
     ///
@@ -60,6 +63,12 @@ enum Notifications {
              userInfo: [Key.pane: anchor.pane.rawValue, Key.anchor: anchor.rawValue])
     }
 
+    /// Landing on a call in the notes window: its folder's name, as the
+    /// notes model knows calls.
+    static func post(title: String, body: String, identifier: String, opensCall folder: String) {
+        post(title: title, body: body, identifier: identifier, userInfo: [Key.call: folder])
+    }
+
     private static func post(title: String, body: String, identifier: String,
                              userInfo: [String: String]) {
         Task {
@@ -86,7 +95,8 @@ enum Notifications {
             // the first time somebody adds a notification and forgets it.
             content.userInfo = userInfo
             // A stable identifier per KIND, so ten failed dictations leave one
-            // notification rather than ten. The newest replaces the last.
+            // notification rather than ten. The newest replaces the last. A
+            // call's notes are each their own (`ID.notesReady`).
             try? await center.add(UNNotificationRequest(identifier: identifier,
                                                        content: content,
                                                        trigger: nil))
@@ -96,6 +106,7 @@ enum Notifications {
     enum Key {
         static let pane = "airlock.pane"
         static let anchor = "airlock.anchor"
+        static let call = "airlock.call"
     }
 
     /// Identifiers, so a repeat of the same problem replaces rather than stacks.
@@ -105,6 +116,8 @@ enum Notifications {
         /// distinct permission with a distinct pane, and collapsing the two is
         /// exactly the mistake that made this failure unfindable.
         static let inputMonitoringMissing = "dictation.inputMonitoring"
+        /// One per call, so two calls' notes both stay in the list until read.
+        static func notesReady(_ folder: String) -> String { "meetings.notesReady.\(folder)" }
     }
 
     /// Opens the settings window at a pane. Set once, at launch, by
@@ -112,17 +125,22 @@ enum Notifications {
     /// controller otherwise, and a notification arriving before this is set is
     /// simply ignored rather than crashing on a force-unwrap.
     @MainActor static var openSettings: ((SettingsPane, SettingsAnchor?) -> Void)?
+
+    /// Opens the notes window on a call, by its folder's name. Set at launch
+    /// by `AppDelegate`, like `openSettings`.
+    @MainActor static var openCall: ((String) -> Void)?
 }
 
 /// Makes a notification clickable.
 ///
 /// **Without a delegate, clicking one does nothing at all** — macOS activates
 /// the app and that is the end of it, which for an `LSUIElement` agent with no
-/// windows means the notification visibly leads nowhere. Every notification this
-/// app posts is about something the user has to go and fix, so landing them on
-/// the pane that fixes it is most of the value; telling somebody their hold key
-/// is dead and then making them find the setting themselves is the same failure
-/// one step later.
+/// windows means the notification visibly leads nowhere. Most notifications
+/// this app posts are about something the user has to go and fix, so landing
+/// them on the pane that fixes it is most of the value; telling somebody their
+/// hold key is dead and then making them find the setting themselves is the
+/// same failure one step later. The other kind says a call's notes are ready,
+/// and lands on them.
 ///
 /// `NSObject` and not `@MainActor`: the protocol is imported unisolated, so the
 /// callbacks arrive off the main actor and hop explicitly.
@@ -138,9 +156,14 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let raw = info[Notifications.Key.pane] as? String
         let anchor = info[Notifications.Key.anchor] as? String
+        let call = info[Notifications.Key.call] as? String
         await MainActor.run {
-            Notifications.openSettings?(raw.flatMap(SettingsPane.init(rawValue:)) ?? .permissions,
-                                        anchor.flatMap(SettingsAnchor.init(rawValue:)))
+            if let call {
+                Notifications.openCall?(call)
+            } else {
+                Notifications.openSettings?(raw.flatMap(SettingsPane.init(rawValue:)) ?? .permissions,
+                                            anchor.flatMap(SettingsAnchor.init(rawValue:)))
+            }
         }
     }
 

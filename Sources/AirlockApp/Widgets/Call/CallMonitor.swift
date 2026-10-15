@@ -256,6 +256,9 @@ final class CallMonitor {
         guard let app = AudioProcesses.owner(of: pid, bundleID: processBundle,
                                              running: running, bundleIDs: bundleIDs),
               app.activationPolicy == .regular,
+              // Never a call of its own: a helper resolves to its parent app,
+              // and Airlock is `.regular` while call notes are open.
+              !app.isAirlock,
               let id = app.bundleIdentifier,
               !AppMix.isSystemProcess(bundleID: id) else { return nil }
         return (id, app.localizedName ?? id)

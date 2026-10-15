@@ -45,9 +45,11 @@ final class PurchaseWindowController {
 
     func show(plan: License.Period = .yearly) {
         prepare(plan: plan)
-        // An accessory-policy agent has to ask for focus; a purchase window that
-        // opened behind the browser would be the worst possible place to be
-        // subtle about it.
+        // Asks for focus outright: a purchase window that opened behind the
+        // browser would be the worst possible place to be subtle about it.
+        // In the Dock while it is open, so it can be found again from there
+        // while the browser has the payment page.
+        if let window { DockPresenceController.shared.willShow(window) }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }

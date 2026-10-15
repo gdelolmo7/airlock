@@ -26,8 +26,9 @@ enum FilterRowMetrics {
     static let contentWidthAtPanelFloor: CGFloat = 440
 
     /// What a COLUMN gives this card if it is dragged into one at the panel
-    /// floor: (440 - 25 gutter) / 2. The narrowest place the row can land.
-    static let contentWidthInColumnAtFloor: CGFloat = (440 - 25) / 2
+    /// floor: (440 - the gap between columns) / 2. The narrowest place the row
+    /// can land.
+    static let contentWidthInColumnAtFloor: CGFloat = (440 - PanelStackMetrics.columnGap) / 2
 
     /// The footer's incompressible half: the count and the Clear button. The
     /// privacy sentence beside them yields instead, so these two are what the

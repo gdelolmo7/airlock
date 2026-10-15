@@ -13,6 +13,8 @@ import SwiftUI
 @Observable
 final class CallNotesLive {
     private(set) var folder: URL?
+    /// The call as shown: the notes model's record, with the lines a side
+    /// holds back while its language is decided where they were said.
     private(set) var record: MeetingRecord?
     /// What became of the notes once the call was over; nil until then.
     private(set) var outcome: CallLive.Outcome?
@@ -25,6 +27,12 @@ final class CallNotesLive {
 
     @ObservationIgnored private var pending: MeetingRecord?
     @ObservationIgnored private var handing: Task<Void, Never>?
+    /// The notes model's record as last handed on, without the held lines:
+    /// what a change to the call is made to, so they are never kept.
+    @ObservationIgnored private var handed: MeetingRecord?
+    /// The lines each side has finished but holds back while its language
+    /// is decided (`MeetingTrack`). Shown in `record`, never saved.
+    @ObservationIgnored private var held: [MeetingSpeaker: [MeetingSegment]] = [:]
 
     init() {}
 
@@ -32,6 +40,7 @@ final class CallNotesLive {
     init(previewing record: MeetingRecord?, folder: URL? = nil, outcome: CallLive.Outcome? = nil,
          hearing: [CallLive.Hearing] = []) {
         self.record = record
+        handed = record
         self.folder = folder ?? record.map { _ in URL(fileURLWithPath: "/var/empty/live") }
         self.outcome = outcome
         self.hearing = Dictionary(hearing.map { ($0.speaker, $0) }, uniquingKeysWith: { $1 })
@@ -49,7 +58,10 @@ final class CallNotesLive {
             // What became of the last notes is not this call's, nor this
             // call's once it carries on.
             if newCall || record.endedAt == nil { outcome = nil }
-            if newCall || record.endedAt != nil { hearing = [:] }
+            if newCall || record.endedAt != nil {
+                hearing = [:]
+                held = [:]
+            }
             self.folder = folder
             hand(record)
             return
@@ -78,11 +90,23 @@ final class CallNotesLive {
         hearing[speaker] = CallLive.Hearing(speaker: speaker, text: text, since: since)
     }
 
+    /// `speaker` has finished `lines` but holds them back while its
+    /// language is decided: shown where they were said, at once, and with
+    /// them the line waiting for the next hand-over. None once they are
+    /// lines, which come in the same hand-over, so nothing shows twice.
+    func hold(_ lines: [MeetingSegment], from speaker: MeetingSpeaker) {
+        guard lines != held[speaker, default: []] else { return }
+        held[speaker] = lines.isEmpty ? nil : lines
+        if let record = pending ?? handed { hand(record) }
+    }
+
     private func hand(_ record: MeetingRecord) {
         handing?.cancel()
         handing = nil
         pending = nil
-        if record != self.record { self.record = record }
+        handed = record
+        let shown = CallLive.withHeld([MeetingSpeaker.me, .them].flatMap { held[$0] ?? [] }, in: record)
+        if shown != self.record { self.record = shown }
     }
 
     /// The notes of the call in `folder` were saved, and named it `title`
@@ -96,7 +120,7 @@ final class CallNotesLive {
     /// The call in `folder` named by its notes (`MeetingRecord.topic`), as
     /// the notes window will find it. Nil leaves the name it has.
     func retitle(_ folder: URL, as title: String?) {
-        guard folder == self.folder, let title, var record = pending ?? record, record.topic != title
+        guard folder == self.folder, let title, var record = pending ?? handed, record.topic != title
         else { return }
         record.topic = title
         hand(record)
@@ -106,7 +130,7 @@ final class CallNotesLive {
     /// once, and once the call is over too, when the notes model no longer
     /// hands its record on.
     func rename(_ names: [MeetingVoiceName], in folder: URL) {
-        guard folder == self.folder, var record = pending ?? record else { return }
+        guard folder == self.folder, var record = pending ?? handed else { return }
         record.replaceNames(with: names)
         hand(record)
     }
@@ -131,7 +155,8 @@ struct LiveTranscriptActions {
     let open: @MainActor (CallNotesLibrary.Tab) -> Void
     let close: @MainActor () -> Void
     /// Whether a voice can be named now. While the voices are still being
-    /// told apart, the other side heard as one is nobody in particular yet.
+    /// told apart, the other side heard as one can be named only until any
+    /// of its lines has a number: named, it is one person.
     var canName: @MainActor (Int) -> Bool = { _ in true }
     /// The call's voices named as these say.
     var name: @MainActor ([MeetingVoiceName]) -> Void = { _ in }
@@ -190,6 +215,9 @@ final class LiveTranscriptWindowController {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        // Nor when Airlock is hidden from its Dock icon: it belongs to the
+        // call, not to the call notes window that put Airlock in the Dock.
+        panel.canHide = false
         panel.isReleasedWhenClosed = false
         panel.backgroundColor = NSColor(CallsLook.sidebar)
         panel.appearance = NSAppearance(named: .darkAqua)

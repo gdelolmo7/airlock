@@ -61,6 +61,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         if firstShow || window?.isVisible == false {
             window?.centerOnNotchScreen()
         }
+        if let window { DockPresenceController.shared.willShow(window) }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         watchScreenChanges()

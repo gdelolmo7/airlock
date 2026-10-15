@@ -122,6 +122,7 @@ final class PermissionsAgainWindowController: NSObject, NSWindowDelegate {
         window.setContentSize(hosting.view.fittingSize)
         self.window = window
         window.centerOnNotchScreen()
+        DockPresenceController.shared.willShow(window)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }

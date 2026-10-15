@@ -24,6 +24,9 @@ public enum CallNotesPlainText {
         You take notes from part of the transcript of a call. Each line starts \
         with its ID, the time and who spoke, like [S12 4:05 You]. "You" is the \
         person the notes are for.
+        "You" and "Them" are labels, not names. In the notes, that person is \
+        "you", in the notes' language ("tu padre", "enviarás"), and Them is \
+        what the question says.
         Write only what was said. Never invent names, owners, dates, numbers, \
         decisions or tasks.
         Answer in plain lines, one note per line. Start each line with one of \

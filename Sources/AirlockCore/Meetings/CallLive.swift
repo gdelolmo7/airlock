@@ -176,10 +176,23 @@ public enum CallLive {
         return (lines, heard)
     }
 
-    /// What a side is heard saying: the recogniser's guess at the words
-    /// since its last finished line, after the lines it has finished but
-    /// holds back while it decides which language the call is in, so
-    /// nothing said goes missing from the screen meanwhile. Spaces as one.
+    /// `record` as the transcript shows it while a side's language is being
+    /// decided: with the lines that side has finished but holds back until
+    /// then (`held`), each where it was said, among the other side's. They
+    /// used to show as one block under every line, with no time, and the
+    /// other side's lines, with nothing between them, ran into one turn.
+    /// Only ever shown: the notes get those lines once the language is
+    /// decided, in the language decided.
+    public static func withHeld(_ held: [MeetingSegment], in record: MeetingRecord) -> MeetingRecord {
+        guard !held.isEmpty else { return record }
+        var shown = record
+        for line in held { shown.add(line) }
+        return shown
+    }
+
+    /// What a side has said so far while its language is decided: the lines
+    /// it holds back, then its guess at the words since. What the take the
+    /// screen follows is chosen on. Spaces as one.
     public static func inProgress(held: [String], guess: String) -> String {
         (held + [guess])
             .map { MeetingText.oneLine($0) }

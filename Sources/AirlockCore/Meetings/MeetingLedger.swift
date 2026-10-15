@@ -80,6 +80,11 @@ public struct MeetingPeople: Equatable, Sendable {
     /// The other person on a one-to-one call.
     public var oneToOne: String? { others.count == 1 ? others[0] : nil }
 
+    /// Whether the model is told everyone else on the call is "Them": not
+    /// in the room ("Someone"), no one name from the calendar, no voices
+    /// told apart ("Person 2").
+    public var callsThem: Bool { !inPerson && oneToOne == nil && voices < 2 }
+
     /// "Person 1 and Person 2", "Person 1 to Person 4".
     var voiceRange: String {
         voices == 2

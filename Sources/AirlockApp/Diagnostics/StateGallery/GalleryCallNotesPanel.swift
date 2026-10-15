@@ -25,12 +25,11 @@ enum GalleryCallNotesPanel {
                 return banner(.recording(call, since: call.startedAt),
                               record: record(of: call, event: weekly, said: opening))
             },
-            GalleryState("K16", area, "Panel: taking notes, transcript shown, two jots") {
+            GalleryState("K16", area, "Panel: taking notes, two jots") {
                 let call = faceTime(since: 754)
                 return banner(.recording(call, since: call.startedAt),
                               record: record(of: call, event: withAna, said: launchTalk,
-                                             jots: ["Pricing copy by Thursday", "Ask about the pictures"]),
-                              transcriptShown: true)
+                                             jots: ["Pricing copy by Thursday", "Ask about the pictures"]))
             },
             GalleryState("K17", area, "Panel: notes paused") {
                 let call = faceTime(since: 412)
@@ -59,33 +58,18 @@ enum GalleryCallNotesPanel {
                 return banner(.ready(folder: "/var/empty/weekly", call: call),
                               record: record(of: call, event: weekly, said: opening), notes: notes)
             },
-            GalleryState("K30", area, "Panel: taking notes, the call moved into Catalan") {
-                let call = faceTime(since: 640)
-                return banner(.recording(call, since: call.startedAt), record: intoCatalan(call),
-                              transcriptShown: true)
-            },
             GalleryState("K34", area, "Panel: notes of a meeting in the room, the first minute (heads-up)") {
                 let call = room(since: 40)
                 return banner(.recording(call, since: call.startedAt),
                               record: record(of: call, event: nil, said: roomOpening))
             },
-            GalleryState("K35", area, "Panel: notes of a meeting in the room, voices told apart") {
+            GalleryState("K35", area, "Panel: notes of a meeting in the room, past the first minute") {
                 let call = room(since: 1_240)
                 return banner(.recording(call, since: call.startedAt),
-                              record: record(of: call, event: nil, said: roomTalk), transcriptShown: true)
+                              record: record(of: call, event: nil, said: roomTalk))
             },
             GalleryState("K36", area, "Panel: room notes stopped when the Mac went to sleep, writing") {
                 banner(.writing(room(since: 1_500)), endedBySleep: true)
-            },
-            GalleryState("K67", area, "Panel: taking notes, transcript shown, words in grey as they are said") {
-                let call = faceTime(since: 754)
-                return banner(.recording(call, since: call.startedAt),
-                              record: record(of: call, event: withAna, said: launchTalk),
-                              transcriptShown: true,
-                              hearing: [CallLive.Hearing(speaker: .them, text: "Yes, and I think the pictures on "
-                                                         + "the first page could be bigger, because right now nobody "
-                                                         + "sees what the app actually does until they scroll",
-                                                         since: Date())])
             },
             GalleryState("K37", area, "Panel: room notes ready after the Mac went to sleep") {
                 let call = room(since: 1_500)
@@ -109,14 +93,21 @@ enum GalleryCallNotesPanel {
     private static func banner(_ phase: MeetingNotesFlow.Phase, pausedSince: Date? = nil,
                                endedBySleep: Bool = false,
                                record: MeetingRecord? = nil, notes: MeetingNotes? = nil,
-                               event: MeetingEvent? = nil, transcriptShown: Bool = false,
-                               allowanceUntil: Date? = nil,
-                               hearing: [CallLive.Hearing] = []) -> some View {
+                               event: MeetingEvent? = nil,
+                               allowanceUntil: Date? = nil) -> some View {
         let flow = MeetingNotesFlow(previewing: phase, pausedSince: pausedSince, endedBySleep: endedBySleep)
         let model = MeetingNotesModel(previewing: flow, record: record, notes: notes, event: event,
-                                      allowanceUntil: allowanceUntil,
-                                      hearing: hearing)
-        return MeetingNotesBanner(meetings: model, transcriptShown: transcriptShown)
+                                      allowanceUntil: allowanceUntil)
+        return MeetingNotesBanner(meetings: model)
+    }
+
+    /// The card while notes are taken of the weekly sync on Meet, 19 minutes
+    /// in, for the Calls tab's rows to draw above the tab as the panel does.
+    static func takingNotesOfWeekly(paused: Bool) -> some View {
+        let call = meet(since: 19 * 60)
+        return banner(.recording(call, since: call.startedAt),
+                      pausedSince: paused ? Date().addingTimeInterval(-38) : nil,
+                      record: record(of: call, event: weekly, said: opening), event: weekly)
     }
 
     // MARK: - Made-up calls
@@ -155,32 +146,6 @@ enum GalleryCallNotesPanel {
         for (index, text) in jots.enumerated() {
             record.jot(text, at: 120 + Double(index) * 90)
         }
-        return record
-    }
-
-    /// A call with Jordi in Spanish that he moved into Catalan at 10:12,
-    /// while the person kept answering in Spanish: the panel's divider sits
-    /// between the two, and the Spanish listening of his lines is kept for
-    /// the notes (`MeetingRecord.switchLanguage`).
-    private static func intoCatalan(_ call: OngoingCall) -> MeetingRecord {
-        var record = MeetingRecord(bundleID: call.bundleID, appName: call.appName, startedAt: call.startedAt,
-                                   languages: ["es_ES"],
-                                   event: MeetingEvent(title: "", start: Date(), attendees: ["Jordi"]))
-        record.listen(.me, from: 0, in: "es_ES")
-        record.listen(.them, from: 0, in: "es_ES")
-        [
-            MeetingSegment(speaker: .me, start: 590, end: 596, text: "Vale, pues lo cerramos esta semana."),
-            MeetingSegment(speaker: .them, start: 597, end: 606,
-                           text: "Perfecto. Les llamo mañana por la mañana y te digo algo."),
-            MeetingSegment(speaker: .them, start: 612, end: 622,
-                           text: "Por cierto, la Marta me ha dicho que el jueves no puede."),
-        ].forEach { record.add($0) }
-        record.switchLanguage(of: .them, at: 612, to: "ca_ES", lines: [
-            MeetingSegment(speaker: .them, start: 612, end: 622,
-                           text: "Per cert, la Marta m'ha dit que el dijous no hi pot ser. Ho movem al divendres?"),
-        ], keptAs: "es_ES")
-        record.add(MeetingSegment(speaker: .me, start: 624, end: 630,
-                                  text: "Sí, el viernes me va bien. Avísala tú."))
         return record
     }
 

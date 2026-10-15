@@ -35,9 +35,9 @@ import XCTest
 final class LevelsRowsSnapshot: XCTestCase {
 
     /// A side column of a panel this wide: the stack is inset 10pt a side and
-    /// paired columns are 25pt apart (`NotchExpandedView`). Not private:
+    /// paired columns are `PanelStackMetrics.columnGap` apart (`NotchExpandedView`). Not private:
     /// `LevelFailureCaptionTests` measures in the same column.
-    nonisolated static func sideColumn(_ panel: CGFloat) -> CGFloat { (panel - 2 * 10 - 25) / 2 }
+    nonisolated static func sideColumn(_ panel: CGFloat) -> CGFloat { (panel - 2 * 10 - PanelStackMetrics.columnGap) / 2 }
 
     func testDrawTheStates() throws {
         let destination = ProcessInfo.processInfo.environment["AIRLOCK_LEVELS_PNG"] ?? ""

@@ -113,6 +113,9 @@ final class CallNotesWindowController {
             }
             self.window = window
         }
+        // In the Dock and in ⌘Tab while it is open, and a stage of its own
+        // under Stage Manager, rather than a window stuck over another app.
+        if let window { DockPresenceController.shared.willShow(window) }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
@@ -1869,10 +1872,13 @@ private struct CallTranscript: View {
             let carried = hearing.first { CallLive.continues($0, after: entries, startedAt: call.record.startedAt) }
             let others = hearing.filter { $0 != carried }
             let headed = CallLive.headed(entries, hearing: others, in: call.record)
+            // Asked once for the whole call: it reads every line, so asked
+            // for each turn as it scrolled in, a long call stuttered.
+            let nameable = CallNotesLibrary.canName(call.record)
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
                     row(entry, index: index, people: people, newest: index == newest,
-                        headed: headed.entries[index],
+                        headed: headed.entries[index], nameable: nameable,
                         carryingOn: index == entries.count - 1 ? carried?.text : nil)
                         .id(index)
                 }
@@ -1934,11 +1940,12 @@ private struct CallTranscript: View {
     }
 
     /// `headed`: with the face, name and time; only the words when the line
-    /// above is the same person's (`CallLive.headed`). `carryingOn`: what
-    /// the same person is saying now, at the end of their turn.
+    /// above is the same person's (`CallLive.headed`). `nameable`: a tap on
+    /// the name says who it is (`CallNotesLibrary.canName`). `carryingOn`:
+    /// what the same person is saying now, at the end of their turn.
     @ViewBuilder
     private func row(_ entry: MeetingTimeline.Entry, index: Int, people: [CallPeople.Person],
-                     newest: Bool, headed: Bool, carryingOn: String? = nil) -> some View {
+                     newest: Bool, headed: Bool, nameable: Bool, carryingOn: String? = nil) -> some View {
         switch entry {
         case .speech(let turn, let marked) where !headed:
             VStack(alignment: .leading, spacing: 4) {
@@ -1969,7 +1976,7 @@ private struct CallTranscript: View {
                 CallPersonAvatar(name: name, seat: seat, size: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        if CallNotesLibrary.canName(call.record), let voice = call.record.voice(of: turn) {
+                        if nameable, let voice = call.record.voice(of: turn) {
                             CallTranscriptName(call: call, voice: voice, entry: index, name: name, seat: seat)
                         } else {
                             Text(name)

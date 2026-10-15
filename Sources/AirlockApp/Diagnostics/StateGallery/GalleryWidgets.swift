@@ -335,18 +335,18 @@ enum GalleryWidgets {
             GalleryState("W70", area, "Calls tab: \"Take notes\" for a meeting in the room", width: panel) {
                 callsTab(mixedCalls, week: 5, hand: .takeNotes)
             },
-            // No Stop and no clock on the tab: the banner above the tabs
-            // has both while notes are taken. "Open in a window" is on both.
-            GalleryState("W71", area, "Calls tab: taking notes of a call, its row on top",
+            // No row for the call on the tab: the card above the tabs has
+            // it, with the clock, the window, Pause and Stop.
+            GalleryState("W71", area, "Calls tab: taking notes of a call, the card above the tab",
                          width: panel) {
-                callsTab(mixedCalls, week: 5, live: liveNotes(paused: false), hand: .stop)
+                underNotesCard(paused: false, callsTab(mixedCalls, week: 5, takingNotes: true, hand: .stop))
             },
             GalleryState("W73", area, "Calls tab: notes paused", width: panel) {
-                callsTab(mixedCalls, week: 5, live: liveNotes(paused: true), hand: .stop)
+                underNotesCard(paused: true, callsTab(mixedCalls, week: 5, takingNotes: true, hand: .stop))
             },
             GalleryState("W74", area, "Calls tab: first call, notes being taken, nothing saved yet",
                          width: panel) {
-                callsTab([], live: liveNotes(paused: false), hand: .stop)
+                underNotesCard(paused: false, callsTab([], takingNotes: true, hand: .stop))
             },
             GalleryState("W72", area, "Calls tab: no calls yet, \"Take notes\"", width: panel) {
                 callsTab([], hand: .takeNotes)
@@ -406,8 +406,8 @@ enum GalleryWidgets {
     /// is inside it gets exactly the 620pt stack of the default 640pt panel.
     private static let panel: CGFloat = GalleryState.panelWidth + 2 * (14 - 10)
     private static let stack: CGFloat = GalleryState.panelWidth - 2 * 10
-    /// One of two paired columns, 25pt apart.
-    private static let side: CGFloat = (stack - 25) / 2
+    /// One of two paired columns, `PanelStackMetrics.columnGap` apart.
+    private static let side: CGFloat = (stack - PanelStackMetrics.columnGap) / 2
 
     // MARK: - Media
 
@@ -451,11 +451,11 @@ enum GalleryWidgets {
 
     // MARK: - Home's controls row
 
-    /// Leading and trailing columns, 25pt apart, each card alone in its column
+    /// Leading and trailing columns, a column gap apart, each card alone in its column
     /// and so filling the row — Home as `NotchRootView` lays it out.
     private static func homeRow(controls: some View = controlsCard(on: [.wifi]),
                                 sound: some View) -> some View {
-        HStack(alignment: .top, spacing: 25) {
+        HStack(alignment: .top, spacing: PanelStackMetrics.columnGap) {
             controls.frame(width: side)
             sound.frame(width: side)
         }
@@ -685,12 +685,6 @@ enum GalleryWidgets {
                              bundleID: app.bundleID, site: app.site, people: people)
     }
 
-    /// A Meet call notes have been taken of since 16:41.
-    private static func liveNotes(paused: Bool) -> CallsLiveNotes {
-        CallsLiveNotes(kind: CallGlyph.kind(for: meetInChrome.bundleID, site: meetInChrome.site),
-                       title: "Weekly sync", since: callsNow.addingTimeInterval(-19 * 60), paused: paused)
-    }
-
     /// Three days, one call in a browser with no site the logos know, and a
     /// name too long for its row.
     private static var mixedCalls: [CallsCard.Row] {
@@ -716,20 +710,29 @@ enum GalleryWidgets {
     }
 
     /// Where `CallsWidget` puts it: a tab of its own, the stack's whole width.
-    private static func callsTab(_ rows: [CallsCard.Row], week: Int = 0, live: CallsLiveNotes? = nil,
+    private static func callsTab(_ rows: [CallsCard.Row], week: Int = 0, takingNotes: Bool = false,
                                  hand: MeetingNotesFlow.HandButton? = nil, addsRecordings: Bool = false,
                                  reading: RecordingImporter.Reading? = nil) -> some View {
-        CallsCardContent(rows: rows, week: week, live: live, now: callsNow, hand: hand, reading: reading,
-                         onOpenLive: live == nil ? nil : {},
-                         onAddRecording: addsRecordings ? {} : nil)
+        CallsCardContent(rows: rows, week: week, takingNotes: takingNotes, now: callsNow, hand: hand,
+                         reading: reading, onAddRecording: addsRecordings ? {} : nil)
             .frame(width: stack, alignment: .topLeading)
+    }
+
+    /// The tab under the card notes are being taken in, as `NotchRootView`
+    /// stacks them: the card has the call, so the tab draws no row for it.
+    private static func underNotesCard(paused: Bool, _ tab: some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GalleryCallNotesPanel.takingNotesOfWeekly(paused: paused)
+            tab
+        }
+        .frame(width: stack, alignment: .topLeading)
     }
 
     /// The Dashboard as `NotchRootView` lays it out with call notes on: the
     /// calendar and System side by side, as before there were call notes,
     /// since the calls have a tab of their own.
     private static var dashboard: some View {
-        HStack(alignment: .top, spacing: 25) {
+        HStack(alignment: .top, spacing: PanelStackMetrics.columnGap) {
             CalendarSectionView()
                 .environment(CalendarWidgetModel(previewing: .fullAccess, selectedDay: day(0),
                                                  dayEvents: todaysEvents, daysWithEvents: [day(0), day(1)]))

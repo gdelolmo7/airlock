@@ -15,9 +15,6 @@ import SwiftUI
 /// beside a call.
 struct MeetingNotesBanner: View {
     let meetings: MeetingNotesModel
-    /// Whether "Show transcript" starts open. Shut in the panel; the state
-    /// gallery opens it to draw it.
-    var transcriptShown = false
 
     var body: some View {
         switch meetings.flow.phase {
@@ -61,9 +58,8 @@ struct MeetingNotesBanner: View {
             .modifier(BannerBox())
         case .recording(let call, let since):
             NotesBeingTaken(meetings: meetings, call: call, since: since,
-                            firstStarted: meetings.flow.firstStarted ?? since,
-                            transcriptShown: transcriptShown)
-                .modifier(BannerBox())
+                            firstStarted: meetings.flow.firstStarted ?? since)
+                .modifier(NotesCardBox(live: !meetings.isPaused))
         case .writing(let call):
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 7) {
@@ -126,8 +122,13 @@ enum CallNotesTyping {
     static var isActive = false
 }
 
-/// The notes while they are taken: how long and the controls, a field to
-/// jot into, the heads-up for the first minute, and the transcript on ask.
+/// The notes while they are taken, as one card: the call's tile, its name
+/// and how long, three buttons (the window, Pause, Stop), a field to jot
+/// into with Mark at its end, and the heads-up for the first minute.
+///
+/// The transcript is in the window, a click away, not in the card: the card
+/// keeps the size it started at, and what the other side says is not shown
+/// in the panel to whoever is looking at the screen.
 private struct NotesBeingTaken: View {
     let meetings: MeetingNotesModel
     let call: OngoingCall
@@ -138,7 +139,6 @@ private struct NotesBeingTaken: View {
     /// again (`MeetingNotesFlow.firstStarted`).
     let firstStarted: Date
 
-    @State private var showsTranscript: Bool
     @State private var draft = ""
     @State private var flash: Flash?
     @State private var flashEnds: Task<Void, Never>?
@@ -152,19 +152,17 @@ private struct NotesBeingTaken: View {
 
     private enum Flash: Equatable { case saved, marked }
 
-    init(meetings: MeetingNotesModel, call: OngoingCall, since: Date, firstStarted: Date,
-         transcriptShown: Bool) {
+    init(meetings: MeetingNotesModel, call: OngoingCall, since: Date, firstStarted: Date) {
         self.meetings = meetings
         self.call = call
         self.since = since
         self.firstStarted = firstStarted
-        _showsTranscript = State(initialValue: transcriptShown)
         _headsUpOver = State(initialValue: !CallNotesPanel.showsHeadsUp(notesSince: firstStarted, now: Date()))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            status
+        VStack(alignment: .leading, spacing: 9) {
+            header
             // A browser's sound is heard whole, so a video in another tab
             // ends up in the notes too: said, so it is no surprise.
             if CallGlyph.isBrowser(call.bundleID) {
@@ -177,9 +175,8 @@ private struct NotesBeingTaken: View {
             // Paused, nothing is meant to reach the notes, so a side not
             // reaching them is no news.
             if !meetings.isPaused { health }
-            jotRow
+            jotField
             if !headsUpOver { headsUp }
-            transcript
         }
         .task(id: firstStarted) {
             let left = CallNotesPanel.headsUpWindow - Date().timeIntervalSince(firstStarted)
@@ -195,68 +192,94 @@ private struct NotesBeingTaken: View {
         }
     }
 
-    // MARK: Row 1: how long, and the controls
+    // MARK: The call, how long, and the controls
 
-    private var status: some View {
-        HStack(spacing: 7) {
-            if meetings.isPaused {
-                // Hollow and grey, as on the call pill: nothing is written.
+    private var header: some View {
+        HStack(spacing: 10) {
+            CallAppTile(kind: CallGlyph.kind(for: call), size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(meetings.callTitle(call))
+                    .font(Theme.chrome(13.5, .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                state
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            HStack(spacing: 5) {
+                // First, and in purple: the first person to try the notes
+                // never found the window when it sat lower down.
+                NotesIconButton("sidebar.right", label: "Open in a window", look: .window) {
+                    meetings.openLiveWindow()
+                }
+                .help("Watch the transcript in a window beside the call")
+                if meetings.isPaused {
+                    NotesIconButton("play.fill", label: "Resume", look: .prominent) { meetings.resume() }
+                        .help("Resume taking notes")
+                } else {
+                    NotesIconButton("pause.fill", label: "Pause") { meetings.pause() }
+                        .help("Nothing said until you resume is written down")
+                }
+                NotesIconButton("stop.fill", label: "Stop") { meetings.stop() }
+                    .help("Stop taking notes and write them")
+            }
+        }
+    }
+
+    /// "Taking notes · 4:12" in purple with the breathing dot, or paused in
+    /// grey with a hollow one, as on the call pill: nothing is written.
+    @ViewBuilder
+    private var state: some View {
+        if meetings.isPaused {
+            HStack(spacing: 5) {
                 Circle()
                     .strokeBorder(Theme.textSecondary, lineWidth: 1.2)
                     .frame(width: 7, height: 7)
                 Text("Paused · nothing is written down")
-                    .font(Theme.chrome(11, .medium))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-            } else {
+            }
+            .font(Theme.chrome(11, .semibold))
+            .foregroundStyle(Theme.textSecondary)
+            .lineLimit(1)
+        } else {
+            HStack(spacing: 5) {
                 NotesBreathingDot(size: 7)
                 TimelineView(.periodic(from: firstStarted, by: 1)) { context in
                     Text("Taking notes · \(CallNotesPanel.clock(context.date.timeIntervalSince(firstStarted)))")
-                        .font(Theme.chrome(11, .medium))
                         .monospacedDigit()
-                        .foregroundStyle(Theme.textPrimary)
                 }
             }
-            Spacer(minLength: 6)
-            // On the first line, beside the controls. It used to sit by
-            // "Show transcript", under the jot field and the heads-up, and
-            // the first person to try it never found it there.
-            NotesOpenInWindow { meetings.openLiveWindow() }
-            if meetings.isPaused {
-                NotesPill("Resume", prominent: true) { meetings.resume() }
-            } else {
-                NotesPill("Pause") { meetings.pause() }
-                    .help("Nothing said until you resume is written down")
-            }
-            NotesPill("Stop") { meetings.stop() }
+            .font(Theme.chrome(11, .semibold))
+            .foregroundStyle(CallsLook.saidText)
+            .lineLimit(1)
         }
     }
 
-    // MARK: Row 2: jot something down
+    // MARK: Jot something down, and Mark
 
-    private var jotRow: some View {
-        HStack(spacing: 6) {
+    private var jotField: some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        return HStack(spacing: 6) {
             TextField("Jot something…", text: $draft)
                 .textFieldStyle(.plain)
-                .font(Theme.chrome(11))
+                .font(Theme.chrome(11.5))
                 .foregroundStyle(Theme.textPrimary)
                 .focused($typing)
                 .onSubmit(save)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.white.opacity(typing ? 0.2 : 0.08), lineWidth: 1))
                 .help("Return keeps the line in the notes, word for word")
             jotStatus
             // Paused, nothing from the last half-minute was written down
             // to mark. The field stays: a jot is the person's own words.
             if CallNotesPanel.offersMark(meetings.flow) {
-                NotesPill("Mark", quiet: true) { markIt() }
+                NotesMarkButton(marked: flash == .marked) { markIt() }
                     .help("Marks the last \(Int(MeetingRecord.markReach)) seconds as important for the notes")
             }
         }
+        .padding(.leading, 9)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .background(shape.fill(Color.white.opacity(0.06)))
+        .overlay(shape.strokeBorder(Color.white.opacity(typing ? 0.2 : 0.08), lineWidth: 1))
     }
 
     /// "Saved" or "Marked…" for a moment, then how many lines are jotted.
@@ -311,7 +334,7 @@ private struct NotesBeingTaken: View {
         }
     }
 
-    // MARK: Row 3: the heads-up, for the first minute
+    // MARK: The heads-up, for the first minute
 
     @ViewBuilder
     private var headsUp: some View {
@@ -326,16 +349,15 @@ private struct NotesBeingTaken: View {
         }
     }
 
+    /// One short line and Copy: the line itself is what gets pasted, so the
+    /// card doesn't spell it out (the pointer shows it).
     private var callHeadsUp: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("Let them know:")
-                .font(Theme.chrome(10.5, .medium))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize()
-            Text(CallNotesPanel.headsUp)
+        HStack(spacing: 6) {
+            Text("Copy a heads-up to send them")
                 .font(Theme.chrome(10.5))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .help(CallNotesPanel.headsUp)
             Spacer(minLength: 4)
             NotesPill(copied ? "Copied" : "Copy", quiet: true) {
                 meetings.copyHeadsUp()
@@ -348,75 +370,7 @@ private struct NotesBeingTaken: View {
                 }
             }
             .confirmSettle(when: copied)
-            .help("Copies the line, to paste into the call's chat")
-        }
-    }
-
-    // MARK: Row 4: the transcript, on ask
-
-    private var transcript: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 8) {
-                HStack(spacing: 4) {
-                    Image(systemName: showsTranscript ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                        .frame(width: 9)
-                    Text(showsTranscript ? "Hide transcript" : "Show transcript")
-                        .font(Theme.chrome(10.5, .medium))
-                }
-                .foregroundStyle(Theme.textSecondary)
-                .contentShape(Rectangle())
-                .onTapGesture { showsTranscript.toggle() }
-                .clickable()
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAction { showsTranscript.toggle() }
-                Spacer(minLength: 0)
-            }
-
-            if showsTranscript {
-                let hearing = CallLive.speaking(meetings.live.hearing, paused: meetings.isPaused)
-                if meetings.recentLines.isEmpty, hearing.isEmpty {
-                    Text(meetings.isPaused ? "Nothing is written down while paused." : "Nothing heard yet.")
-                        .font(Theme.chrome(10.5))
-                        .foregroundStyle(Theme.textTertiary)
-                        .padding(.leading, 13)
-                } else {
-                    ForEach(Array(meetings.recentLines.enumerated()), id: \.offset) { _, line in
-                        if line.isDivider {
-                            // Quiet, as in the notes window: the lines
-                            // below it say the rest.
-                            HStack(spacing: 5) {
-                                Image(systemName: "globe")
-                                    .font(Theme.chrome(9.5))
-                                Text(line.text)
-                                    .font(Theme.chrome(10.5))
-                            }
-                            .foregroundStyle(Theme.textSecondary)
-                            .padding(.leading, 13)
-                            .accessibilityElement(children: .combine)
-                        } else {
-                            Text("\(Text(line.speaker).fontWeight(.semibold))  \(line.text)")
-                                .font(Theme.chrome(10.5))
-                                .foregroundStyle(Theme.textSecondary)
-                                .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.leading, 13)
-                        }
-                    }
-                    // What is being said now, fainter, where the speaker
-                    // has got to.
-                    ForEach(hearing, id: \.speaker) { heard in
-                        let name = meetings.live.record?.label(for: heard.speaker) ?? heard.speaker.label
-                        Text("\(Text(name).fontWeight(.semibold))  \(CallLive.newest(heard.text, limit: 140))")
-                            .font(Theme.chrome(10.5))
-                            .foregroundStyle(Theme.textTertiary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.leading, 13)
-                    }
-                }
-            }
+            .help("Copies \u{201C}\(CallNotesPanel.headsUp)\u{201D}, to paste into the call's chat")
         }
     }
 
@@ -616,42 +570,91 @@ struct NotesPill: View {
     }
 }
 
-/// "Open in a window", beside Pause and Stop here and on the Calls tab's
-/// live row: the whole transcript, as it is written, in a narrow window
-/// beside the call. In Airlock's purple, as the notes being taken are.
-struct NotesOpenInWindow: View {
+/// A square button with a symbol: the card's window, Pause and Stop.
+/// `.window` is in Airlock's purple, as the notes being taken are.
+private struct NotesIconButton: View {
+    enum Look { case plain, prominent, window }
+
+    let symbol: String
+    let label: String
+    var look: Look = .plain
     let action: () -> Void
 
     @State private var hovered = false
     @Environment(\.colorScheme) private var colorScheme
 
+    init(_ symbol: String, label: String, look: Look = .plain, action: @escaping () -> Void) {
+        self.symbol = symbol
+        self.label = label
+        self.look = look
+        self.action = action
+    }
+
     var body: some View {
-        let dark = colorScheme == .dark
-        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-        HStack(spacing: 5) {
-            Image(systemName: "sidebar.right")
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(dark ? LiveLook.liveText : LiveLook.windowTextOnLight)
-            Text("Open in a window")
-                .font(Theme.chrome(11, .semibold))
-                .foregroundStyle(dark ? LiveLook.windowText : LiveLook.windowTextOnLight)
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(ink)
+            .frame(width: 28, height: 28)
+            .background(shape.fill(fill))
+            .overlay(shape.strokeBorder(edge, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .onHover { inside in
+                withAnimation(MotionEffect.pointer) { hovered = inside }
+            }
+            .clickable()
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
+    }
+
+    private var ink: Color {
+        guard look == .window else { return Theme.textPrimary }
+        return colorScheme == .dark ? LiveLook.liveText : LiveLook.windowTextOnLight
+    }
+
+    private var fill: Color {
+        switch look {
+        case .window: Theme.assistant.opacity(hovered ? 0.24 : 0.16)
+        case .prominent: Color.white.opacity(hovered ? 0.22 : 0.16)
+        case .plain: Color.white.opacity(hovered ? 0.14 : 0.08)
         }
-        .lineLimit(1)
-        .fixedSize()
-        .padding(.horizontal, 9)
-        .padding(.vertical, 3)
-        .background(shape.fill(Theme.assistant.opacity(hovered ? 0.22 : 0.14)))
-        .overlay(shape.strokeBorder(Theme.assistant.opacity(0.45), lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: action)
-        .onHover { inside in
-            withAnimation(MotionEffect.pointer) { hovered = inside }
+    }
+
+    private var edge: Color {
+        switch look {
+        case .window: Theme.assistant.opacity(0.45)
+        case .prominent: Color.white.opacity(0.2)
+        case .plain: Color.white.opacity(0.1)
         }
-        .clickable()
-        .help("Watch the transcript in a window beside the call")
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { action() }
+    }
+}
+
+/// Mark, at the end of the jot field: a bookmark, filled in purple for the
+/// moment "Marked…" shows beside it.
+private struct NotesMarkButton: View {
+    let marked: Bool
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Image(systemName: marked ? "bookmark.fill" : "bookmark")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(marked ? CallsLook.saidText : hovered ? Theme.textPrimary : Theme.textSecondary)
+            .frame(width: 22, height: 20)
+            .background(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Color.white.opacity(hovered ? 0.08 : 0)))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .onHover { inside in
+                withAnimation(MotionEffect.pointer) { hovered = inside }
+            }
+            .clickable()
+            .accessibilityLabel("Mark")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
     }
 }
 
@@ -669,6 +672,25 @@ private struct NotesClose: View {
             .accessibilityLabel("Close")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { action() }
+    }
+}
+
+/// The card notes are taken in: Airlock's purple while they are, as on the
+/// call pill; grey while paused, when nothing is written.
+private struct NotesCardBox: ViewModifier {
+    let live: Bool
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        content
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(shape.fill(live
+                ? AnyShapeStyle(LinearGradient(colors: [Theme.assistant.opacity(0.14), Theme.assistant.opacity(0.05)],
+                                               startPoint: .leading, endPoint: .trailing))
+                : AnyShapeStyle(Color.white.opacity(0.06))))
+            .overlay(shape.strokeBorder(live ? Theme.assistant.opacity(0.28) : Color.white.opacity(0.08),
+                                        lineWidth: 1))
     }
 }
 
