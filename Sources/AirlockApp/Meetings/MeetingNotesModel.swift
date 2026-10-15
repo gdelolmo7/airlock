@@ -102,11 +102,6 @@ final class MeetingNotesModel {
     /// once a month (`CloudNotesAllowance`): these notes were written on the
     /// Mac for that reason.
     private(set) var readyAllowance: Date?
-    /// Whether to ask, under that line, if notes may be written online
-    /// (`CloudNotesQuestion`): these notes could have been, and nobody has
-    /// answered yet. Asked once per meeting at most, and never by opening
-    /// the island: only where the line already is.
-    private(set) var readyAsksOnline = false
     /// To-dos in those notes, for the line to mention.
     var readyTodoCount: Int { readyNotes?.todos.count ?? 0 }
     /// The last few things said, for the panel's "Show transcript". Kept
@@ -198,6 +193,16 @@ final class MeetingNotesModel {
     /// call that came back keeps the numbers it already gave.
     @ObservationIgnored private var voices: CallVoiceListener?
     @ObservationIgnored private var voicesFrom: TimeInterval = 0
+    /// The voices told apart so far, so each keeps its number from one
+    /// look to the next (`CallVoices.Numbering`), and how far the last look
+    /// reached, in seconds of the call.
+    @ObservationIgnored private var voicesNumbering = CallVoices.Numbering()
+    @ObservationIgnored private var voicesThrough: TimeInterval = 0
+    /// Numbers the voices heard so far, every few seconds of the call.
+    @ObservationIgnored private var voicesLooking: Task<Void, Never>?
+    /// The voices are being told apart: from when the model starts until
+    /// the call's lines are numbered for the last time.
+    @ObservationIgnored private var splittingVoices = false
     /// Each side's sound on its way to its track, measured as it passes.
     @ObservationIgnored private var mine: MeetingInput?
     @ObservationIgnored private var theirs: MeetingInput?
@@ -286,13 +291,12 @@ final class MeetingNotesModel {
     /// call in `flow`, as if it had been looked up when the call started.
     init(previewing flow: MeetingNotesFlow, record: MeetingRecord? = nil,
          notes: MeetingNotes? = nil, event: MeetingEvent? = nil, reading: RecordingImporter.Reading? = nil,
-         allowanceUntil: Date? = nil, asksOnline: Bool = false,
+         allowanceUntil: Date? = nil,
          hearing: [CallLive.Hearing] = []) {
         self.flow = flow
         self.record = record
         readyNotes = notes
         readyAllowance = allowanceUntil
-        readyAsksOnline = asksOnline
         readyOutcome = record.map { CallNotesPanel.ready(of: $0, notes: notes) } ?? .notes
         jotCount = record?.jots.count ?? 0
         recentLines = record.map { CallNotesPanel.recentLines(of: $0) } ?? []
@@ -334,6 +338,7 @@ final class MeetingNotesModel {
             if case let .ready(name, _) = flow.phase, name == folder.lastPathComponent {
                 readyNotes = notes.isEmpty ? nil : notes
             }
+            live.retitle(folder, as: notes.title)
             notesWindow?.refreshIfOpen()
             recentCalls.refresh()
         }
@@ -468,24 +473,6 @@ final class MeetingNotesModel {
         onNavigateAway?()
     }
 
-    /// "Write online", under the notes: the yes, and these notes written
-    /// again online now, the Mac's page kept beside them.
-    func writeNotesOnline() {
-        readyAsksOnline = false
-        guard case let .ready(name, _) = flow.phase else {
-            // The line went as the button was pressed: the yes still holds.
-            CloudNotesService.setSwitch(true)
-            return
-        }
-        CloudNotesService.shared.writeOnline(store.root.appendingPathComponent(name, isDirectory: true))
-    }
-
-    /// "Keep on this Mac", under the notes: the no, never asked again.
-    func keepNotesOnMac() {
-        readyAsksOnline = false
-        CloudNotesService.shared.keepOnMac()
-    }
-
     /// The notes window on a call an answer in the notch came from, at the
     /// moment it cites.
     func showCall(folder: String, saidAt time: TimeInterval) {
@@ -528,8 +515,15 @@ final class MeetingNotesModel {
             pause: { [weak self] in self?.pause() },
             resume: { [weak self] in self?.resume() },
             stop: { [weak self] in self?.stop() },
-            open: { [weak self] tab in self?.showLiveCall(on: tab) },
-            close: { [weak self] in self?.liveWindow?.close() }))
+            open: { [weak self] tab in
+                // The big window takes over: two windows on one call is one
+                // too many to close afterwards.
+                self?.showLiveCall(on: tab)
+                self?.liveWindow?.close()
+            },
+            close: { [weak self] in self?.liveWindow?.close() },
+            canName: { [weak self] voice in voice != MeetingRecord.otherSide || self?.splittingVoices != true },
+            name: { [weak self] names in self?.nameLiveCall(names) }))
         liveWindow = shown
         shown.show()
         log("live transcript: opened")
@@ -580,6 +574,14 @@ final class MeetingNotesModel {
         recentCalls.refresh()
     }
 
+    /// Names given in the side window, to the call it shows: during the
+    /// call, as its voices are told apart, or once it is over.
+    private func nameLiveCall(_ names: [MeetingVoiceName]) {
+        guard let folder = live.folder else { return }
+        saveNames(names, in: folder)
+        live.rename(names, in: folder)
+    }
+
     /// The name the panel gives a call: Meet once the tab has said so, even
     /// if it had not yet when the call was offered.
     func callName(_ call: OngoingCall) -> String {
@@ -601,9 +603,17 @@ final class MeetingNotesModel {
 
     /// What the call notes list calls the call (`MeetingFiles.title`), for
     /// the lines about its notes once the call is over: "Writing your
-    /// notes…" and "Notes ready" name the notes as they will be found.
+    /// notes…" and "Notes ready" name the notes as they will be found,
+    /// "Notes ready" by the name the notes gave it.
     func listedTitle(_ call: OngoingCall) -> String {
-        MeetingFiles.title(event: event(for: call), callName: callName(call), inPerson: call.isInPerson)
+        MeetingFiles.title(event: event(for: call), callName: callName(call), inPerson: call.isInPerson,
+                           topic: readyTitle(for: call))
+    }
+
+    /// The name the notes gave the call, while "Notes ready" is about them.
+    private func readyTitle(for call: OngoingCall) -> String? {
+        guard case let .ready(_, ready) = flow.phase, ready.bundleID == call.bundleID else { return nil }
+        return readyNotes?.title
     }
 
     /// The notes' own event once they have started (they keep the one they
@@ -729,8 +739,6 @@ final class MeetingNotesModel {
             if case .ready = next.phase {} else {
                 if readyNotes != nil { readyNotes = nil }
                 if readyAllowance != nil { readyAllowance = nil }
-                // Closed without an answer: asked again at the next meeting.
-                if readyAsksOnline { readyAsksOnline = false }
             }
             if !next.phase.isRecording, isMuted { isMuted = false }
             scheduleLinger()
@@ -1337,19 +1345,62 @@ final class MeetingNotesModel {
         let listener = CallVoiceListener(offset: offset)
         voices = listener
         voicesFrom = offset
+        voicesNumbering = CallVoices.Numbering()
+        voicesThrough = offset
+        splittingVoices = true
         Task { await listener.start(stream) }
+        voicesLooking?.cancel()
+        voicesLooking = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.voicesEvery)
+                guard !Task.isCancelled else { return }
+                await self?.numberVoicesSoFar(listener)
+            }
+        }
         log("voices: listening from \(Int(offset))s")
+    }
+
+    /// How often the voices heard so far are laid over the lines. The model
+    /// hears in steps of ten seconds, so a line is numbered ten to twenty
+    /// seconds after it is said.
+    private static let voicesEvery: Duration = .seconds(4)
+
+    /// Numbers the lines the voice model has heard so far, while the call
+    /// goes on, so the side window tells people apart as they talk. Each
+    /// look goes over the whole call again, and keeps each voice's number
+    /// and name (`CallVoices.Numbering`).
+    private func numberVoicesSoFar(_ listener: CallVoiceListener) async {
+        // A look still out when the call ends leaves it to the last pass.
+        guard let heard = await listener.soFar(), !Task.isCancelled, heard.through > voicesThrough,
+              voices === listener, var record, let them else { return }
+        voicesThrough = heard.through
+        let before = record
+        let people = voicesNumbering.people.count
+        let outcome = CallVoices.number(&record, from: voicesFrom, through: heard.through, spans: heard.spans,
+                                        words: them.words, numbering: &voicesNumbering)
+        guard record != before else { return }
+        if outcome.people != people {
+            log("voices so far: \(outcome.people) people by \(Int(heard.through))s"
+                + (outcome.reason.map { " (\($0))" } ?? ""))
+        }
+        self.record = record
+        let lines = CallNotesPanel.recentLines(of: record)
+        if lines != recentLines { recentLines = lines }
+        saveSoon()
     }
 
     /// Numbers the other side's lines by voice, from what the voice model
     /// heard, and logs what that cost. Nothing of what was heard is kept.
-    private func numberVoices(_ listener: CallVoiceListener, words: [CallLanguageFollow.Timed],
-                              in record: inout MeetingRecord) async {
-        let report = await listener.finish()
-        let outcome = CallVoices.number(&record, from: voicesFrom, spans: report.spans, words: words)
+    private func numberVoices(_ report: CallVoiceListener.Report, words: [CallLanguageFollow.Timed],
+                              in record: inout MeetingRecord) {
+        let outcome = CallVoices.number(&record, from: voicesFrom, spans: report.spans, words: words,
+                                        numbering: &voicesNumbering)
         let rtf = report.audioSeconds > 0 ? report.computeSeconds / report.audioSeconds : 0
         var line = "voices: \(outcome.people) people from \(outcome.heard) heard"
         line += ", \(outcome.folded) folded, \(outcome.split) line(s) cut"
+        if !outcome.talk.isEmpty {
+            line += ", talk " + outcome.talk.map { String(format: "%.1f", $0) }.joined(separator: "/") + "s"
+        }
         if let reason = outcome.reason { line += " (\(reason))" }
         line += String(format: "; audio %.0fs, model %.1fs (%.3fx), load %.1fs",
                        report.audioSeconds, report.computeSeconds, rtf, report.loadSeconds)
@@ -1439,6 +1490,8 @@ final class MeetingNotesModel {
     private func finish(keeping: Bool = true) async {
         themRetry?.cancel()
         themRetry = nil
+        voicesLooking?.cancel()
+        voicesLooking = nil
         // Let go of everything the looks read first, so a look while the
         // recognisers finish neither starts the microphone again nor says a
         // side is missing.
@@ -1482,7 +1535,10 @@ final class MeetingNotesModel {
         mute?.stop()
         let languages = (me?.languages ?? []) + (them?.languages ?? [])
 
-        guard let folder, var record else { return }
+        guard let folder, var record else {
+            splittingVoices = false
+            return
+        }
         record.endedAt = Date()
         if !languages.isEmpty {
             record.languages = languages.reduce(into: []) { kept, language in
@@ -1490,17 +1546,28 @@ final class MeetingNotesModel {
             }
         }
         if !keeping { record.droppedAt = Date() }
+        // Names given in the side window while the call was ending are on
+        // the lines as they were numbered then.
+        var numberedAs: [Int: Int]?
         if let voices {
             if keeping {
-                await numberVoices(voices, words: them?.words ?? [], in: &record)
+                let report = await voices.finish()
+                if let held = named(in: folder) { record.replaceNames(with: held) }
+                numberedAs = voicesNumbering.people
+                numberVoices(report, words: them?.words ?? [], in: &record)
             } else {
                 await voices.cancel()
             }
         }
+        let namedBefore = named(in: folder)
         // Once the voices have their lines: they are matched to the words
         // as the recogniser wrote them.
         if keeping { await Self.respell(&record, store: store, log: log) }
+        if let held = named(in: folder), held != namedBefore {
+            record.replaceNames(with: numberedAs.map { voicesNumbering.carry(held, numberedAs: $0) } ?? held)
+        }
         self.record = record
+        splittingVoices = false
         saveNow()
         guard keeping else {
             log("notes: short call (\(Int(record.duration(at: Date())))s), not kept")
@@ -1509,6 +1576,12 @@ final class MeetingNotesModel {
         }
         log("notes: \(record.segments.count) line(s), \(Int(record.duration(at: Date()) / 60)) min")
         summarise(record, in: folder, announce: true)
+    }
+
+    /// The names the call in `folder` holds in memory now, given while it
+    /// was being ended.
+    private func named(in folder: URL) -> [MeetingVoiceName]? {
+        folder == self.folder ? self.record?.names : nil
     }
 
     /// Removes a short call's folder once `sameMeetingWindow` has passed,
@@ -1577,11 +1650,17 @@ final class MeetingNotesModel {
                         log("summary: writer not saved: \(error.localizedDescription)")
                     }
                 }
+                do {
+                    try store.saveTopic(written?.title, in: folder)
+                } catch {
+                    log("summary: title not saved: \(error.localizedDescription)")
+                }
                 if announce, let self {
                     // Counted before the line goes up, so it can say them.
                     self.savedTodos = written?.todos.count ?? 0
                     self.readyOutcome = CallNotesPanel.ready(of: record, notes: written)
-                    self.live.settle(folder, as: .saved(self.readyOutcome, todos: self.savedTodos))
+                    self.live.settle(folder, as: .saved(self.readyOutcome, todos: self.savedTodos),
+                                     title: written?.title)
                     self.send(.saved(folder: folder.lastPathComponent))
                     if case let .ready(name, _) = self.flow.phase, name == folder.lastPathComponent {
                         self.readyNotes = written
@@ -1589,8 +1668,6 @@ final class MeetingNotesModel {
                         self.readyAllowance = page.allowanceUntil.flatMap {
                             CloudNotesService.shared.takeAllowanceNotice(until: $0)
                         }
-                        // Not when an answer came in meanwhile, from Settings.
-                        self.readyAsksOnline = page.asksOnline && CloudNotesService.shared.answer == nil
                     }
                 }
                 self?.notesWindow?.refreshIfOpen()
@@ -1636,7 +1713,6 @@ final class MeetingNotesModel {
     static func notesPage(for record: MeetingRecord, log: @escaping (String) -> Void) async -> WrittenNotes {
         let writer: MeetingNotesWriter?
         var allowanceUntil: Date?
-        var asksOnline = false
         switch await CloudNotesService.shared.write(record, log: log) {
         case .written(let notes, let model):
             let online = MeetingNotesWriter.online(model: model, at: Date())
@@ -1650,11 +1726,6 @@ final class MeetingNotesModel {
         case .mac(.allowanceUsed(let until)):
             writer = .mac(at: Date())
             allowanceUntil = until
-        case .mac(.notAsked):
-            // Written here now, so nobody waits on the question; a yes
-            // writes them again online.
-            writer = .mac(at: Date())
-            asksOnline = true
         case .mac, .failed:
             writer = .mac(at: Date())
         }
@@ -1668,13 +1739,12 @@ final class MeetingNotesModel {
         case .notes(let notes):
             return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: notes, writtenFrom: source.line,
                                                              writer: writer),
-                                notes: notes.isEmpty ? nil : notes, writer: writer, allowanceUntil: allowanceUntil,
-                                asksOnline: asksOnline)
+                                notes: notes.isEmpty ? nil : notes, writer: writer, allowanceUntil: allowanceUntil)
         case .unavailable(let reason):
             log("summary: none — \(reason)")
             return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: nil, unavailableReason: reason,
                                                              writer: writer),
-                                notes: nil, writer: writer, allowanceUntil: allowanceUntil, asksOnline: asksOnline)
+                                notes: nil, writer: writer, allowanceUntil: allowanceUntil)
         }
     }
 
@@ -1689,10 +1759,6 @@ final class MeetingNotesModel {
         /// Until when this month's online notes are used, when the Mac wrote
         /// them for that reason.
         var allowanceUntil: Date?
-        /// They could have been written online, and nobody has said whether
-        /// they may (`CloudNotesRoute.Reason.notAsked`): the question goes
-        /// under them.
-        var asksOnline = false
     }
 
     // MARK: - Speech

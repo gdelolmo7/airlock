@@ -178,6 +178,99 @@ final class CallLiveTests: XCTestCase {
         XCTAssertEqual(CallLive.inProgress(held: [], guess: " "), "")
     }
 
+    private func timed(_ words: String, from start: TimeInterval, every step: TimeInterval = 0.3)
+        -> [CallLanguageFollow.Timed] {
+        // As the recogniser gives them: a leading space on all but the first.
+        words.split(separator: " ").enumerated().map { index, word in
+            let begin = start + Double(index) * step
+            return CallLanguageFollow.Timed(text: (index == 0 ? "" : " ") + word, start: begin, end: begin + step)
+        }
+    }
+
+    func testTheFastWordsShowUntilTheNotesHaveThem() {
+        // Nothing finished for the notes yet: every fast word, then the guess.
+        let said = timed("Hola, ¿qué tal?", from: 10)
+        XCTAssertEqual(CallLive.unfinished(said: said, guess: "Oye, quería", guessStart: 10.9,
+                                           finished: [], through: -.infinity),
+                       "Hola, ¿qué tal? Oye, quería")
+        // The notes' line for the first two words arrives: they leave the
+        // screen, a word placed a little apart included.
+        let notes = timed("Hola, qué", from: 10.04)
+        XCTAssertEqual(CallLive.unfinished(said: said, guess: "Oye, quería", guessStart: 10.9,
+                                           finished: notes, through: 10.64),
+                       "tal? Oye, quería")
+        // All of it: only the guess is left.
+        XCTAssertEqual(CallLive.unfinished(said: said, guess: "Oye, quería", guessStart: 10.9,
+                                           finished: notes, through: 10.9),
+                       "Oye, quería")
+        // Everything said is a line: nothing is shown.
+        XCTAssertEqual(CallLive.unfinished(said: said, guess: "", guessStart: nil, finished: notes, through: 11),
+                       "")
+        // A full stop that came on its own sits on the word before it.
+        let stop = [CallLanguageFollow.Timed(text: " nosotros", start: 24.0, end: 24.6),
+                    CallLanguageFollow.Timed(text: ".", start: 24.66, end: 25.02)]
+        XCTAssertEqual(CallLive.unfinished(said: stop, guess: "", guessStart: nil, finished: [], through: 20),
+                       "nosotros.")
+    }
+
+    func testAFastWordAcrossTheLinesEndIsFinishedOnlyIfTheLineHasIt() {
+        func word(_ text: String, _ start: TimeInterval, _ end: TimeInterval) -> CallLanguageFollow.Timed {
+            CallLanguageFollow.Timed(text: text, start: start, end: end)
+        }
+        let notes = [word(" next", 3.60, 3.90), word(" week.", 3.90, 4.14)]
+        // Inside the line: finished.
+        XCTAssertTrue(CallLive.isFinished(word(" next", 3.62, 3.88), by: notes, through: 4.14))
+        // The sentence's last word stretched into the pause: still the
+        // line's own word, so not shown twice.
+        XCTAssertTrue(CallLive.isFinished(word(" week.", 3.90, 4.86), by: notes, through: 4.14))
+        // Timed a little later than the notes' twin, without touching it.
+        XCTAssertTrue(CallLive.isFinished(word(" next", 4.0, 4.2), by: notes, through: 4.14))
+        // The next sentence's first word, begun early, even with most of it
+        // before the line's end: not in the line, so it stays on screen.
+        let spanish = [word(" tren", 17.0, 17.52), word(" mañana.", 17.52, 19.92)]
+        XCTAssertFalse(CallLive.isFinished(word(" Vale,", 19.26, 20.40), by: spanish, through: 19.92))
+        XCTAssertFalse(CallLive.isFinished(word(" Okay,", 15.12, 15.80), by: notes, through: 15.48))
+        // Wholly after the line: not finished, whatever it says.
+        XCTAssertFalse(CallLive.isFinished(word(" week.", 4.20, 4.50), by: notes, through: 4.14))
+        // No times: never taken for finished.
+        XCTAssertFalse(CallLive.isFinished(CallLanguageFollow.Timed(text: " week.", start: nil, end: nil),
+                                           by: notes, through: 10))
+    }
+
+    func testTheGuessLosesTheWordsTheNotesFinishedFirst() {
+        // The notes' recogniser finished past where the guess starts: the
+        // guess's first words are those, and only the rest is shown.
+        let notes = timed("Yo pensaba salir", from: 6.0)
+        XCTAssertEqual(CallLive.unfinished(said: [], guess: "Yo pensaba salir el jueves", guessStart: 6.0,
+                                           finished: notes, through: 6.9),
+                       "el jueves")
+        // A line wholly before the guess takes nothing from it.
+        XCTAssertEqual(CallLive.unfinished(said: [], guess: "el jueves", guessStart: 7.0,
+                                           finished: notes, through: 6.9),
+                       "el jueves")
+        // The guess has fewer words than the line covers: nothing left.
+        XCTAssertEqual(CallLive.unfinished(said: [], guess: "Yo pensaba", guessStart: 6.0,
+                                           finished: notes, through: 6.9),
+                       "")
+    }
+
+    func testTheGuessIsCutWhereTheFinishedWordsEndNotJustByCount() {
+        // Same count, same words: cut after them.
+        XCTAssertEqual(CallLive.covered(["sí", "claro", "yo", "pensaba"], by: ["Sí,", "claro."]), 2)
+        // The guess has a word the notes left out: cut where the last
+        // finished word is, one further on.
+        XCTAssertEqual(CallLive.covered(["vamos", "a", "dónde", "quieras", "mañana"], by: ["vamos", "dónde"]), 3)
+        // The notes heard a word the guess missed: one sooner.
+        XCTAssertEqual(CallLive.covered(["el", "fin", "de", "semana", "vale"], by: ["pues", "el", "fin", "de", "semana"]), 4)
+        // No match nearby: by count, never past the guess.
+        XCTAssertEqual(CallLive.covered(["uno", "dos", "tres"], by: ["a", "b"]), 2)
+        XCTAssertEqual(CallLive.covered(["uno"], by: ["a", "b", "c"]), 1)
+        XCTAssertEqual(CallLive.covered([], by: ["a"]), 0)
+        XCTAssertEqual(CallLive.covered(["a"], by: []), 0)
+        // A repeated word: the place nearest the count wins.
+        XCTAssertEqual(CallLive.covered(["no", "no", "no", "no", "sé"], by: ["no", "no"]), 2)
+    }
+
     func testASmallSpaceShowsTheNewestWordsFromAWordsStart() {
         XCTAssertEqual(CallLive.newest("short enough", limit: 40), "short enough")
         XCTAssertEqual(CallLive.newest("the quick brown fox jumps", limit: 12), "…fox jumps")

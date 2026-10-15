@@ -73,6 +73,10 @@ enum GalleryLiveTranscript {
                          ground: .window, width: GalleryMeetings.size.width) {
                 calls(.transcript, inPerson: true, hearing: [(.them, "Perfect. Last thing, the website still")])
             },
+            GalleryState("K73", area, "Side window: two people told apart while the meeting goes on, Person 2 being named",
+                         ground: .window, width: side.width) {
+                window(record(inPerson: true, twoPeople: true), naming: 2)
+            },
         ]
         // Each opens on the newest line, which takes a run loop to settle.
         return states.map { var state = $0; state.settles = true; return state }
@@ -81,11 +85,12 @@ enum GalleryLiveTranscript {
     static let side = CGSize(width: 360, height: 640)
 
     private static func window(_ record: MeetingRecord, paused: Bool = false, outcome: CallLive.Outcome? = nil,
-                               hearing: [CallLive.Hearing] = [], scrolledAwayFor: Int? = nil) -> some View {
+                               hearing: [CallLive.Hearing] = [], scrolledAwayFor: Int? = nil,
+                               naming: Int? = nil) -> some View {
         LiveTranscriptView(live: CallNotesLive(previewing: record, outcome: outcome, hearing: hearing),
                            actions: LiveTranscriptActions(isPaused: { paused }, pause: {}, resume: {}, stop: {},
                                                           open: { _ in }, close: {}),
-                           scrolledAwayFor: scrolledAwayFor)
+                           scrolledAwayFor: scrolledAwayFor, naming: naming)
             .frame(width: side.width, height: side.height)
             .background(CallsLook.sidebar)
             .environment(\.colorScheme, .dark)
@@ -111,7 +116,10 @@ enum GalleryLiveTranscript {
     /// Ended, it ran 13 minutes, and Mariana had the last word.
     /// `said` false: the call has just begun and nothing is written yet.
     /// `inPerson`: the same talk in a room, with no calendar name for it.
-    private static func record(ended: Bool = false, said: Bool = true, inPerson: Bool = false) -> MeetingRecord {
+    /// `twoPeople`: the room told apart, its lines Person 1's and Person 2's
+    /// in turn.
+    private static func record(ended: Bool = false, said: Bool = true, inPerson: Bool = false,
+                               twoPeople: Bool = false) -> MeetingRecord {
         let now = Date()
         let started = now.addingTimeInterval(ended ? -15 * 60 : -765)
         var turns: [(MeetingSpeaker, TimeInterval, TimeInterval, String)] = [
@@ -137,7 +145,10 @@ enum GalleryLiveTranscript {
             bundleID: inPerson ? OngoingCall.inPersonBundleID : "us.zoom.xos",
             appName: inPerson ? "In person" : "Zoom", startedAt: started,
             endedAt: ended ? started.addingTimeInterval(13 * 60 + 5) : nil, languages: ["en-GB"],
-            segments: said ? turns.map { MeetingSegment(speaker: $0.0, start: $0.1, end: $0.2, text: $0.3) } : [],
+            segments: said ? turns.enumerated().map { index, turn in
+                MeetingSegment(speaker: turn.0, start: turn.1, end: turn.2, text: turn.3,
+                               person: twoPeople && turn.0 == .them ? index / 2 % 2 + 1 : nil)
+            } : [],
             event: inPerson ? nil
                 : MeetingEvent(title: "Weekly check-in", start: started, attendees: ["Mariana García-Robles"]))
     }

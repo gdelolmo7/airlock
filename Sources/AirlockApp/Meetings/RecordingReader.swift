@@ -166,6 +166,9 @@ final class RecordingReader {
             let outcome = CallVoices.number(&record, from: voicesFrom, spans: report.spans, words: track.words)
             var line = "voices: \(outcome.people) people from \(outcome.heard) heard"
             line += ", \(outcome.folded) folded, \(outcome.split) line(s) cut"
+            if !outcome.talk.isEmpty {
+                line += ", talk " + outcome.talk.map { String(format: "%.1f", $0) }.joined(separator: "/") + "s"
+            }
             if let reason = outcome.reason { line += " (\(reason))" }
             line += String(format: "; model %.1fs, load %.1fs", report.computeSeconds, report.loadSeconds)
             if let stopped = report.stopped { line += "; stopped: \(stopped)" }
@@ -197,6 +200,11 @@ final class RecordingReader {
         } catch {
             log("recording: notes save FAILED: \(error.localizedDescription)")
             return .failed("Airlock couldn't save the notes in your Meetings folder.")
+        }
+        do {
+            try store.saveTopic(written?.title, in: folder)
+        } catch {
+            log("recording: title not saved: \(error.localizedDescription)")
         }
         log(String(format: "recording: notes saved in %.0f s", Date().timeIntervalSince(started)))
         return .saved(folder: folder, record: record, notes: written)

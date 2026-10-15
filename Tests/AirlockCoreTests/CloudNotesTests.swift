@@ -56,8 +56,11 @@ final class CloudNotesPromptTests: XCTestCase {
             + "Never write only that things were discussed or decisions were made: say which.\n"
             + "Key points are up to five short lines on the topics discussed, saying what the decisions, "
             + "to-dos and open questions do not already say. Each lists the IDs of the lines it comes from.\n"
+            + "The title names the meeting by what it was about, in two to six words in the notes' language, "
+            + #"as someone would file it: "Kitchen tiles and delivery dates", not "Meeting about the kitchen". "#
+            + "No quotes, no full stop, no date, no app name.\n"
             + "At most 8 decisions, 15 to-dos, 8 open questions and 5 key points.\n"
-            + #"Answer with JSON only, in this shape: {"summary": "...", "decisions": [{"text": "...", "#
+            + #"Answer with JSON only, in this shape: {"summary": "...", "title": "...", "decisions": [{"text": "...", "#
             + #""sources": ["S12"]}], "todos": [{"task": "...", "owner": "...", "due": "...", "sources": "#
             + #"["S12"]}], "questions": [{"text": "...", "sources": ["S12"]}], "keyPoints": [{"text": "...", "#
             + #""sources": ["S12"]}]}"#
@@ -285,7 +288,7 @@ final class CloudNotesRouteTests: XCTestCase {
         XCTAssertEqual(route { $0.promptSize = CloudNotes.promptLimit + 1 }, .mac(.tooLong))
         XCTAssertEqual(route { $0.promptSize = CloudNotes.promptLimit }, .online)
         XCTAssertEqual(route { $0.notEligibleUntil = later }, .mac(.notEligible(until: later)))
-        XCTAssertEqual(route { $0.notEligibleUntil = earlier }, .online, "a day later, it asks again")
+        XCTAssertEqual(route { $0.notEligibleUntil = earlier }, .online, "a month later, it asks again")
         XCTAssertEqual(route { $0.allowanceUntil = later }, .mac(.allowanceUsed(until: later)))
         XCTAssertEqual(route { $0.allowanceUntil = earlier }, .online, "after resetsAt, it asks again")
         XCTAssertEqual(route { $0.online = false }, .mac(.offline))
@@ -326,113 +329,93 @@ final class CloudNotesRouteTests: XCTestCase {
         XCTAssertTrue(CloudNotesRoute.mac(.offline).waitsForOnline)
         for route in [CloudNotesRoute.online, .mac(.hiddenSwitchOff), .mac(.settingOff), .mac(.notSubscribed),
                       .mac(.tooShort), .mac(.tooLong), .mac(.allowanceUsed(until: now)),
-                      .mac(.notEligible(until: now)), .mac(.notAsked), .mac(.notAskedOffline)] {
+                      .mac(.notEligible(until: now))] {
             XCTAssertFalse(route.waitsForOnline, "\(route)")
         }
     }
 
-    // MARK: Asked once, before anything leaves
+    // MARK: On unless switched off
 
-    /// Not asked yet sends nothing, and is the one case that asks: only
-    /// when everything else would have sent it.
-    func testNotAskedYetIsWrittenOnTheMacAndAsks() {
-        XCTAssertEqual(route { $0.setting = nil }, .mac(.notAsked))
-        XCTAssertTrue(CloudNotesRoute.mac(.notAsked).asks)
+    /// Nobody is asked: an untouched switch is on, and only off keeps a
+    /// subscriber's notes on the Mac.
+    func testAnUntouchedSettingIsOn() {
+        XCTAssertEqual(route { $0.setting = nil }, .online)
         XCTAssertEqual(route { $0.setting = true }, .online)
-        XCTAssertEqual(route { $0.setting = false }, .mac(.settingOff), "said no: never asked again")
-        XCTAssertFalse(CloudNotesRoute.mac(.settingOff).asks)
+        XCTAssertEqual(route { $0.setting = false }, .mac(.settingOff))
     }
 
-    /// Never for a trial, offline, over the month's allowance, or notes that
-    /// couldn't go online anyway: those say why, and ask nothing.
-    func testNothingIsAskedWhenTheNotesCouldNotGoOnlineAnyway() {
-        let later = now.addingTimeInterval(3_600)
-        let unasked: [(inout CloudNotesConditions) -> Void] = [
-            { $0.entitlement = .trialing(daysRemaining: 9) },
-            { $0.entitlement = .free },
-            { $0.online = false },
-            { $0.allowanceUntil = later },
-            { $0.notEligibleUntil = later },
-            { $0.words = MeetingNotes.minimumWords - 1 },
-            { $0.promptSize = CloudNotes.promptLimit + 1 },
-            { $0.hasToken = false },
-            { $0.hasServer = false },
-            { $0.hiddenSwitch = false },
-        ]
-        let expected: [CloudNotesRoute] = [
-            .mac(.notSubscribed), .mac(.notSubscribed), .mac(.notAskedOffline),
-            .mac(.allowanceUsed(until: later)), .mac(.notEligible(until: later)), .mac(.tooShort),
-            .mac(.tooLong), .mac(.noToken), .mac(.noServer), .mac(.hiddenSwitchOff),
-        ]
-        for (change, reason) in zip(unasked, expected) {
+    /// Offline with the switch untouched: written on the Mac, and written
+    /// again online once the Mac is back online, as after a yes.
+    func testOfflineTheNotesWaitForOnlineWhateverTheSwitchSays() {
+        for setting in [nil, true] as [Bool?] {
             let decided = route {
-                $0.setting = nil
-                change(&$0)
+                $0.setting = setting
+                $0.online = false
             }
-            XCTAssertEqual(decided, reason)
-            XCTAssertFalse(decided.asks, "\(decided)")
+            XCTAssertEqual(decided, .mac(.offline), "\(String(describing: setting))")
+            XCTAssertTrue(decided.waitsForOnline)
         }
-    }
-
-    /// Offline and not asked yet: written on the Mac like any other, and
-    /// nothing promised, since nobody has said they may go online.
-    func testOfflineAndNotAskedPromisesNothing() {
-        let decided = route {
-            $0.setting = nil
+        XCTAssertEqual(route {
+            $0.setting = false
             $0.online = false
-        }
-        XCTAssertEqual(decided, .mac(.notAskedOffline))
-        XCTAssertFalse(decided.waitsForOnline)
-        XCTAssertEqual(route { $0.online = false }, .mac(.offline), "said yes: written again once online")
+        }, .mac(.settingOff), "switched off: nothing waits")
     }
 
     func testTheReasonsAreLoggedInWords() {
-        XCTAssertEqual(CloudNotesRoute.Reason.notAsked.logName, "not asked yet")
-        XCTAssertEqual(CloudNotesRoute.Reason.notAskedOffline.logName, "offline, not asked yet")
-        XCTAssertEqual(CloudNotesRoute.Reason.settingOff.logName, "said no")
+        XCTAssertEqual(CloudNotesRoute.Reason.settingOff.logName, "switched off in Settings")
+        XCTAssertEqual(CloudNotesRoute.Reason.offline.logName, "offline")
     }
 }
 
-// MARK: - The question
+// MARK: - The switch in Settings
 
-final class CloudNotesQuestionTests: XCTestCase {
-    /// Absent is not asked yet, and the switch shows off until a yes.
-    func testTheSwitchIsOnOnlyAfterAYes() {
-        XCTAssertFalse(CloudNotesQuestion.switchIsOn(nil))
-        XCTAssertFalse(CloudNotesQuestion.switchIsOn(false))
-        XCTAssertTrue(CloudNotesQuestion.switchIsOn(true))
+final class CloudNotesSettingTests: XCTestCase {
+    /// Untouched is on; only a false is off.
+    func testTheSwitchIsOnUnlessSwitchedOff() {
+        XCTAssertTrue(CloudNotesSetting.isOn(nil))
+        XCTAssertTrue(CloudNotesSetting.isOn(true))
+        XCTAssertFalse(CloudNotesSetting.isOn(false))
     }
 
-    /// Says where the transcript goes, that nobody keeps it, and the way back.
+    /// Says where the transcript goes, that nobody keeps it, and what off means.
     func testTheWordsSayWhereItGoesAndThatNobodyKeepsIt() {
-        XCTAssertEqual(CloudNotesQuestion.title, "Write better notes online?")
-        XCTAssertEqual(CloudNotesQuestion.text,
-                       "Airlock can send this meeting's transcript through its server to Google's Gemini, which "
-                       + "writes clearer notes and finds the real to-dos. Neither Airlock nor Google keeps it, "
-                       + "and it isn't used to train AI.")
-        XCTAssertEqual(CloudNotesQuestion.settingsLine, "You can change this in Settings.")
-        XCTAssertEqual(CloudNotesQuestion.keepButton, "Keep on this Mac")
-        XCTAssertEqual(CloudNotesQuestion.writeButton, "Write online")
-        XCTAssertEqual(CloudNotesQuestion.settingsSubtitle,
+        XCTAssertEqual(CloudNotesSetting.title, "Write notes online")
+        XCTAssertEqual(CloudNotesSetting.subtitle,
                        "When a meeting ends, its transcript goes through Airlock's server to Google's Gemini to "
                        + "write better notes. Neither Airlock nor Google keeps it, and it isn't used to train AI. "
                        + "Off, or without internet, notes are written on this Mac.")
     }
+}
 
-    /// "Write online": the Mac's notes, never sent, set waiting so the
-    /// queue writes them again online now. Nothing else is sent again.
-    func testWritingOnlineNowSetsOnlyTheMacsUnsentNotesWaiting() throws {
-        let mac = MeetingNotesWriter.mac(at: Fixture.start)
-        let waiting = try XCTUnwrap(CloudNotesRedo.writeOnlineNow(mac))
-        XCTAssertTrue(waiting.waitsForOnline)
-        XCTAssertEqual(waiting.onlineTries, 0)
-        XCTAssertEqual(CloudNotesRedo.waiting([(URL(fileURLWithPath: "/meetings/x"),
-                                                Fixture.record(endedAfter: 90, writer: waiting))]).count, 1)
-        var sent = mac
-        sent.onlineTries = 1
-        XCTAssertNil(CloudNotesRedo.writeOnlineNow(sent), "sent once already")
-        XCTAssertNil(CloudNotesRedo.writeOnlineNow(.online(model: "m", at: Fixture.start)), "already online")
-        XCTAssertNil(CloudNotesRedo.writeOnlineNow(nil), "an older record, no writer")
+// MARK: - A refusal, kept for one licence
+
+final class CloudNotesNotEligibleTests: XCTestCase {
+    private let until = Fixture.start.addingTimeInterval(30 * 86_400)
+
+    func testItIsBelievedForAMonth() {
+        XCTAssertEqual(CloudNotesAllowance.notEligibleFor, 30 * 86_400)
+    }
+
+    /// Believed only for the token it came with.
+    func testItHoldsOnlyForTheSameLicence() {
+        let mark = CloudNotesAllowance.tokenMark("token-a")
+        XCTAssertEqual(CloudNotesAllowance.notEligibleUntil(saved: until, savedMark: mark, token: "token-a"), until)
+        XCTAssertNil(CloudNotesAllowance.notEligibleUntil(saved: until, savedMark: mark, token: "token-b"),
+                     "renewed or bought: asked again at once")
+        XCTAssertNil(CloudNotesAllowance.notEligibleUntil(saved: until, savedMark: mark, token: nil))
+        XCTAssertNil(CloudNotesAllowance.notEligibleUntil(saved: until, savedMark: nil, token: "token-a"),
+                     "kept without a mark, by 1.0.20")
+        XCTAssertNil(CloudNotesAllowance.notEligibleUntil(saved: nil, savedMark: mark, token: "token-a"))
+    }
+
+    /// Short, the same every time, and not the token.
+    func testTheMarkIsShortAndNotTheToken() {
+        let token = "eyJsaWNlbmNlIjoibGljXzEifQ.c2lnbmF0dXJl"
+        let mark = CloudNotesAllowance.tokenMark(token)
+        XCTAssertEqual(mark, CloudNotesAllowance.tokenMark(token))
+        XCTAssertEqual(mark.count, 16)
+        XCTAssertFalse(token.contains(mark))
+        XCTAssertNotEqual(mark, CloudNotesAllowance.tokenMark(token + "x"))
     }
 }
 

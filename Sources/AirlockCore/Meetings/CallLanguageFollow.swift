@@ -86,6 +86,38 @@ public enum CallLanguageFollow {
         return count
     }
 
+    /// Words of each take the read below looks at: the newest, so it follows
+    /// the speech rather than how it began.
+    public static let wordsShownRead = 20
+
+    /// Which take the words on screen follow while the takes race: the one
+    /// showing, while its newest words read as its own language; otherwise
+    /// the first whose words do; otherwise still the one showing.
+    ///
+    /// By what the words read as, not by confidence, as dictation's preview
+    /// is (`TranscriptRace.liveChoice`). The quick recognisers that write the
+    /// words give their guesses no confidence (measured), only their
+    /// finished sentences, and a Spanish one finished none for twenty
+    /// seconds, so the English attempt stayed on screen all that time. A
+    /// read tells the language spoken rather than which recogniser heard it
+    /// better, and the language spoken is all the screen needs: the take in
+    /// it writes it, and the other writes its own words for those sounds,
+    /// which read as the spoken language too ("Holaal com del Valencia de la
+    /// se quene" reads es, from four words).
+    ///
+    /// - `takes`: each take's locale identifier, its language code and its
+    ///   words as they would show, in race order, the primary first.
+    public static func shown(_ takes: [(identifier: String, code: String, words: String)],
+                             showing: String) -> String {
+        let codes = Set(takes.map(\.code))
+        func readsAsItsOwn(_ take: (identifier: String, code: String, words: String)) -> Bool {
+            let newest = take.words.split(whereSeparator: \.isWhitespace).suffix(wordsShownRead)
+            return language(of: newest.joined(separator: " "), among: codes) == take.code
+        }
+        if let current = takes.first(where: { $0.identifier == showing }), readsAsItsOwn(current) { return showing }
+        return takes.first(where: readsAsItsOwn)?.identifier ?? showing
+    }
+
     // MARK: - The watch
 
     /// The rolling read of one take's lines.

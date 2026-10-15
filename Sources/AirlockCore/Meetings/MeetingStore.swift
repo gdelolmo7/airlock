@@ -51,6 +51,16 @@ public struct MeetingStore: Sendable {
         try saveRecord(record, in: folder)
     }
 
+    /// The name the notes gave the meeting (`MeetingRecord.topic`), put in
+    /// the record on disk and the transcript's heading. Nil leaves the one
+    /// it has: notes that name nothing do not take a name away.
+    public func saveTopic(_ topic: String?, in folder: URL, timeZone: TimeZone = .current) throws {
+        guard let topic = MeetingNotes.title(topic), var record = loadRecord(in: folder),
+              record.topic != topic else { return }
+        record.topic = topic
+        try saveTranscript(record, in: folder, timeZone: timeZone)
+    }
+
     /// The notes page as it is now, kept beside the new one about to take
     /// its place, under a name of its own that is never written over
     /// (`MeetingFiles.earlierNotesName`). Its name, or nil when there were
@@ -94,10 +104,13 @@ public struct MeetingStore: Sendable {
     /// written; notes from before names existed are that page already.
     public func saveNames(of record: MeetingRecord, in folder: URL,
                           timeZone: TimeZone = .current) throws {
-        // A record read before the notes were written has no writer yet:
-        // the one on disk is kept.
+        // A record read before the notes were written has no writer and no
+        // title from them yet: the ones on disk are kept.
         var record = record
-        if record.notesWriter == nil { record.notesWriter = loadRecord(in: folder)?.notesWriter }
+        if record.notesWriter == nil || record.topic == nil, let saved = loadRecord(in: folder) {
+            record.notesWriter = record.notesWriter ?? saved.notesWriter
+            record.topic = record.topic ?? saved.topic
+        }
         try saveTranscript(record, in: folder, timeZone: timeZone)
         let kept = folder.appendingPathComponent(Self.notesAsWrittenName)
         let written = (try? String(contentsOf: kept, encoding: .utf8)) ?? notesPage(in: folder)

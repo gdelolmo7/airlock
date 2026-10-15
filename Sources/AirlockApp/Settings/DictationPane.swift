@@ -26,8 +26,8 @@ struct DictationPane: View {
     /// Notes online: on unless the hidden switch says false. Their row shows
     /// only then, and only for a subscriber.
     @AppStorage(CloudNotesService.enabledKey) private var cloudNotesOn = CloudNotesService.onByDefault
-    /// The person's answer, three ways: nil until asked under some notes.
-    /// The switch is off until a yes (`CloudNotesQuestion.switchIsOn`).
+    /// "Write notes online", three ways: nil until touched, which counts
+    /// as on (`CloudNotesSetting.isOn`).
     @AppStorage(CloudNotesService.settingKey) private var notesOnline: Bool?
     @Environment(DictationModel.self) private var dictation
     @Environment(AssistantModel.self) private var assistant
@@ -78,7 +78,7 @@ struct DictationPane: View {
                 if callNotesOn {
                     callLanguageRow
                     pastCallsRow
-                    if cloudNotesOn, license?.entitlement.isPaid == true { notesOnlineRow }
+                    if offersNotesOnline { notesOnlineRow }
                     KnownWordsRow(words: knownWords)
                         .settingsAnchor(.knownWords)
                     if CallVoiceModel.isInstalled { callVoicesRow }
@@ -262,10 +262,18 @@ struct DictationPane: View {
     /// under this one. Off, a call is only a call again.
     private var callNotesRow: some View {
         LookToggleRow("Call notes",
-                      subtitle: "Offers to take notes when a call starts. Written on your Mac",
+                      subtitle: "Offers to take notes when a call starts. "
+                          + (writesNotesOnline ? "Written online, or on your Mac without internet"
+                                               : "Written on your Mac"),
                       isOn: $callNotesOn)
             .settingsAnchor(.callNotes)
     }
+
+    /// A subscriber's: "Write notes online" shows.
+    private var offersNotesOnline: Bool { cloudNotesOn && license?.entitlement.isPaid == true }
+
+    /// Where the notes are written, for the line under "Call notes".
+    private var writesNotesOnline: Bool { offersNotesOnline && CloudNotesSetting.isOn(notesOnline) }
 
     /// The way back to calls already over. Here because this is where call
     /// notes are set up, and the island only offers a call as it ends.
@@ -277,12 +285,12 @@ struct DictationPane: View {
     }
 
     /// Where a meeting's notes are written (`CloudNotesService`). Says where
-    /// the transcript goes before it goes, and what off means. Off until a
-    /// yes; turning it on is the yes, and off the no.
+    /// the transcript goes, and what off means. On until switched off: off
+    /// keeps every meeting's transcript on this Mac.
     private var notesOnlineRow: some View {
-        LookToggleRow(CloudNotesQuestion.settingsTitle,
-                      subtitle: CloudNotesQuestion.settingsSubtitle,
-                      isOn: Binding(get: { CloudNotesQuestion.switchIsOn(notesOnline) },
+        LookToggleRow(CloudNotesSetting.title,
+                      subtitle: CloudNotesSetting.subtitle,
+                      isOn: Binding(get: { CloudNotesSetting.isOn(notesOnline) },
                                     set: { CloudNotesService.setSwitch($0) }))
             .settingsAnchor(.notesOnline)
     }

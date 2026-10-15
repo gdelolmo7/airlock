@@ -42,7 +42,9 @@ final class CallVoicesTests: XCTestCase {
         let outcome = CallVoices.number(&call, spans: [span(3, 0, 20), span(0, 20, 45), span(3, 45, 60)],
                                         words: words)
 
-        XCTAssertEqual(outcome, CallVoices.Outcome(heard: 2, people: 2))
+        XCTAssertEqual(outcome.heard, 2)
+        XCTAssertEqual(outcome.people, 2)
+        XCTAssertEqual(outcome.folded, 0)
         XCTAssertEqual(call.segments.map(\.person), [1, nil, 2, 1])
         XCTAssertEqual(call.segments.map { call.label(for: $0) }, ["Person 1", "You", "Person 2", "Person 1"])
     }
@@ -65,16 +67,75 @@ final class CallVoicesTests: XCTestCase {
     }
 
     func testAVoiceHeardTooLittleIsFoldedIntoItsNeighbour() {
-        // Five seconds of a second "voice" in a minute: a cough, a laugh, the
-        // same person turning away from the mic. Not believed.
-        var call = record([said(.them, 1, 30, first), said(.them, 31, 36, "Sorry go on"),
+        // Two seconds of a second "voice" in a minute: a moment of
+        // crosstalk, the same person turning away from the mic. Not believed.
+        var call = record([said(.them, 1, 30, first), said(.them, 31, 33, "Sorry go on"),
                            said(.them, 37, 60, second)])
-        let outcome = CallVoices.number(&call, spans: [span(0, 0, 30.5), span(1, 30.5, 36.5), span(0, 36.5, 61)],
-                                        words: timed(first, 1, 30) + timed("Sorry go on", 31, 36)
+        let outcome = CallVoices.number(&call, spans: [span(0, 0, 30.5), span(1, 30.5, 33.5), span(0, 36.5, 61)],
+                                        words: timed(first, 1, 30) + timed("Sorry go on", 31, 33)
                                             + timed(second, 37, 60))
         XCTAssertEqual(outcome.folded, 1)
         XCTAssertEqual(outcome.reason, "one voice after folding")
         XCTAssertEqual(call.segments.map(\.person), [nil, nil, nil])
+    }
+
+    func testInAShortChatTheSecondPersonIsKept() {
+        // Twenty seconds in person, the second person speaking for four:
+        // under the fifteen-second floor, which folded every second person
+        // in a chat this short into the first.
+        let mine = "Y mira por ejemplo yo me pongo a hablar contigo"
+        let yours = "Pero sí está chulo"
+        var call = record([said(.them, 0, 14, mine), said(.them, 14.5, 18.5, yours)])
+        let outcome = CallVoices.number(&call, spans: [span(0, 0, 14.2), span(1, 14.2, 19)],
+                                        words: timed(mine, 0, 14) + timed(yours, 14.5, 18.5))
+        XCTAssertEqual(outcome.people, 2)
+        XCTAssertEqual(call.segments.map(\.person), [1, 2])
+    }
+
+    func testInAShortChatAGreetingIsAPerson() {
+        // Half a minute in person, the second person saying only a two-second
+        // greeting in the middle of a line: three seconds was the floor, and
+        // folded them into the first.
+        let mine = "Vale en teoría esto debería estar poniendo todo en tiempo real a ver habla tú"
+        let yours = "Hola qué tal cómo andas"
+        let after = "No aparentemente no lo diferencia"
+        let text = mine + " " + yours
+        var call = record([said(.them, 1, 16, text), said(.them, 17, 23.5, after)])
+        let outcome = CallVoices.number(&call, spans: [span(0, 0, 14), span(1, 14, 16.2), span(0, 16.8, 24)],
+                                        words: timed(mine, 1, 14) + timed(yours, 14.1, 16) + timed(after, 17, 23.5))
+        XCTAssertEqual(outcome.people, 2)
+        XCTAssertEqual(outcome.split, 1)
+        XCTAssertEqual(call.segments.map(\.text), [mine, yours, after])
+        XCTAssertEqual(call.segments.map(\.person), [1, 2, 1])
+    }
+
+    func testInAShortChatALaughIsStillNotAPerson() {
+        var call = record([said(.them, 0, 17, first), said(.them, 17.2, 18.7, "Ha ha ha")])
+        let outcome = CallVoices.number(&call, spans: [span(0, 0, 17.1), span(1, 17.1, 19)],
+                                        words: timed(first, 0, 17) + timed("Ha ha ha", 17.2, 18.7))
+        XCTAssertEqual(outcome.folded, 1)
+        XCTAssertEqual(outcome.reason, "one voice after folding")
+        XCTAssertEqual(call.segments.map(\.person), [nil, nil])
+    }
+
+    func testALongLaughOrAYesYesIsNotTalk() {
+        // Three seconds is over the floor; a laugh is still not someone
+        // joining in.
+        var call = record([said(.them, 0, 17, first), said(.them, 17.2, 20.2, "Ja, ja, ja, ja.")])
+        let outcome = CallVoices.number(&call, spans: [span(0, 0, 17.1), span(1, 17.1, 21)],
+                                        words: timed(first, 0, 17) + timed("Ja, ja, ja, ja.", 17.2, 20.2))
+        XCTAssertEqual(outcome.folded, 1)
+        XCTAssertEqual(call.segments.map(\.person), [nil, nil])
+        XCTAssertFalse(CallVoices.isTalk("Sí, sí."))
+        XCTAssertFalse(CallVoices.isTalk("Mm"))
+        XCTAssertTrue(CallVoices.isTalk("Sí, claro"))
+    }
+
+    func testTheTalkNeededToBeBelievedGrowsWithTheMeeting() {
+        XCTAssertEqual(CallVoices.fewestSeconds(outOf: 18), 1.5, accuracy: 0.001)
+        XCTAssertEqual(CallVoices.fewestSeconds(outOf: 60), 3, accuracy: 0.001)
+        XCTAssertEqual(CallVoices.fewestSeconds(outOf: 200), 10, accuracy: 0.001)
+        XCTAssertEqual(CallVoices.fewestSeconds(outOf: 600), 30, accuracy: 0.001)
     }
 
     func testThreeVoicesKeepTheirOwnNumbers() {
@@ -144,6 +205,128 @@ final class CallVoicesTests: XCTestCase {
                                         words: timed(third, 100, 120) + timed(first, 120, 140))
         XCTAssertEqual(outcome.people, 2)
         XCTAssertEqual(call.segments.map(\.person), [1, 2, 3, 4])
+    }
+
+    // MARK: - While the call goes on
+
+    func testDuringTheCallOnlyTheLinesTheModelHasHeardAreNumbered() {
+        var call = record([said(.them, 1, 19, first), said(.them, 21, 44, second), said(.them, 46, 59, third)])
+        var numbering = CallVoices.Numbering()
+        let words = timed(first, 1, 19) + timed(second, 21, 44) + timed(third, 46, 59)
+        let outcome = CallVoices.number(&call, through: 45, spans: [span(3, 0, 20), span(0, 20, 45)],
+                                        words: words, numbering: &numbering)
+
+        XCTAssertEqual(outcome.people, 2)
+        // The last line is past what the model has heard: it waits.
+        XCTAssertEqual(call.segments.map(\.person), [1, 2, nil])
+        XCTAssertEqual(call.segments.map { call.label(for: $0) }, ["Person 1", "Person 2", "Them"])
+    }
+
+    func testPassAfterPassEachVoiceKeepsItsNumber() {
+        // B says two seconds early on, too little to be believed, and only
+        // later says enough: C, believed first, stays Person 2.
+        var call = record([said(.them, 0, 30, first), said(.them, 30, 32, "Sorry go on"),
+                           said(.them, 32, 50, second), said(.them, 50, 70, third)])
+        let spans = [span(0, 0, 30), span(1, 30, 32), span(2, 32, 50), span(1, 50, 70)]
+        let words = timed(first, 0, 30) + timed("Sorry go on", 30, 32) + timed(second, 32, 50) + timed(third, 50, 70)
+        var numbering = CallVoices.Numbering()
+
+        _ = CallVoices.number(&call, through: 50, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(call.segments.map(\.person), [1, 1, 2, nil])
+
+        let outcome = CallVoices.number(&call, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(outcome.people, 3)
+        XCTAssertEqual(call.segments.map(\.person), [1, 3, 2, 3])
+        // Run again with nothing new, nothing moves.
+        let again = call
+        _ = CallVoices.number(&call, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(call, again)
+    }
+
+    func testANameGivenDuringTheCallFollowsItsVoiceWhenTheNumbersMove() {
+        // Three voices at first; then B turns out to be too little of the
+        // call and is folded away, so C moves up from Person 3 to Person 2.
+        var call = record([said(.them, 0, 10, first), said(.them, 10, 14, "Sorry go on"),
+                           said(.them, 14, 30, second), said(.them, 30, 60, third), said(.them, 60, 90, first)])
+        let spans = [span(0, 0, 10), span(1, 10, 14), span(2, 14, 30), span(0, 30, 60), span(2, 60, 90)]
+        let words = timed(first, 0, 10) + timed("Sorry go on", 10, 14) + timed(second, 14, 30)
+            + timed(third, 30, 60) + timed(first, 60, 90)
+        var numbering = CallVoices.Numbering()
+
+        _ = CallVoices.number(&call, through: 30, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(call.segments.map(\.person), [1, 2, 3, nil, nil])
+        call.name(2, as: "Ana")
+        call.name(3, as: "Marc")
+
+        _ = CallVoices.number(&call, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(call.segments.map(\.person), [1, 1, 2, 1, 2])
+        XCTAssertEqual(call.names, [MeetingVoiceName(voice: 2, name: "Marc")])
+        XCTAssertEqual(call.segments.map { call.label(for: $0) }, ["Person 1", "Person 1", "Marc", "Person 1", "Marc"])
+    }
+
+    func testWhenTheVoicesTurnOutToBeOneTheLinesAreTheOtherSidesAgain() {
+        // Two voices at first; then one of them says so much that the
+        // other's five seconds are not believed.
+        var call = record([said(.them, 0, 14, first), said(.them, 14, 19, "Sorry go on"),
+                           said(.them, 20, 200, second)])
+        let spans = [span(0, 0, 14), span(1, 14, 19), span(0, 19, 200)]
+        let words = timed(first, 0, 14) + timed("Sorry go on", 14, 19) + timed(second, 20, 200)
+        var numbering = CallVoices.Numbering()
+
+        _ = CallVoices.number(&call, through: 19.5, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(call.segments.map(\.person), [1, 2, nil])
+        call.name(1, as: "Marc")
+        call.name(2, as: "Ana")
+
+        let outcome = CallVoices.number(&call, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(outcome.reason, "one voice after folding")
+        XCTAssertEqual(call.segments.map(\.person), [nil, nil, nil])
+        // The voice left is the whole other side now, and keeps its name.
+        XCTAssertEqual(call.names, [MeetingVoiceName(voice: MeetingRecord.otherSide, name: "Marc")])
+        XCTAssertEqual(call.segments.map { call.label(for: $0) }, ["Marc", "Marc", "Marc"])
+    }
+
+    func testACallThatCarriedOnKeepsItsNumbersFromPassToPass() {
+        var call = record([said(.them, 0, 20, first, person: 1), said(.them, 20, 40, second, person: 2),
+                           said(.them, 100, 120, third), said(.them, 120, 140, first)])
+        let spans = [span(0, 95, 120), span(1, 120, 141)]
+        let words = timed(third, 100, 120) + timed(first, 120, 140)
+        var numbering = CallVoices.Numbering()
+        _ = CallVoices.number(&call, from: 90, through: 141, spans: spans, words: words, numbering: &numbering)
+        _ = CallVoices.number(&call, from: 90, spans: spans, words: words, numbering: &numbering)
+        XCTAssertEqual(call.segments.map(\.person), [1, 2, 3, 4])
+    }
+
+    func testTheModelsStretchesSoFarCloseTheOpenOnesAtTheLastFrame() {
+        var tracker = CallVoices.Tracker(origin: 10)
+        tracker.add(Array(repeating: [0.9, 0], count: 50).flatMap { $0 }, frames: 50, voices: 2)
+        let heard = tracker.soFar
+        XCTAssertEqual(heard.spans, [span(0, 10, 10.5)])
+        XCTAssertEqual(heard.through, 10.5, accuracy: 0.001)
+        // Still open in the tracker itself: the next frames carry it on.
+        tracker.add(Array(repeating: [0.9, 0], count: 50).flatMap { $0 }, frames: 50, voices: 2)
+        tracker.finish()
+        XCTAssertEqual(tracker.spans.count, 1)
+        XCTAssertEqual(tracker.spans[0].end, 11, accuracy: 0.001)
+    }
+
+    func testAnHourOfLinesIsNumberedQuickly() {
+        // A pass runs on the main actor every ten seconds of a call.
+        var segments: [MeetingSegment] = []
+        var words: [CallLanguageFollow.Timed] = []
+        var spans: [CallVoices.Span] = []
+        for i in 0..<900 {
+            let start = Double(i) * 4
+            segments.append(said(.them, start, start + 3.5, first))
+            words += timed(first, start, start + 3.5)
+            spans.append(span(i % 3, start, start + 3.6))
+        }
+        var call = record(segments)
+        var numbering = CallVoices.Numbering()
+        let started = Date()
+        _ = CallVoices.number(&call, spans: spans, words: words, numbering: &numbering)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+        XCTAssertEqual(Set(call.segments.compactMap(\.person)), [1, 2, 3])
     }
 
     // MARK: - The shadow

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Notes written online for a subscriber, by a larger model than the Mac's.
@@ -45,12 +46,15 @@ public enum CloudNotes {
         /// Decisions, to-dos and open questions; no topics.
         public var lines: MeetingDraft
         public var keyPoints: [MeetingDraft.Fact]
+        /// The meeting's name as written, not yet cleaned.
+        public var title: String
 
         public init(summary: String = "", lines: MeetingDraft = MeetingDraft(),
-                    keyPoints: [MeetingDraft.Fact] = []) {
+                    keyPoints: [MeetingDraft.Fact] = [], title: String = "") {
             self.summary = summary
             self.lines = lines
             self.keyPoints = keyPoints
+            self.title = title
         }
     }
 
@@ -80,7 +84,8 @@ public enum CloudNotes {
         return Draft(summary: string(object["summary"]) ?? "",
                      lines: MeetingDraft(decisions: facts(object["decisions"]), todos: todos,
                                          questions: facts(object["questions"])),
-                     keyPoints: facts(object["keyPoints"] ?? object["key_points"]))
+                     keyPoints: facts(object["keyPoints"] ?? object["key_points"]),
+                     title: string(object["title"]) ?? "")
     }
 
     private static func list(_ value: Any?) -> [Any] {
@@ -147,7 +152,9 @@ public enum CloudNotes {
             points.append(point)
             tally.kept += 1
         }
-        return (ledger.notes(summary: draft.summary, keyPoints: points), tally)
+        var notes = ledger.notes(summary: draft.summary, keyPoints: points)
+        notes.title = draft.title
+        return (notes, tally)
     }
 
     // MARK: - The server
@@ -224,9 +231,8 @@ public enum CloudNotes {
 public struct CloudNotesConditions: Equatable, Sendable {
     /// `meetings.cloudNotes.enabled`: on unless set to false (from 1.0.20).
     public var hiddenSwitch: Bool
-    /// The person's answer to writing notes online, from the question under
-    /// the notes or "Write notes online" in Settings: nil when not asked yet,
-    /// which sends nothing.
+    /// "Write notes online" in Settings: nil until the switch is touched,
+    /// which counts as on. Only false keeps a subscriber's notes on the Mac.
     public var setting: Bool?
     public var entitlement: Entitlement
     public var hasToken: Bool
@@ -268,14 +274,8 @@ public enum CloudNotesRoute: Equatable, Sendable {
     public enum Reason: Equatable, Sendable {
         /// Notes online aren't switched on on this Mac: today's notes, untouched.
         case hiddenSwitchOff
-        /// The person said no: "Keep on this Mac", or off in Settings.
+        /// "Write notes online" switched off in Settings.
         case settingOff
-        /// Nobody has said yet, and everything else holds: the Mac writes
-        /// these, and the person is asked under them (`asks`).
-        case notAsked
-        /// Nobody has said yet, and the Mac is offline: nothing is asked,
-        /// and nothing is promised for later.
-        case notAskedOffline
         /// A trial, a free copy, or a subscription that has run out.
         case notSubscribed
         case noToken
@@ -295,9 +295,7 @@ public enum CloudNotesRoute: Equatable, Sendable {
         public var logName: String {
             switch self {
             case .hiddenSwitchOff: return "switched off"
-            case .settingOff: return "said no"
-            case .notAsked: return "not asked yet"
-            case .notAskedOffline: return "offline, not asked yet"
+            case .settingOff: return "switched off in Settings"
             case .notSubscribed: return "not a subscriber"
             case .noToken: return "no licence token"
             case .noServer: return "no server in this build"
@@ -311,8 +309,8 @@ public enum CloudNotesRoute: Equatable, Sendable {
     }
 
     /// Online only when every condition holds; otherwise the first one that
-    /// doesn't, in this order. An answer not given yet is looked at last, so
-    /// the person is asked only when the notes could go online at once.
+    /// doesn't, in this order. Nobody is asked: a subscriber's notes go
+    /// online unless "Write notes online" was switched off in Settings.
     public static func decide(_ conditions: CloudNotesConditions) -> CloudNotesRoute {
         let now = conditions.now
         guard conditions.hiddenSwitch else { return .mac(.hiddenSwitchOff) }
@@ -324,29 +322,39 @@ public enum CloudNotesRoute: Equatable, Sendable {
         guard conditions.promptSize <= CloudNotes.promptLimit else { return .mac(.tooLong) }
         if let until = conditions.notEligibleUntil, until > now { return .mac(.notEligible(until: until)) }
         if let until = conditions.allowanceUntil, until > now { return .mac(.allowanceUsed(until: until)) }
-        guard conditions.online else { return .mac(conditions.setting == true ? .offline : .notAskedOffline) }
-        guard conditions.setting == true else { return .mac(.notAsked) }
+        guard conditions.online else { return .mac(.offline) }
         return .online
     }
 
     /// Notes the Mac writes for this reason are written online once the
-    /// Mac is back online. Only for being offline after a yes: every other
-    /// reason is one the Mac being online again doesn't change.
+    /// Mac is back online. Only for being offline: every other reason is one
+    /// the Mac being online again doesn't change.
     public var waitsForOnline: Bool { self == .mac(.offline) }
-
-    /// Whether the person is asked, under these notes, to write notes online
-    /// (`CloudNotesQuestion`): only when nothing but their answer stood in the
-    /// way. Never for a trial, offline, a meeting too short or too long, or
-    /// with this month's online notes used.
-    public var asks: Bool { self == .mac(.notAsked) }
 }
 
 // MARK: - The month's allowance
 
 /// What is said when this month's online notes are used (a 402), and when.
 public enum CloudNotesAllowance {
-    /// How long a 403 ("not eligible") is believed before asking again.
-    public static let notEligibleFor: TimeInterval = 24 * 3_600
+    /// How long a 403 ("not eligible") is believed before asking again, for
+    /// the same licence token (`notEligibleUntil`). A licence that buys no
+    /// online notes, a 100%-off friend's, would otherwise send a meeting to
+    /// the server to be refused every day. A new token, renewed or bought,
+    /// asks again at once.
+    public static let notEligibleFor: TimeInterval = 30 * 86_400
+
+    /// A short mark of a licence token, kept beside a 403 so the refusal is
+    /// tied to the licence it was for. Not the token: it can't be read back.
+    public static func tokenMark(_ token: String) -> String {
+        SHA256.hash(data: Data(token.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The 403 kept on this Mac, believed only for the token it came with:
+    /// nil for any other token, for none, or for one kept without a mark.
+    public static func notEligibleUntil(saved: Date?, savedMark: String?, token: String?) -> Date? {
+        guard let saved, let savedMark, let token, savedMark == tokenMark(token) else { return nil }
+        return saved
+    }
 
     /// The server's date: ISO 8601 with or without fractions of a second,
     /// or a day alone ("2026-11-01").
@@ -403,31 +411,19 @@ public enum CloudNotesAllowance {
     }
 }
 
-// MARK: - Asked once
+// MARK: - The switch in Settings
 
-/// Asked once, under the first notes that could have gone online, before any
-/// transcript leaves the Mac (`CloudNotesRoute.asks`). Until the person says
-/// yes, the Mac writes the notes. Closed without an answer, it is asked again
-/// under the next meeting's notes.
-public enum CloudNotesQuestion {
-    public static let title = "Write better notes online?"
-    public static let text = "Airlock can send this meeting's transcript through its server to Google's Gemini, "
-        + "which writes clearer notes and finds the real to-dos. Neither Airlock nor Google keeps it, "
-        + "and it isn't used to train AI."
-    public static let settingsLine = "You can change this in Settings."
-    /// The no: stored, and never asked again. Settings is the way back.
-    public static let keepButton = "Keep on this Mac"
-    /// The yes, the primary one: this meeting's notes are written again online.
-    public static let writeButton = "Write online"
-
-    /// "Write notes online" in Settings, which says the same before it is on.
-    public static let settingsTitle = "Write notes online"
-    public static let settingsSubtitle = "When a meeting ends, its transcript goes through Airlock's server to "
+/// "Write notes online" in Settings, for subscribers: on until it is
+/// switched off. Nothing asks under the notes; this row says where the
+/// transcript goes, and is the way to keep it on the Mac.
+public enum CloudNotesSetting {
+    public static let title = "Write notes online"
+    public static let subtitle = "When a meeting ends, its transcript goes through Airlock's server to "
         + "Google's Gemini to write better notes. Neither Airlock nor Google keeps it, and it isn't used to "
         + "train AI. Off, or without internet, notes are written on this Mac."
 
-    /// The Settings switch shows the answer as on only after a yes.
-    public static func switchIsOn(_ answer: Bool?) -> Bool { answer == true }
+    /// On unless switched off: an untouched switch is on.
+    public static func isOn(_ setting: Bool?) -> Bool { setting != false }
 }
 
 // MARK: - Written again once online
@@ -480,15 +476,6 @@ public enum CloudNotesRedo {
         // a subscriber: maybe later.
         case .mac: return .stop
         }
-    }
-
-    /// A meeting the person just said "Write online" under: its writer set
-    /// waiting, so this queue writes it online now and keeps the Mac's page
-    /// beside. Only notes the Mac wrote and never sent; nil for any other.
-    public static func writeOnlineNow(_ writer: MeetingNotesWriter?) -> MeetingNotesWriter? {
-        guard var writer, writer.place == .mac, writer.onlineTries < maxTries else { return nil }
-        writer.waitsForOnline = true
-        return writer
     }
 
     /// The writer once a sent meeting came back without notes: still

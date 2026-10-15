@@ -56,10 +56,12 @@ enum CallListening {
     /// decide on.
     ///
     /// `partials` adds the recogniser's running guess at the words being
-    /// said, as dictation shows them, for a call's transcript to show as
-    /// they come. Guesses are only ever shown: the notes, the race and the
-    /// follow read the finished sentences alone. A recording being read has
-    /// no one watching, so it goes without.
+    /// said, for a call's transcript to show as they come. Guesses are only
+    /// ever shown: the notes, the race and the follow read the finished
+    /// sentences alone. Only dictation is asked for them now: speech's come
+    /// late, so the words on screen come from a second recogniser of their
+    /// own (`quick(for:)`). A recording being read has no one watching, so
+    /// it goes without.
     ///
     /// Dictation as `.timeIndexedLongDictation` sets it up: the confidence
     /// table in `CallLanguageFollow.dictationLift` was measured with exactly
@@ -83,6 +85,24 @@ enum CallListening {
                                         attributeOptions: preset.attributeOptions
                                             .union([.audioTimeRange, .transcriptionConfidence]))
         }
+    }
+
+    /// A second recogniser beside `listener`'s, for the words on screen
+    /// alone: set to report them as soon as dictation does, and never
+    /// written down. Nil for dictation, which has no such setting.
+    ///
+    /// Measured on the same Spanish and English chats played in real time:
+    /// the notes' recogniser showed its guess in bursts, a word 2–6 s after
+    /// it was said (the first person to try it: "after one sentence"), and
+    /// this one 0.5 s after. Its finished text is worse, about one word in
+    /// twelve wrong against one in twenty to sixty, so it cannot write the
+    /// notes; and on the notes' own analyzer both answered as slowly as the
+    /// slower, so it has an analyzer of its own (`MeetingTrack`).
+    static func quick(for listener: CallLanguageFollow.Listener) -> SpeechTranscriber? {
+        guard listener.module == .speech else { return nil }
+        return SpeechTranscriber(locale: Locale(identifier: listener.identifier), transcriptionOptions: [],
+                                 reportingOptions: [.volatileResults, .fastResults],
+                                 attributeOptions: [.audioTimeRange])
     }
 
     /// The listener for a language the person picked: speech when it knows
@@ -144,12 +164,10 @@ enum CallListening {
         var words: [CallLanguageFollow.Timed] = []
     }
 
-    /// A finished result as lines. Speech gives a line every sentence or
-    /// two and is kept as it comes; dictation gives one result per 5–23 s
-    /// and is cut where the speaker paused (`CallLanguageFollow.pieces`).
-    /// Each piece carries the result's confidence for its share of the
-    /// characters: dictation scores whole results, not the pieces.
-    static func lines(of text: AttributedString, range: CMTimeRange, cut: Bool) -> [Heard] {
+    /// Σ confidence × characters over a result's runs, and the characters
+    /// scored: both zero when the recogniser gives no confidence. Running
+    /// guesses carry it too, so a take can be scored while the words appear.
+    static func confidence(of text: AttributedString) -> (weighted: Double, scored: Int) {
         var weighted = 0.0
         var scored = 0
         for run in text.runs {
@@ -158,15 +176,32 @@ enum CallListening {
             weighted += Double(confidence) * Double(count)
             scored += count
         }
-        let mean = scored > 0 ? weighted / Double(scored) : nil
-        let whole = String(text.characters)
+        return (weighted, scored)
+    }
 
-        let runs = text.runs.map { run -> CallLanguageFollow.Timed in
+    /// A result's runs, in seconds of its audio: a word each for speech's
+    /// finished results, its leading space included; nil times where the
+    /// recogniser gave none.
+    static func runs(of text: AttributedString) -> [CallLanguageFollow.Timed] {
+        text.runs.map { run -> CallLanguageFollow.Timed in
             let time = run.audioTimeRange
             let start = time.map(\.start.seconds).flatMap { $0.isFinite ? $0 : nil }
             let end = time.map { ($0.start + $0.duration).seconds }.flatMap { $0.isFinite ? $0 : nil }
             return CallLanguageFollow.Timed(text: String(text[run.range].characters), start: start, end: end)
         }
+    }
+
+    /// A finished result as lines. Speech gives a line every sentence or
+    /// two and is kept as it comes; dictation gives one result per 5–23 s
+    /// and is cut where the speaker paused (`CallLanguageFollow.pieces`).
+    /// Each piece carries the result's confidence for its share of the
+    /// characters: dictation scores whole results, not the pieces.
+    static func lines(of text: AttributedString, range: CMTimeRange, cut: Bool) -> [Heard] {
+        let (weighted, scored) = confidence(of: text)
+        let mean = scored > 0 ? weighted / Double(scored) : nil
+        let whole = String(text.characters)
+
+        let runs = runs(of: text)
         let timed = runs.filter { $0.start != nil && $0.end != nil }
 
         func heard(_ text: String, _ start: TimeInterval?, _ end: TimeInterval?,

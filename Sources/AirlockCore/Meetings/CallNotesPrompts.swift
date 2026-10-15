@@ -67,6 +67,16 @@ public enum CallNotesPrompts {
         what the decisions, to-dos and open questions do not already say. \
         Each lists the IDs of the notes it comes from, at least one of them \
         a topic.
+        \(titleRule)
+        """
+
+    /// How the meeting's title is asked for, by either writer: a name for
+    /// a meeting nothing else names (`MeetingNotes.title`).
+    static let titleRule = """
+        The title names the meeting by what it was about, in two to six words \
+        in the notes' language, as someone would file it: "Kitchen tiles and \
+        delivery dates", not "Meeting about the kitchen". No quotes, no full \
+        stop, no date, no app name.
         """
 
     /// " Write them in Spanish.", or nothing when the language is not known.
@@ -106,7 +116,7 @@ public enum CallNotesPrompts {
                               invited: [String] = []) -> String {
         let who = invited.isEmpty ? "" : "\nInvited: \(invited.joined(separator: ", "))."
         return """
-            Write the summary and key points for this \(inPerson ? "meeting" : "call").\(inLanguage(language))\(who)
+            Write the summary, the title and the key points for this \(inPerson ? "meeting" : "call").\(inLanguage(language))\(who)
 
             NOTES START
             \(list.text)
@@ -129,8 +139,9 @@ public enum CallNotesPrompts {
     static let cloudSummaryInstructions = """
         Then write the summary, for someone who missed the meeting, in two parts: what the meeting was for, in one sentence; then what came out of it, in one or two sentences naming two or three of the decisions, to-dos or open questions by what they are. A to-do is still to be done, not done. Never write only that things were discussed or decisions were made: say which.
         Key points are up to five short lines on the topics discussed, saying what the decisions, to-dos and open questions do not already say. Each lists the IDs of the lines it comes from.
+        \(titleRule)
         At most 8 decisions, 15 to-dos, 8 open questions and 5 key points.
-        Answer with JSON only, in this shape: {"summary": "...", "decisions": [{"text": "...", "sources": ["S12"]}], "todos": [{"task": "...", "owner": "...", "due": "...", "sources": ["S12"]}], "questions": [{"text": "...", "sources": ["S12"]}], "keyPoints": [{"text": "...", "sources": ["S12"]}]}
+        Answer with JSON only, in this shape: {"summary": "...", "title": "...", "decisions": [{"text": "...", "sources": ["S12"]}], "todos": [{"task": "...", "owner": "...", "due": "...", "sources": ["S12"]}], "questions": [{"text": "...", "sources": ["S12"]}], "keyPoints": [{"text": "...", "sources": ["S12"]}]}
         """
 
     /// Characters of typed notes the online prompt carries at most: the

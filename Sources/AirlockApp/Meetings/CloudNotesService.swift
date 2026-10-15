@@ -9,11 +9,11 @@ import Network
 ///
 /// Nothing here runs while `meetings.cloudNotes.enabled` is set to false (on
 /// for everyone from 1.0.20, a switch nobody sees that turns it all off), and
-/// then only when every condition in `CloudNotesRoute.decide` holds, the
-/// person's yes included: they are asked once, under the first notes that
-/// could have gone online, before any transcript leaves (`CloudNotesQuestion`).
-/// Anything else, any failure included, and the Mac writes the notes as it always has:
-/// the caller falls back without a word, and nothing is ever shown as an error.
+/// then only when every condition in `CloudNotesRoute.decide` holds. Nobody
+/// is asked: a subscriber's notes go online unless "Write notes online" is
+/// switched off in Settings (`CloudNotesSetting`). Anything else, any failure
+/// included, and the Mac writes the notes as it always has: the caller falls
+/// back without a word, and nothing is ever shown as an error.
 ///
 /// Each meeting is sent once. A refusal (this month's notes used, or not
 /// eligible) is remembered so the next meetings don't ask; a server error is
@@ -32,12 +32,15 @@ final class CloudNotesService {
     static let enabledKey = "meetings.cloudNotes.enabled"
     /// What the switch says before anybody has set it.
     static let onByDefault = true
-    /// The person's answer, three ways (`answer`): the question under the
-    /// notes and "Write notes online" in Settings both write it.
+    /// "Write notes online" in Settings, three ways (`setting`). In 1.0.20 a
+    /// question under the notes wrote it too, so a "Keep on this Mac" from
+    /// then is a false here, and is kept.
     static let settingKey = "meetings.cloudNotes.online"
     static let allowanceUntilKey = "meetings.cloudNotes.allowanceUntil"
     static let noticeShownKey = "meetings.cloudNotes.allowanceNoticeShown"
     static let notEligibleUntilKey = "meetings.cloudNotes.notEligibleUntil"
+    /// The licence the 403 was for (`CloudNotesAllowance.tokenMark`).
+    static let notEligibleTokenKey = "meetings.cloudNotes.notEligibleToken"
 
     /// How long one request may take: a long meeting is a long answer.
     nonisolated static let timeout: TimeInterval = 120
@@ -64,7 +67,7 @@ final class CloudNotesService {
     /// The run of `redoWaiting` going now, if any; tests wait on it.
     private(set) var redoing: Task<Void, Never>?
     /// Asked for while a run was going: one more run once it ends, so a
-    /// meeting just said "Write online" under isn't left for the next time.
+    /// meeting written offline just now isn't left for the next time.
     private var redoAgain = false
 
     init(defaults: UserDefaults = .standard, store: MeetingStore = MeetingStore(),
@@ -78,44 +81,21 @@ final class CloudNotesService {
     /// a missing key as false.
     var isOn: Bool { defaults.object(forKey: Self.enabledKey) as? Bool ?? Self.onByDefault }
 
-    /// The person's answer: nil when not asked yet, which sends nothing and
-    /// asks under the next notes that could go online; true for yes; false
-    /// for no, never asked again.
-    var answer: Bool? { Self.answer(in: defaults) }
+    /// "Write notes online" in Settings: nil until it is touched, which
+    /// counts as on; false keeps the notes on the Mac.
+    var setting: Bool? { Self.setting(in: defaults) }
 
-    static func answer(in defaults: UserDefaults) -> Bool? {
+    static func setting(in defaults: UserDefaults) -> Bool? {
         defaults.object(forKey: settingKey) as? Bool
     }
 
-    /// "Write notes online" in Settings: off until a yes. Turning it on is
-    /// the yes, and off the no.
+    /// The Settings switch: on unless switched off.
     static func switchIsOn(in defaults: UserDefaults = .standard) -> Bool {
-        CloudNotesQuestion.switchIsOn(answer(in: defaults))
+        CloudNotesSetting.isOn(setting(in: defaults))
     }
 
     static func setSwitch(_ on: Bool, in defaults: UserDefaults = .standard) {
         defaults.set(on, forKey: settingKey)
-    }
-
-    /// "Write online", under a meeting's notes: the yes, and that meeting's
-    /// notes written again online now, through the same queue as notes
-    /// written offline, so the Mac's page is kept beside the new one.
-    func writeOnline(_ folder: URL) {
-        Self.setSwitch(true, in: defaults)
-        let log: (String) -> Void = { MeetingDiagnostics.log($0) }
-        guard let writer = CloudNotesRedo.writeOnlineNow(store.keptRecord(in: folder)?.notesWriter) else {
-            log("notes online: said yes, this meeting's notes not written again (not the Mac's, or sent)")
-            return
-        }
-        save(writer, in: folder, log: log)
-        log("notes online: said yes, this meeting's notes to write again online")
-        redoWaiting()
-    }
-
-    /// "Keep on this Mac": the no, never asked again.
-    func keepOnMac() {
-        Self.setSwitch(false, in: defaults)
-        MeetingDiagnostics.log("notes online: said no, kept on this Mac")
     }
 
     /// Watches the network, so notes the Mac wrote offline are written online
@@ -181,14 +161,18 @@ final class CloudNotesService {
     }
 
     private func conditions(for record: MeetingRecord, prompt: String) -> CloudNotesConditions {
-        CloudNotesConditions(hiddenSwitch: isOn, setting: answer, entitlement: entitlement(),
-                             hasToken: access() != nil, hasServer: hasServer(),
-                             online: isOnline ?? true,
-                             words: NumberedTranscript(record).wordCount,
-                             promptSize: CloudNotes.size(prompt),
-                             allowanceUntil: defaults.object(forKey: Self.allowanceUntilKey) as? Date,
-                             notEligibleUntil: defaults.object(forKey: Self.notEligibleUntilKey) as? Date,
-                             now: Date())
+        let token = access()?.token
+        let notEligibleUntil = CloudNotesAllowance.notEligibleUntil(
+            saved: defaults.object(forKey: Self.notEligibleUntilKey) as? Date,
+            savedMark: defaults.string(forKey: Self.notEligibleTokenKey), token: token)
+        return CloudNotesConditions(hiddenSwitch: isOn, setting: setting, entitlement: entitlement(),
+                                    hasToken: token != nil, hasServer: hasServer(),
+                                    online: isOnline ?? true,
+                                    words: NumberedTranscript(record).wordCount,
+                                    promptSize: CloudNotes.size(prompt),
+                                    allowanceUntil: defaults.object(forKey: Self.allowanceUntilKey) as? Date,
+                                    notEligibleUntil: notEligibleUntil,
+                                    now: Date())
     }
 
     /// One request, and what its answer means for this meeting and the next.
@@ -207,7 +191,7 @@ final class CloudNotesService {
             }
             let (notes, tally) = CloudNotes.notes(from: draft, record: record)
             log("notes online: \(model ?? "model unnamed") in \(took), kept \(tally.kept), "
-                + "dropped \(tally.dropped)\(usedLine)")
+                + "dropped \(tally.dropped)\(notes.title == nil ? ", no title" : "")\(usedLine)")
             guard !notes.isEmpty else {
                 log("notes online: nothing held up, written on the Mac")
                 return .failed
@@ -221,7 +205,8 @@ final class CloudNotesService {
         case .notEligible:
             let until = Date().addingTimeInterval(CloudNotesAllowance.notEligibleFor)
             defaults.set(until, forKey: Self.notEligibleUntilKey)
-            log("notes online: not eligible, not asked again for a day (in \(took))")
+            defaults.set(CloudNotesAllowance.tokenMark(access.token), forKey: Self.notEligibleTokenKey)
+            log("notes online: not eligible, not asked again for 30 days on this licence (in \(took))")
             return .mac(.notEligible(until: until))
         case .offline:
             log("notes online: offline, the request never left (in \(took))")
@@ -349,6 +334,11 @@ final class CloudNotesService {
             let kept = try store.keepEarlierNotes(in: folder)
             try store.saveNotes(MeetingFiles.notesPage(for: record, notes: notes, writer: writer), in: folder)
             save(writer, in: folder, log: log)
+            do {
+                try store.saveTopic(notes.title, in: folder)
+            } catch {
+                log("notes online: title not saved: \(error.localizedDescription)")
+            }
             log("notes online: written again online" + (kept == nil ? "" : ", the Mac's page kept beside them"))
             onRedone?(folder, notes)
         } catch {

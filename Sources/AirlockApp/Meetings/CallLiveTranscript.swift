@@ -85,10 +85,30 @@ final class CallNotesLive {
         if record != self.record { self.record = record }
     }
 
-    /// The notes of the call in `folder` were saved.
-    func settle(_ folder: URL, as outcome: CallLive.Outcome) {
+    /// The notes of the call in `folder` were saved, and named it `title`
+    /// when they did.
+    func settle(_ folder: URL, as outcome: CallLive.Outcome, title: String? = nil) {
         guard folder == self.folder else { return }
         self.outcome = outcome
+        retitle(folder, as: title)
+    }
+
+    /// The call in `folder` named by its notes (`MeetingRecord.topic`), as
+    /// the notes window will find it. Nil leaves the name it has.
+    func retitle(_ folder: URL, as title: String?) {
+        guard folder == self.folder, let title, var record = pending ?? record, record.topic != title
+        else { return }
+        record.topic = title
+        hand(record)
+    }
+
+    /// The call in `folder` named as `names` say, from the side window: at
+    /// once, and once the call is over too, when the notes model no longer
+    /// hands its record on.
+    func rename(_ names: [MeetingVoiceName], in folder: URL) {
+        guard folder == self.folder, var record = pending ?? record else { return }
+        record.replaceNames(with: names)
+        hand(record)
     }
 
     /// The notes stopped before they were saved.
@@ -110,6 +130,11 @@ struct LiveTranscriptActions {
     /// The call in the notes window, on this tab.
     let open: @MainActor (CallNotesLibrary.Tab) -> Void
     let close: @MainActor () -> Void
+    /// Whether a voice can be named now. While the voices are still being
+    /// told apart, the other side heard as one is nobody in particular yet.
+    var canName: @MainActor (Int) -> Bool = { _ in true }
+    /// The call's voices named as these say.
+    var name: @MainActor ([MeetingVoiceName]) -> Void = { _ in }
 }
 
 /// A narrow window beside the call that shows the transcript as it is
@@ -237,17 +262,38 @@ struct LiveTranscriptView: View {
     /// For the state gallery, which cannot scroll: drawn as if the person
     /// had scrolled up and this many lines had come since.
     var scrolledAwayFor: Int?
+    /// The voice being named, in the box over the window's foot.
+    @State private var naming: Int?
+
+    init(live: CallNotesLive, actions: LiveTranscriptActions, scrolledAwayFor: Int? = nil, naming: Int? = nil) {
+        self.live = live
+        self.actions = actions
+        self.scrolledAwayFor = scrolledAwayFor
+        _naming = State(initialValue: naming)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             if let record = live.record {
                 let stage = CallLive.stage(of: record, paused: actions.isPaused(), outcome: live.outcome)
-                LiveTranscriptHeader(record: record, stage: stage, actions: actions)
+                let named = naming.flatMap { record.voices.contains($0) && actions.canName($0) ? $0 : nil }
+                LiveTranscriptHeader(record: record, stage: stage, escapes: named == nil, actions: actions)
                 LiveTranscriptLines(record: record, stage: stage, ground: CallsLook.sidebar,
                                     hearing: stage.isLive ? CallLive.speaking(live.hearing, paused: stage == .paused)
                                                           : [],
-                                    scrolledAwayFor: scrolledAwayFor)
+                                    scrolledAwayFor: scrolledAwayFor,
+                                    canName: actions.canName, name: { naming = $0 })
                     .frame(maxHeight: .infinity)
+                if let named {
+                    LiveTranscriptNaming(record: record, voice: named, close: { naming = nil },
+                                         save: { names in
+                                             actions.name(names)
+                                             naming = nil
+                                         })
+                        .id(named)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, stage.isLive ? 2 : 10)
+                }
                 if stage.isLive {
                     LiveTranscriptFoot(paused: stage == .paused, actions: actions)
                 } else {
@@ -264,6 +310,24 @@ struct LiveTranscriptView: View {
         .background(CallsLook.sidebar)
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
+        // Another call is nobody's to name from here.
+        .onChange(of: live.folder) { naming = nil }
+    }
+}
+
+/// "Who is Person 2?" over the window's foot, while the call goes on and
+/// once it is over: the notes window's box, the width of this one.
+private struct LiveTranscriptNaming: View {
+    let record: MeetingRecord
+    let voice: Int
+    let close: () -> Void
+    let save: ([MeetingVoiceName]) -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        CallVoiceRename(record: record, voice: voice, width: nil, cancel: close, save: save)
+            .background(shape.fill(LiveLook.card))
+            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
     }
 }
 
@@ -272,12 +336,15 @@ struct LiveTranscriptView: View {
 private struct LiveTranscriptHeader: View {
     let record: MeetingRecord
     let stage: CallLive.Stage
+    /// Whether Escape closes the window: not while a name is being typed,
+    /// where it puts the name away.
+    var escapes = true
     let actions: LiveTranscriptActions
 
     var body: some View {
         let title = MeetingFiles.title(of: record)
         HStack(spacing: 9) {
-            LiveTranscriptClose(action: actions.close)
+            LiveTranscriptClose(escapes: escapes, action: actions.close)
             Circle()
                 .fill(stage.isLive ? Theme.assistant : LiveLook.over)
                 .frame(width: 8, height: 8)
@@ -319,6 +386,7 @@ private struct LiveTranscriptHeader: View {
 }
 
 private struct LiveTranscriptClose: View {
+    var escapes = true
     let action: () -> Void
     @State private var hovered = false
 
@@ -332,7 +400,7 @@ private struct LiveTranscriptClose: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(.cancelAction)
+        .keyboardShortcut(escapes ? .cancelAction : nil)
         .onHover { inside in
             withAnimation(MotionEffect.pointer) { hovered = inside }
         }
@@ -378,6 +446,9 @@ private struct LiveTranscriptLines: View {
     /// Being said now (`CallLive.speaking`).
     let hearing: [CallLive.Hearing]
     let scrolledAwayFor: Int?
+    /// Whether a voice can be named now, and naming it.
+    let canName: @MainActor (Int) -> Bool
+    let name: (Int) -> Void
 
     var body: some View {
         let entries = MeetingTimeline.entries(of: record)
@@ -397,7 +468,8 @@ private struct LiveTranscriptLines: View {
                 ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
                     LiveTranscriptRow(entry: entry, record: record, people: people,
                                       headed: headed.entries[index],
-                                      carryingOn: index == entries.count - 1 ? carried?.text : nil)
+                                      carryingOn: index == entries.count - 1 ? carried?.text : nil,
+                                      canName: canName, name: name)
                 }
                 ForEach(Array(others.enumerated()), id: \.element.speaker) { index, heard in
                     LiveTranscriptHearingRow(hearing: heard, record: record, people: people,
@@ -432,6 +504,8 @@ private struct LiveTranscriptRow: View {
     var headed = true
     /// The words the same person is saying now, at the end of their turn.
     var carryingOn: String?
+    var canName: @MainActor (Int) -> Bool = { _ in false }
+    var name: (Int) -> Void = { _ in }
 
     var body: some View {
         switch entry {
@@ -458,10 +532,14 @@ private struct LiveTranscriptRow: View {
                 CallPersonAvatar(name: name, seat: seat, size: 22)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Text(name)
-                            .font(Theme.chrome(12, .semibold))
-                            .foregroundStyle(CallsLook.colour(for: seat))
-                            .lineLimit(1)
+                        if let voice = record.voice(of: turn), canName(voice) {
+                            LiveTranscriptName(name: name, seat: seat) { self.name(voice) }
+                        } else {
+                            Text(name)
+                                .font(Theme.chrome(12, .semibold))
+                                .foregroundStyle(CallsLook.colour(for: seat))
+                                .lineLimit(1)
+                        }
                         Text(MeetingFiles.clock(turn.start))
                             .font(Theme.chrome(11))
                             .monospacedDigit()
@@ -511,6 +589,30 @@ private struct LiveTranscriptRow: View {
         case .language(let listening):
             LiveTranscriptDivider(symbol: "globe", text: MeetingTimeline.languageLabel(listening))
         }
+    }
+}
+
+/// A voice's name above its line, that a click says who it is.
+private struct LiveTranscriptName: View {
+    let name: String
+    let seat: CallPeople.Seat
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        let colour = CallsLook.colour(for: seat)
+        Button(action: action) {
+            Text(name)
+                .font(Theme.chrome(12, .semibold))
+                .foregroundStyle(colour)
+                .underline(hovered, color: colour.opacity(0.55))
+                .lineLimit(1)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .clickable()
+        .help("Say who this is")
+        .accessibilityHint("Say who this is")
     }
 }
 

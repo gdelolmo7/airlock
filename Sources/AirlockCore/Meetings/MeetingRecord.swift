@@ -275,6 +275,11 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
     /// Who wrote the notes, while notes online are switched on
     /// (`MeetingNotesWriter`); nil otherwise, and on every older meeting.
     public var notesWriter: MeetingNotesWriter?
+    /// The short name the notes gave the meeting (`MeetingNotes.title`),
+    /// kept from the last notes that named it. It names a meeting the
+    /// calendar and a recording do not (`MeetingFiles.title(of:)`); nil on
+    /// every older meeting, which keeps the name it had.
+    public var topic: String?
 
     public init(bundleID: String, appName: String, site: MeetingLink.Provider? = nil,
                 startedAt: Date, endedAt: Date? = nil, languages: [String] = [],
@@ -282,7 +287,8 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
                 jots: [MeetingJot] = [], marks: [TimeInterval] = [], pauses: [MeetingPause] = [],
                 listenings: [MeetingListening] = [], shadow: [MeetingShadowLine] = [],
                 droppedAt: Date? = nil, names: [MeetingVoiceName] = [],
-                recording: MeetingRecording? = nil, notesWriter: MeetingNotesWriter? = nil) {
+                recording: MeetingRecording? = nil, notesWriter: MeetingNotesWriter? = nil,
+                topic: String? = nil) {
         self.bundleID = bundleID
         self.appName = appName
         self.site = site
@@ -299,12 +305,13 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
         self.shadow = shadow.sorted { $0.segment.start < $1.segment.start }
         self.recording = recording
         self.notesWriter = notesWriter
+        self.topic = MeetingNotes.title(topic)
         self.names = []
         for name in names { self.name(name.voice, as: name.isYou ? nil : name.name, isYou: name.isYou) }
     }
 
     /// A `meeting.json` written before events, jots, marks, pauses,
-    /// listenings, the shadow, names and recordings existed has none of
+    /// listenings, the shadow, names, recordings and topics existed has none of
     /// their keys. It still opens, with all of them empty: those files are
     /// calls somebody had, and an update must not lose them.
     public init(from decoder: any Decoder) throws {
@@ -326,7 +333,8 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
             droppedAt: try container.decodeIfPresent(Date.self, forKey: .droppedAt),
             names: try container.decodeIfPresent([MeetingVoiceName].self, forKey: .names) ?? [],
             recording: try container.decodeIfPresent(MeetingRecording.self, forKey: .recording),
-            notesWriter: try container.decodeIfPresent(MeetingNotesWriter.self, forKey: .notesWriter))
+            notesWriter: try container.decodeIfPresent(MeetingNotesWriter.self, forKey: .notesWriter),
+            topic: try container.decodeIfPresent(String.self, forKey: .topic))
     }
 
     /// The name people know the call by: the meeting service when the call is

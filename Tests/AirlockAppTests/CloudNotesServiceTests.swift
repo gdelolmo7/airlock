@@ -57,18 +57,18 @@ final class CloudNotesServiceTests: XCTestCase {
                           checkBy: Date().addingTimeInterval(44 * 86_400)))
     }
 
-    /// `answered` is the person's answer to writing notes online: yes unless
-    /// a test says otherwise, nil for not asked yet. `switchedOn` nil leaves
-    /// the hidden switch unset, as on every Mac that never touched it.
+    /// `setting` is "Write notes online" in Settings: untouched unless a test
+    /// says otherwise, which is on. `switchedOn` nil leaves the hidden switch
+    /// unset, as on every Mac that never touched it.
     private func service(_ server: Server, switchedOn: Bool? = true, paid: Bool = true,
-                         answered: Bool? = true) -> CloudNotesService {
+                         setting: Bool? = nil) -> CloudNotesService {
         if let switchedOn {
             defaults.set(switchedOn, forKey: CloudNotesService.enabledKey)
         } else {
             defaults.removeObject(forKey: CloudNotesService.enabledKey)
         }
-        if let answered {
-            defaults.set(answered, forKey: CloudNotesService.settingKey)
+        if let setting {
+            defaults.set(setting, forKey: CloudNotesService.settingKey)
         } else {
             defaults.removeObject(forKey: CloudNotesService.settingKey)
         }
@@ -109,7 +109,7 @@ final class CloudNotesServiceTests: XCTestCase {
     }
 
     /// On for everyone from 1.0.20: a Mac that never set the hidden switch
-    /// sends a subscriber's notes once they said yes, and nobody else's.
+    /// sends a subscriber's notes, and nobody else's.
     func testAnUnsetSwitchIsOn() async {
         let server = Server([])
         let subscriber = service(server, switchedOn: nil)
@@ -120,10 +120,8 @@ final class CloudNotesServiceTests: XCTestCase {
 
         let free = await service(server, switchedOn: nil, paid: false).write(Self.record(), log: { _ in })
         guard case .mac(.notSubscribed) = free else { return XCTFail("\(free)") }
-        let notAsked = await service(server, switchedOn: nil, answered: nil).write(Self.record(), log: { _ in })
-        guard case .mac(.notAsked) = notAsked else { return XCTFail("\(notAsked)") }
         let stillOnce = await server.asked
-        XCTAssertEqual(stillOnce, 1, "a trial, or nobody asked yet: nothing leaves")
+        XCTAssertEqual(stillOnce, 1, "a trial: nothing leaves")
     }
 
     func testOnlyASubscriberWithTheSettingOnIsAsked() async {
@@ -131,132 +129,58 @@ final class CloudNotesServiceTests: XCTestCase {
         let free = await service(server, paid: false).write(Self.record(), log: { _ in })
         guard case .mac(.notSubscribed) = free else { return XCTFail("\(free)") }
 
-        let off = await service(server, answered: false).write(Self.record(), log: { _ in })
+        let off = await service(server, setting: false).write(Self.record(), log: { _ in })
         guard case .mac(.settingOff) = off else { return XCTFail("\(off)") }
         let asked = await server.asked
         XCTAssertEqual(asked, 0)
     }
 
-    // MARK: - Asked once, before anything leaves
+    // MARK: - On unless switched off
 
-    /// Absent is not asked yet, which sends nothing; then yes, or no.
-    func testTheAnswerIsReadThreeWays() {
-        let service = service(Server([]), answered: nil)
-        XCTAssertNil(service.answer)
-        XCTAssertFalse(CloudNotesService.switchIsOn(in: defaults), "the switch shows off until a yes")
-        defaults.set(true, forKey: CloudNotesService.settingKey)
-        XCTAssertEqual(service.answer, true)
-        XCTAssertTrue(CloudNotesService.switchIsOn(in: defaults))
-        defaults.set(false, forKey: CloudNotesService.settingKey)
-        XCTAssertEqual(service.answer, false)
-        XCTAssertFalse(CloudNotesService.switchIsOn(in: defaults))
-    }
-
-    /// Turning the Settings switch on is the yes, and off the no.
-    func testTheSettingsSwitchWritesTheAnswer() {
-        let service = service(Server([]), answered: nil)
-        CloudNotesService.setSwitch(true, in: defaults)
-        XCTAssertEqual(service.answer, true)
-        XCTAssertEqual(defaults.object(forKey: CloudNotesService.settingKey) as? Bool, true)
-        CloudNotesService.setSwitch(false, in: defaults)
-        XCTAssertEqual(service.answer, false)
-        XCTAssertEqual(defaults.object(forKey: CloudNotesService.settingKey) as? Bool, false)
-    }
-
-    /// Not asked yet: the Mac writes the notes and the question goes under
-    /// them. Nothing has left; the log says why and not a word said.
-    func testNotAskedYetNothingLeavesAndTheQuestionIsDue() async {
-        let server = Server([])
-        var logged: [String] = []
-        let attempt = await service(server, answered: nil).write(Self.record(), log: { logged.append($0) })
-        guard case .mac(.notAsked) = attempt else { return XCTFail("\(attempt)") }
-        let asked = await server.asked
-        XCTAssertEqual(asked, 0)
-        XCTAssertEqual(logged, ["notes online: no, not asked yet"])
-    }
-
-    /// Never asked for a trial, nor over this month's allowance or while
-    /// not eligible: those notes couldn't have gone online anyway.
-    func testNothingIsAskedWhenTheNotesCouldNotGoOnlineAnyway() async {
-        let server = Server([])
-        let trial = await service(server, paid: false, answered: nil).write(Self.record(), log: { _ in })
-        guard case .mac(.notSubscribed) = trial else { return XCTFail("\(trial)") }
-
-        defaults.set(Date().addingTimeInterval(86_400), forKey: CloudNotesService.allowanceUntilKey)
-        let used = await service(server, answered: nil).write(Self.record(), log: { _ in })
-        guard case .mac(.allowanceUsed) = used else { return XCTFail("\(used)") }
-        defaults.removeObject(forKey: CloudNotesService.allowanceUntilKey)
-
-        defaults.set(Date().addingTimeInterval(86_400), forKey: CloudNotesService.notEligibleUntilKey)
-        let refused = await service(server, answered: nil).write(Self.record(), log: { _ in })
-        guard case .mac(.notEligible) = refused else { return XCTFail("\(refused)") }
-
-        let asked = await server.asked
-        XCTAssertEqual(asked, 0)
-    }
-
-    /// "Write online": the yes is kept, and this meeting's notes are written
-    /// again online now, the Mac's page kept beside them.
-    func testWriteOnlineSaysYesAndWritesThisMeetingAgainOnline() async throws {
-        let folder = try saved(writer: .mac(at: Self.start))
+    /// Nobody is asked: a subscriber who never touched the switch has the
+    /// notes written online at the first meeting.
+    func testNobodyIsAskedASubscribersNotesGoOnline() async {
         let server = Server([.notes(text: Self.answer, model: "gemini-test", usedFraction: nil)])
-        let service = service(server, answered: nil)
-        var redone: [(URL, MeetingNotes)] = []
-        service.onRedone = { redone.append(($0, $1)) }
-
-        let first = await service.write(Self.record(), log: { _ in })
-        guard case .mac(.notAsked) = first else { return XCTFail("\(first)") }
-
-        service.writeOnline(folder)
-        XCTAssertEqual(service.answer, true)
-        await service.redoing?.value
-
+        let attempt = await service(server, setting: nil).write(Self.record(), log: { _ in })
+        guard case .written(let notes, _) = attempt else { return XCTFail("\(attempt)") }
+        XCTAssertEqual(notes.summary, "A call to plan the launch.")
         let asked = await server.asked
         XCTAssertEqual(asked, 1)
-        let page = notes(in: folder)
-        XCTAssertTrue(page.contains("A call to plan the launch."))
-        XCTAssertTrue(page.contains("Written online by Airlock"))
-        let earlier = try String(contentsOf: folder.appendingPathComponent(MeetingFiles.earlierNotesFirstName),
-                                 encoding: .utf8)
-        XCTAssertTrue(earlier.contains("Made up."))
-        XCTAssertEqual(writer(in: folder)?.place, .online)
-        XCTAssertEqual(writer(in: folder)?.waitsForOnline, false)
-        XCTAssertEqual(redone.map { $0.0.resolvingSymlinksInPath() }, [folder.resolvingSymlinksInPath()])
-        XCTAssertEqual(redone.first?.1.summary, "A call to plan the launch.")
     }
 
-    /// Notes already written online, or already sent once, are not sent again.
-    func testWriteOnlineSendsNothingTwice() async throws {
-        var sent = MeetingNotesWriter.mac(at: Self.start)
-        sent.onlineTries = 1
-        let folder = try saved(writer: sent)
-        let server = Server([])
-        let service = service(server, answered: nil)
-
-        service.writeOnline(folder)
-        await service.redoing?.value
-
-        XCTAssertEqual(service.answer, true, "the yes holds all the same")
-        let asked = await server.asked
-        XCTAssertEqual(asked, 0)
-        XCTAssertEqual(writer(in: folder)?.place, .mac)
-    }
-
-    /// "Keep on this Mac": the no is kept, nothing is sent, and the next
-    /// meeting doesn't ask again.
-    func testKeepOnThisMacSaysNoAndIsNeverAskedAgain() async {
-        let server = Server([])
-        let service = service(server, answered: nil)
-        service.keepOnMac()
-        XCTAssertEqual(service.answer, false)
+    /// Untouched is on; then off, or on again.
+    func testTheSettingIsOnUntilSwitchedOff() {
+        let service = service(Server([]), setting: nil)
+        XCTAssertNil(service.setting)
+        XCTAssertTrue(CloudNotesService.switchIsOn(in: defaults), "an untouched switch shows on")
+        defaults.set(false, forKey: CloudNotesService.settingKey)
+        XCTAssertEqual(service.setting, false)
         XCTAssertFalse(CloudNotesService.switchIsOn(in: defaults))
+        defaults.set(true, forKey: CloudNotesService.settingKey)
+        XCTAssertEqual(service.setting, true)
+        XCTAssertTrue(CloudNotesService.switchIsOn(in: defaults))
+    }
 
-        let next = await service.write(Self.record(), log: { _ in })
-        guard case .mac(let reason) = next else { return XCTFail("\(next)") }
-        XCTAssertEqual(reason, .settingOff)
-        XCTAssertFalse(CloudNotesRoute.mac(reason).asks)
+    func testTheSettingsSwitchWritesTheSetting() {
+        let service = service(Server([]), setting: nil)
+        CloudNotesService.setSwitch(false, in: defaults)
+        XCTAssertEqual(service.setting, false)
+        XCTAssertEqual(defaults.object(forKey: CloudNotesService.settingKey) as? Bool, false)
+        CloudNotesService.setSwitch(true, in: defaults)
+        XCTAssertEqual(service.setting, true)
+        XCTAssertEqual(defaults.object(forKey: CloudNotesService.settingKey) as? Bool, true)
+    }
+
+    /// Switched off in Settings, or "Keep on this Mac" from 1.0.20's
+    /// question: kept. Nothing leaves; the log says why and not a word said.
+    func testSwitchedOffNothingLeaves() async {
+        let server = Server([])
+        var logged: [String] = []
+        let attempt = await service(server, setting: false).write(Self.record(), log: { logged.append($0) })
+        guard case .mac(.settingOff) = attempt else { return XCTFail("\(attempt)") }
         let asked = await server.asked
         XCTAssertEqual(asked, 0)
+        XCTAssertEqual(logged, ["notes online: no, switched off in Settings"])
     }
 
     func testNotesWrittenOnlineAreChecked() async throws {
@@ -305,7 +229,9 @@ final class CloudNotesServiceTests: XCTestCase {
         XCTAssertEqual(asked, 2)
     }
 
-    func testNotEligibleIsRememberedForADay() async throws {
+    /// A licence that buys no online notes is refused once, then not asked
+    /// again for a month on that licence.
+    func testNotEligibleIsRememberedForThisLicence() async throws {
         let server = Server([.notEligible])
         let service = service(server)
         let first = await service.write(Self.record(), log: { _ in })
@@ -313,6 +239,29 @@ final class CloudNotesServiceTests: XCTestCase {
         XCTAssertEqual(until.timeIntervalSinceNow, CloudNotesAllowance.notEligibleFor, accuracy: 60)
         let second = await service.write(Self.record(), log: { _ in })
         guard case .mac(.notEligible) = second else { return XCTFail("\(second)") }
+        let asked = await server.asked
+        XCTAssertEqual(asked, 1)
+        XCTAssertEqual(defaults.string(forKey: CloudNotesService.notEligibleTokenKey),
+                       CloudNotesAllowance.tokenMark("token"), "a mark of the token, never the token")
+    }
+
+    /// A new token, renewed or bought, asks again at once.
+    func testANewLicenceAsksAgainAtOnce() async {
+        let server = Server([.notEligible, .unavailable])
+        let service = service(server)
+        _ = await service.write(Self.record(), log: { _ in })
+        service.access = { (URL(string: "https://notes.invalid/notes")!, "renewed") }
+        let attempt = await service.write(Self.record(), log: { _ in })
+        guard case .failed = attempt else { return XCTFail("\(attempt)") }
+        let asked = await server.asked
+        XCTAssertEqual(asked, 2)
+    }
+
+    /// 1.0.20 kept a 403 for a day, with no mark: not believed, asked again.
+    func testARefusalKeptWithoutAMarkIsNotBelieved() async {
+        defaults.set(Date().addingTimeInterval(86_400), forKey: CloudNotesService.notEligibleUntilKey)
+        let server = Server([])
+        _ = await service(server).write(Self.record(), log: { _ in })
         let asked = await server.asked
         XCTAssertEqual(asked, 1)
     }
@@ -432,7 +381,7 @@ final class CloudNotesServiceTests: XCTestCase {
         let folder = try savedOffline()
         let server = Server([])
 
-        await service(server, answered: false).redoNow()
+        await service(server, setting: false).redoNow()
 
         let asked = await server.asked
         XCTAssertEqual(asked, 0)

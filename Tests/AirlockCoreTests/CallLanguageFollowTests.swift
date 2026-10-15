@@ -107,6 +107,31 @@ final class CallLanguageFollowTests: XCTestCase {
         XCTAssertNil(Follow.language(of: "Sí, vale, perfecto.", among: ["es", "ca"]))
     }
 
+    // MARK: - Which take the words on screen follow
+
+    /// Spanish spoken, English tried first: the English take's words for it
+    /// (as heard) read as Spanish, so the screen moves to the Spanish take.
+    func testTheScreenMovesToTheTakeWhoseWordsReadAsItsOwn() {
+        let english = "Holaal com del Valencia de la se quene"
+        let spanish = "Hola, qué tal? Oye, quería comentarte lo del viaje a Valencia"
+        XCTAssertEqual(Follow.shown([("en_US", "en", english), ("es_ES", "es", spanish)], showing: "en_US"),
+                       "es_ES")
+        // English spoken, Spanish tried first: Spanish writes it in English.
+        let said = "Okay so I was thinking we could go over the plan next week"
+        XCTAssertEqual(Follow.shown([("es_ES", "es", said), ("en_US", "en", said)], showing: "es_ES"), "en_US")
+    }
+
+    /// The take showing keeps the screen while its words read as its own,
+    /// even when another's do too, and while nobody's can be read yet.
+    func testTheScreenStaysWhileItsWordsReadAsItsOwnOrNothingCanBeRead() {
+        let spanish = "Hola, qué tal? Oye, quería comentarte lo del viaje a Valencia"
+        XCTAssertEqual(Follow.shown([("en_US", "en", spanish), ("es_ES", "es", spanish)], showing: "es_ES"),
+                       "es_ES")
+        XCTAssertEqual(Follow.shown([("en_US", "en", "Hola"), ("es_ES", "es", "Hola")], showing: "en_US"),
+                       "en_US")
+        XCTAssertEqual(Follow.shown([("en_US", "en", ""), ("es_ES", "es", "")], showing: "en_US"), "en_US")
+    }
+
     // MARK: - Which locale
 
     private let speech = ["de_AT", "de_CH", "de_DE", "en_AU", "en_CA", "en_GB", "en_IE", "en_IN", "en_US",

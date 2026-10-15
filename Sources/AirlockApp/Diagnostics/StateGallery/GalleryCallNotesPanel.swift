@@ -101,14 +101,6 @@ enum GalleryCallNotesPanel {
                               record: record(of: call, event: weekly, said: opening), notes: weeklyNotes,
                               allowanceUntil: until)
             },
-            // Asked once, under the first notes that could have gone online,
-            // before any transcript leaves the Mac. These were written here.
-            GalleryState("K52", area, "Panel: notes ready, asked to write notes online") {
-                let call = meet(since: 1_860)
-                return banner(.ready(folder: "/var/empty/weekly", call: call),
-                              record: record(of: call, event: weekly, said: opening), notes: weeklyNotes,
-                              asksOnline: true)
-            },
         ]
     }
 
@@ -118,11 +110,11 @@ enum GalleryCallNotesPanel {
                                endedBySleep: Bool = false,
                                record: MeetingRecord? = nil, notes: MeetingNotes? = nil,
                                event: MeetingEvent? = nil, transcriptShown: Bool = false,
-                               allowanceUntil: Date? = nil, asksOnline: Bool = false,
+                               allowanceUntil: Date? = nil,
                                hearing: [CallLive.Hearing] = []) -> some View {
         let flow = MeetingNotesFlow(previewing: phase, pausedSince: pausedSince, endedBySleep: endedBySleep)
         let model = MeetingNotesModel(previewing: flow, record: record, notes: notes, event: event,
-                                      allowanceUntil: allowanceUntil, asksOnline: asksOnline,
+                                      allowanceUntil: allowanceUntil,
                                       hearing: hearing)
         return MeetingNotesBanner(meetings: model, transcriptShown: transcriptShown)
     }

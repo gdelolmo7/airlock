@@ -15,8 +15,9 @@ import Speech
 /// lines are numbered (`CallVoices`).
 enum CallVoiceModel {
     /// 10.24 s of audio a step, ten and a half seconds behind the call:
-    /// the model's best quality for a stream, and only the end of a call
-    /// waits on it.
+    /// the model's best quality for a stream. People are told apart in the
+    /// side window ten to twenty seconds after they speak, and the end of a
+    /// call waits on its last step.
     static let preset = "c128-split-w8a8"
 
     static var config: Nemotron3Config {
@@ -96,7 +97,8 @@ enum CallVoiceModel {
 /// It runs ten seconds behind the call in steps of ten, on the Neural
 /// Engine where it can, and keeps only stretches of "voice 3 from 12:04.2
 /// to 12:09.8" (`CallVoices.Tracker`). Nothing is written anywhere. The
-/// lines are numbered from those stretches once the call ends.
+/// lines are numbered from those stretches as the call goes on, and once
+/// more when it ends.
 actor CallVoiceListener {
     /// What it heard and what that cost, for the numbering and the log.
     struct Report: Sendable {
@@ -146,6 +148,14 @@ actor CallVoiceListener {
         diarizer = nil
         return Report(spans: tracker?.spans ?? [], audioSeconds: Double(samples) / 16_000,
                       computeSeconds: computeSeconds, loadSeconds: loadSeconds, stopped: stopped)
+    }
+
+    /// What it has heard so far, and how far into the meeting: for
+    /// numbering the lines while the call goes on. Nil before the model
+    /// has heard anything.
+    func soFar() -> (spans: [CallVoices.Span], through: TimeInterval)? {
+        guard let tracker, tracker.frames > 0 else { return nil }
+        return tracker.soFar
     }
 
     /// Stops listening and forgets everything: a call too short to keep.

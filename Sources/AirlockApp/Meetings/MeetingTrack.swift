@@ -8,11 +8,14 @@ import Speech
 ///
 /// Built from what `SpeechSession` measured, and different from dictation
 /// where a meeting is different:
-/// - **Finished sentences make the record.** The recogniser's running guess
-///   at the words being said (`onHearing`) is only ever shown, under the
-///   lines, as dictation shows it: the first person to watch a call's
-///   transcript waited for whole paragraphs and asked for it word by word.
-///   Nothing is written, raced or followed on a guess.
+/// - **Finished sentences make the record.** The words being said
+///   (`onHearing`) are only ever shown, under the lines, as dictation shows
+///   them: the first person to watch a call's transcript waited for whole
+///   paragraphs and asked for it word by word. Nothing is written, raced or
+///   followed on them. For speech they come from a second, faster
+///   recogniser on an analyzer of its own (`Quick`, `CallListening.quick`):
+///   the notes' own guess came 2–6 s late, and asked to hurry it writes
+///   worse notes. A second analyzer cost nothing measurable on this Mac.
 /// - **The language is decided early, then followed.** Dictation races its
 ///   two languages over every hold; a meeting is one long hold. Both
 ///   recognisers run until about a paragraph has been heard, the race is
@@ -84,7 +87,8 @@ final class MeetingTrack {
     private let onEvent: (Event) -> Void
     /// The words being said on this side, as the recogniser guesses them
     /// before it finishes the sentence: "" once they are a line, or nothing
-    /// is being said. Set before `begin`; without it no guess is asked for.
+    /// is being said. Set before `begin`; without it no guess is asked for
+    /// and no quick recogniser runs.
     /// During the race the words already finished but held for it come
     /// first, so nothing said vanishes while the language is decided.
     var onHearing: ((String) -> Void)?
@@ -102,6 +106,11 @@ final class MeetingTrack {
     private let tee = MeetingTee(keep: CallLanguageFollow.replay)
     private var feeding: Task<Void, Never>?
     private var format: AVAudioFormat?
+    /// The most words kept for the screen past a take's finished lines: the
+    /// screen shows the newest few, and a recogniser that stopped finishing
+    /// must not grow them without end.
+    static let unfinishedWords = 300
+
     /// Seconds into the meeting at which this track's audio started.
     private var offset: TimeInterval = 0
     private var startedAt = Date()
@@ -109,6 +118,8 @@ final class MeetingTrack {
     private var lanes: [Lane] = []
     /// The takes in the first race, until it is decided.
     private var racing: [Take] = []
+    /// The take the screen follows until the race is decided, by locale.
+    private var showing = ""
     private var winner: Take?
     private var shadow: Take?
     private var challenge: Challenge?
@@ -142,6 +153,25 @@ final class MeetingTrack {
         }
     }
 
+    /// The recogniser that puts a speech take's words on screen as they are
+    /// said, and what it heard that the take has not finished yet.
+    @MainActor
+    private final class Quick {
+        let module: SpeechTranscriber
+        let lane: Lane
+        var pump: Task<Void, Never>?
+        /// Its finished words, in seconds of the meeting.
+        var said: [CallLanguageFollow.Timed] = []
+        /// Its running guess past them, and where that starts.
+        var guess = ""
+        var guessStart: TimeInterval?
+
+        init(module: SpeechTranscriber, lane: Lane) {
+            self.module = module
+            self.lane = lane
+        }
+    }
+
     /// One recogniser in one language, and what it heard.
     @MainActor
     private final class Take {
@@ -156,8 +186,15 @@ final class MeetingTrack {
         // The race, before it is decided.
         var held: [Line] = []
         var characters = 0
-        /// The recogniser's running guess past its last finished line.
+        /// The recogniser's running guess past its last finished line:
+        /// dictation's, which has no quick recogniser beside it.
         var guess = ""
+        /// Its words on screen, while it is speech and someone is watching.
+        var quick: Quick?
+        /// Where its finished lines end, in seconds of the meeting, and
+        /// their last words as timed: what of `quick`'s words is a line now.
+        var through: TimeInterval = -.infinity
+        var recent: [CallLanguageFollow.Timed] = []
 
         init(listener: CallLanguageFollow.Listener, module: any SpeechModule, lane: Lane) {
             self.listener = listener
@@ -250,10 +287,11 @@ final class MeetingTrack {
         startedAt = Date()
         // The race listens from the first buffer: its output exists before
         // anything is passed on.
-        let partials = onHearing != nil
-        let modules = picked.map { CallListening.module(for: $0, partials: partials) }
+        let modules = picked.map { CallListening.module(for: $0, partials: partials(for: $0)) }
         let lane = open(from: nil, modules: modules)
         racing = zip(picked, modules).map { Take(listener: $0, module: $1, lane: lane) }
+        showing = racing.first?.id ?? ""
+        quicken(racing, from: nil)
         let tee = tee
         feeding = Task.detached {
             for await item in input { tee.pass(item) }
@@ -265,7 +303,15 @@ final class MeetingTrack {
 
     // MARK: - Lanes and takes
 
-    private func open(from time: TimeInterval?, modules: [any SpeechModule]) -> Lane {
+    /// Whether `listener`'s own recogniser guesses at the words for the
+    /// screen: dictation's does, speech's has a quick one beside it.
+    private func partials(for listener: CallLanguageFollow.Listener) -> Bool {
+        onHearing != nil && listener.module == .dictation
+    }
+
+    /// `listed`: whether `finish` waits for it. A quick recogniser's lane is
+    /// not: nothing it hears is kept.
+    private func open(from time: TimeInterval?, modules: [any SpeechModule], listed: Bool = true) -> Lane {
         let (output, stream) = tee.output(from: time)
         let analyzer: SpeechAnalyzer
         if vocabulary.isEmpty {
@@ -276,8 +322,73 @@ final class MeetingTrack {
             analyzer = SpeechAnalyzer(inputSequence: stream, modules: modules, analysisContext: context)
         }
         let lane = Lane(analyzer: analyzer, output: output, modules: modules)
-        lanes.append(lane)
+        if listed { lanes.append(lane) }
         return lane
+    }
+
+    /// Starts the words on screen for those of `takes` that are speech, on
+    /// one analyzer of their own, from `time` in seconds of this side's
+    /// audio: nil for live, before anything has passed, so they are timed on
+    /// the same clock as the lines. Only while someone is watching, and not
+    /// once the call is ending.
+    private func quicken(_ takes: [Take], from time: TimeInterval?) {
+        guard onHearing != nil, !ended else { return }
+        let wanted = takes.compactMap { take in CallListening.quick(for: take.listener).map { (take, $0) } }
+        guard !wanted.isEmpty else { return }
+        let lane = open(from: time, modules: wanted.map(\.1), listed: false)
+        for (take, module) in wanted {
+            let quick = Quick(module: module, lane: lane)
+            take.quick = quick
+            pump(quick, of: take)
+        }
+        log("\(speaker.rawValue) live words: quick \(wanted.map(\.0.id).joined(separator: ", "))")
+    }
+
+    private func pump(_ quick: Quick, of take: Take) {
+        let transcriber = quick.module
+        let speaker = speaker
+        let log = log
+        quick.pump = Task { [weak self, weak take, weak quick] in
+            do {
+                for try await result in transcriber.results {
+                    guard let self, let take, let quick, take.quick === quick else { return }
+                    if result.isFinal {
+                        let offset = self.offset
+                        quick.said += CallListening.runs(of: result.text).compactMap { word in
+                            guard let start = word.start, let end = word.end else { return nil }
+                            return CallLanguageFollow.Timed(text: word.text, start: offset + start, end: offset + end)
+                        }
+                        quick.guess = ""
+                        quick.guessStart = nil
+                    } else {
+                        let start = result.range.start.seconds
+                        quick.guess = String(result.text.characters)
+                        quick.guessStart = start.isFinite ? self.offset + start : nil
+                    }
+                    self.trim(take)
+                    self.showHearing()
+                }
+            } catch {
+                log("\(speaker.rawValue) live words \(take?.id ?? "?") ended: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Lets go of the quick recogniser's words that `take`'s lines now say,
+    /// and keeps both lists of words within `unfinishedWords`.
+    private func trim(_ take: Take) {
+        if take.recent.count > Self.unfinishedWords { take.recent.removeFirst(take.recent.count - Self.unfinishedWords) }
+        guard let quick = take.quick else { return }
+        quick.said.removeAll { CallLive.isFinished($0, by: take.recent, through: take.through) }
+        if quick.said.count > Self.unfinishedWords { quick.said.removeFirst(quick.said.count - Self.unfinishedWords) }
+    }
+
+    /// Stops `take`'s words on screen.
+    private func stopQuick(_ take: Take) {
+        guard let quick = take.quick else { return }
+        take.quick = nil
+        quick.pump?.cancel()
+        release(quick.module, from: quick.lane, name: "\(take.id) live words")
     }
 
     private func pump(_ take: Take) {
@@ -328,8 +439,12 @@ final class MeetingTrack {
     /// results are simply ignored, which is right too, only slower.
     private func drop(_ take: Take) {
         take.pump?.cancel()
-        let lane = take.lane
-        lane.modules.removeAll { $0 === take.module }
+        stopQuick(take)
+        release(take.module, from: take.lane, name: take.id)
+    }
+
+    private func release(_ module: any SpeechModule, from lane: Lane, name: String) {
+        lane.modules.removeAll { $0 === module }
         let log = log
         let speaker = speaker
         if lane.modules.isEmpty {
@@ -342,7 +457,7 @@ final class MeetingTrack {
                 do {
                     try await lane.analyzer.setModules(keep)
                 } catch {
-                    log("\(speaker.rawValue) could not drop \(take.id): \(error.localizedDescription)")
+                    log("\(speaker.rawValue) could not drop \(name): \(error.localizedDescription)")
                 }
             }
         }
@@ -355,8 +470,17 @@ final class MeetingTrack {
             || take === challenge?.take
         guard live else { return }
         // A finished line covers the guess before it, as in dictation
-        // (`DictationTranscript`): the next guess picks up after it.
+        // (`DictationTranscript`): the next guess picks up after it. The
+        // quick recogniser's words up to its end, too, whether it is kept or
+        // not.
         take.guess = ""
+        let offset = offset
+        for heard in lines {
+            if let end = heard.end { take.through = max(take.through, offset + end) }
+            take.recent += heard.words.map { CallLanguageFollow.Timed(text: $0.text, start: $0.start.map { offset + $0 },
+                                                                      end: $0.end.map { offset + $0 }) }
+        }
+        trim(take)
         defer { showHearing() }
         for heard in lines {
             guard let text = MeetingWords.kept(heard.text, in: take.locale) else { continue }
@@ -370,7 +494,6 @@ final class MeetingTrack {
             }
             let segment = MeetingSegment(speaker: speaker, start: offset + (start ?? 0),
                                          end: offset + (end ?? 0), text: text)
-            let offset = offset
             let words = speaker == .them
                 ? heard.words.map { CallLanguageFollow.Timed(text: $0.text, start: $0.start.map { offset + $0 },
                                                              end: $0.end.map { offset + $0 }) }
@@ -421,22 +544,50 @@ final class MeetingTrack {
         showHearing()
     }
 
-    /// Tells the screen what is being said: the winner's guess, or before
-    /// the race is decided the primary's held lines and guess. Only a
-    /// change is told.
+    /// Tells the screen what is being said: the winner's words past its
+    /// lines, or before the race is decided the held lines and words of the
+    /// take that is understanding it best (`shownTake`). Only a change is
+    /// told.
     private func showHearing() {
         guard let onHearing else { return }
         let text: String
         if let winner {
-            text = CallLive.inProgress(held: [], guess: winner.guess)
-        } else if let primary = racing.first {
-            text = CallLive.inProgress(held: primary.held.map(\.segment.text), guess: primary.guess)
+            text = unfinished(of: winner)
+        } else if let shown = shownTake() {
+            text = CallLive.inProgress(held: shown.held.map(\.segment.text), guess: unfinished(of: shown))
         } else {
             text = ""
         }
         guard text != lastHeard else { return }
         lastHeard = text
         onHearing(text)
+    }
+
+    /// What `take` is heard saying past its finished lines: its quick
+    /// recogniser's words, or its own guess where it has none.
+    private func unfinished(of take: Take) -> String {
+        guard let quick = take.quick else { return take.guess }
+        return CallLive.unfinished(said: quick.said, guess: quick.guess, guessStart: quick.guessStart,
+                                   finished: take.recent, through: take.through)
+    }
+
+    /// The take the screen follows before the race is decided: the
+    /// primary, until another one's words read as its language and the
+    /// primary's do not (`CallLanguageFollow.shown`). It used to be the
+    /// primary throughout, so Spanish spoken with English first showed the
+    /// English recogniser's attempt at it until the race was called, which
+    /// in a short meeting is the end.
+    private func shownTake() -> Take? {
+        guard let primary = racing.first else { return nil }
+        guard racing.count > 1 else { return primary }
+        let choice = CallLanguageFollow.shown(racing.map { take in
+            (take.id, take.code, CallLive.inProgress(held: take.held.map(\.segment.text), guess: unfinished(of: take)))
+        }, showing: showing)
+        if choice != showing {
+            log("\(speaker.rawValue) live words → \(choice)")
+            showing = choice
+        }
+        return racing.first { $0.id == showing } ?? primary
     }
 
     // MARK: - The race
@@ -488,6 +639,7 @@ final class MeetingTrack {
             take.held = []
         }
         for take in racing where take !== chosen && take !== shadow { drop(take) }
+        if let shadow { stopQuick(shadow) }
         racing = []
         // The held lines are lines now: only the winner's guess is left.
         showHearing()
@@ -596,7 +748,7 @@ final class MeetingTrack {
         }
         log("\(speaker.rawValue) language watch: \(code) \(winner.watch.count(of: code))/\(winner.watch.lines.count) "
             + "lines → challenger \(listener.identifier) (\(listener.module.rawValue))")
-        let module = CallListening.module(for: listener, partials: onHearing != nil)
+        let module = CallListening.module(for: listener, partials: partials(for: listener))
         let placing = CallLanguageFollow.challengerPlacesTheSeam(challenger: listener.module,
                                                                  winner: winner.listener.module)
         let from = placing ? min(seam, max(since, offset + tee.oldest)) : seam
@@ -675,6 +827,8 @@ final class MeetingTrack {
         var kept: Take? = old
         if new !== shadow, !readable, !canRead(old.id), let shadow, canRead(shadow.id) { kept = shadow }
         for take in [old, shadow].compactMap({ $0 }) where take !== kept && take !== new { drop(take) }
+        stopQuick(old)
+        if new.quick == nil { quicken([new], from: tee.passed) }
         winner = new
         shadow = kept
         challenge = nil
@@ -718,6 +872,16 @@ final class MeetingTrack {
     }
 
     private func close() {
+        // Every quick recogniser at once, not one by one: each would ask a
+        // shared analyzer to carry on without it.
+        var quickLanes: [Lane] = []
+        for take in liveTakes {
+            guard let quick = take.quick else { continue }
+            take.quick = nil
+            quick.pump?.cancel()
+            if !quickLanes.contains(where: { $0 === quick.lane }) { quickLanes.append(quick.lane) }
+        }
+        for lane in quickLanes { Task { await lane.analyzer.cancelAndFinishNow() } }
         feeding?.cancel()
         feeding = nil
         tee.end()

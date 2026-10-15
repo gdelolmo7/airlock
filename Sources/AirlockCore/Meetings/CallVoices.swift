@@ -5,10 +5,10 @@ import Foundation
 ///
 /// The call app's sound is one track, "Them", however many people are on
 /// it. A voice model listens to that track during the call and says, every
-/// few seconds, which of up to eight voices was speaking when (`Span`). At
-/// the end of the call this pass lays those spans over the words the
-/// recogniser timed, and numbers the lines. Pure, so all of it is tested
-/// without audio.
+/// few seconds, which of up to eight voices was speaking when (`Span`).
+/// This pass lays those spans over the words the recogniser timed, and
+/// numbers the lines: every few seconds while the call goes on, and once
+/// more at its end. Pure, so all of it is tested without audio.
 ///
 /// It is built to say less rather than something wrong:
 /// - **A one-to-one call is never split.** The calendar says the other side
@@ -16,7 +16,8 @@ import Foundation
 /// - **A voice heard too little is folded into its neighbour.** A cough, a
 ///   laugh, a moment of crosstalk, the same person further from their mic:
 ///   a voice model makes extra "people" out of all of these. Under
-///   `smallestShare` of the talk, a voice is not believed.
+///   `fewestSeconds(outOf:)` of talk, a voice is not believed, and a laugh
+///   or a "yes, yes" is not talk (`isTalk`).
 /// - **One voice left is no voice at all**: the lines stay "Them".
 /// - **Nothing is remembered between calls.** The voices are numbered for
 ///   this call only, from what was heard in it.
@@ -47,13 +48,18 @@ public enum CallVoices {
         public var split: Int
         /// Why nobody was numbered, when nobody was.
         public var reason: String?
+        /// Seconds of talk each voice had when its share was weighed, the
+        /// most first: what a fold is decided on.
+        public var talk: [TimeInterval]
 
-        public init(heard: Int = 0, people: Int = 0, folded: Int = 0, split: Int = 0, reason: String? = nil) {
+        public init(heard: Int = 0, people: Int = 0, folded: Int = 0, split: Int = 0, reason: String? = nil,
+                    talk: [TimeInterval] = []) {
             self.heard = heard
             self.people = people
             self.folded = folded
             self.split = split
             self.reason = reason
+            self.talk = talk
         }
     }
 
@@ -64,10 +70,80 @@ public enum CallVoices {
     /// someone getting a word in.
     static let shortestRunWords = 3
     static let shortestRunSeconds: TimeInterval = 1
-    /// A voice heard for less than this, or less than `smallestShare` of all
-    /// the other side said, whichever is longer, is folded into a neighbour.
-    static let smallestTalk: TimeInterval = 15
+    /// A voice heard for less than `smallestShare` of all the other side
+    /// said, or less than `shortestTalk`, whichever is longer, is folded
+    /// into a neighbour. It was three seconds, and fifteen in a longer
+    /// meeting: a second person who said only "Hola, ¿qué tal? ¿Cómo
+    /// andas?" in a half-minute chat was folded into the first.
     static let smallestShare = 0.05
+    static let shortestTalk: TimeInterval = 1.5
+
+    /// The talk a voice needs, out of `total` seconds of the other side's,
+    /// to be believed: a second and a half up to half a minute, then a
+    /// twentieth.
+    static func fewestSeconds(outOf total: TimeInterval) -> TimeInterval {
+        max(shortestTalk, total * smallestShare)
+    }
+
+    /// Whether a line counts as talk when a voice's share is weighed: two
+    /// different words at least. A laugh ("ha ha ha"), a "yes, yes" or an
+    /// "mm" is not someone joining in, however long it lasts.
+    static func isTalk(_ text: String) -> Bool {
+        var words = Set<String>()
+        for word in spoken(text) {
+            let letters = String(word.lowercased().filter { $0.isLetter || $0.isNumber })
+            guard !letters.isEmpty else { continue }
+            words.insert(letters)
+            if words.count > 1 { return true }
+        }
+        return false
+    }
+
+    /// The voices believed so far in one stretch of listening, in the
+    /// order each was first believed: what keeps Person 2 Person 2 from one
+    /// pass to the next while the call goes on, and the names given to them
+    /// with them. Starts empty with each stretch.
+    public struct Numbering: Equatable, Sendable {
+        /// The model's voices, in the order each was first believed. Only
+        /// ever added to: a voice folded away keeps its place, in case it
+        /// is believed again.
+        public private(set) var order: [Int] = []
+        /// The person each of the model's voices was given by the last pass.
+        public internal(set) var people: [Int: Int] = [:]
+        /// The one voice left when the last pass found only one: its name,
+        /// if it had one, is the room's or the other side's now.
+        public internal(set) var lone: Int?
+
+        public init() {}
+
+        mutating func believe(_ voices: [Int]) {
+            for voice in voices where !order.contains(voice) { order.append(voice) }
+        }
+
+        /// `names` given to people as `before` numbered them, given to the
+        /// same voices as they are numbered now. A name whose voice was
+        /// folded away goes; the lone voice's goes to the other side, unless
+        /// that has a name of its own. Names of other people, the other side
+        /// and earlier stretches are kept as they are.
+        public func carry(_ names: [MeetingVoiceName], numberedAs before: [Int: Int]) -> [MeetingVoiceName] {
+            let voiceOf = Dictionary(before.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
+            let sideNamed = names.contains { $0.voice == MeetingRecord.otherSide }
+            var carried: [MeetingVoiceName] = []
+            for var name in names {
+                if let voice = voiceOf[name.voice] {
+                    if let person = people[voice] {
+                        name.voice = person
+                    } else if voice == lone, !sideNamed {
+                        name.voice = MeetingRecord.otherSide
+                    } else {
+                        continue
+                    }
+                }
+                carried.append(name)
+            }
+            return carried
+        }
+    }
 
     /// Numbers the other side's lines from `from` on (seconds into the call:
     /// where this stretch of listening began), with `spans` from the voice
@@ -75,15 +151,32 @@ public enum CallVoices {
     /// the meeting.
     ///
     /// Lines before `from` are left as they are, and new people are
-    /// numbered after `record.lastPerson`: a call that dropped and carried
+    /// numbered after the people in them: a call that dropped and carried
     /// on was listened to from scratch, and nothing says its voices are the
     /// same ones.
     public static func number(_ record: inout MeetingRecord, from: TimeInterval = 0,
                               spans: [Span], words: [CallLanguageFollow.Timed]) -> Outcome {
-        let spans = spans.filter { $0.end > $0.start }.sorted { $0.start < $1.start }
+        var numbering = Numbering()
+        return number(&record, from: from, spans: spans, words: words, numbering: &numbering)
+    }
+
+    /// `number`, again and again while the call goes on: only the lines
+    /// said by `through` (as far as the model has listened) are numbered,
+    /// and `numbering` keeps each voice's number from one pass to the next,
+    /// so a person who spoke first stays Person 1 and a name given to
+    /// Person 2 stays with that voice. A voice believed later comes after;
+    /// one folded away later gives up its number, and those after it move
+    /// up. Every pass looks at the whole stretch again, so the last one, at
+    /// the end of the call, tells the same people apart as one pass alone
+    /// would; only their numbers can come in another order.
+    public static func number(_ record: inout MeetingRecord, from: TimeInterval = 0,
+                              through: TimeInterval = .infinity, spans: [Span],
+                              words: [CallLanguageFollow.Timed], numbering: inout Numbering) -> Outcome {
+        let spans = spans.filter { $0.end > $0.start && $0.start < through }.sorted { $0.start < $1.start }
         var outcome = Outcome(heard: Set(spans.map(\.voice)).count)
         let indices = record.segments.indices.filter {
-            record.segments[$0].speaker == .them && record.segments[$0].start >= from
+            let segment = record.segments[$0]
+            return segment.speaker == .them && segment.start >= from && segment.end <= through
         }
         guard !indices.isEmpty else {
             outcome.reason = "nothing said"
@@ -93,15 +186,24 @@ public enum CallVoices {
             outcome.reason = "one-to-one call"
             return outcome
         }
+        let before = numbering.people
+        // The people of an earlier stretch, which this one numbers after.
+        let base = record.segments.filter { $0.speaker == .them && $0.start < from }.compactMap(\.person).max() ?? 0
         guard outcome.heard > 1 else {
             outcome.reason = "one voice heard"
+            unnumber(&record, indices, from: from, through: through, lone: spans.first?.voice, base: base,
+                     numbering: &numbering, before: before)
             return outcome
         }
 
         // Each word under the voice it overlaps most, then flicker smoothed.
-        let timed = words.filter { $0.start != nil && $0.end != nil }
-            .sorted { $0.start! < $1.start! }
-        let voices = smooth(timed.map { voice(at: $0.start!, $0.end!, in: spans) }, words: timed)
+        let timed = words.filter { word in
+            guard let start = word.start, let end = word.end else { return false }
+            return end >= from - reach && start <= through + reach
+        }.sorted { $0.start! < $1.start! }
+        let longest = spans.map { $0.end - $0.start }.max() ?? 0
+        let voices = smooth(timed.map { voice(at: $0.start!, $0.end!, in: spans, longest: longest) }, words: timed)
+        let longestWord = timed.map { $0.end! - $0.start! }.max() ?? 0
 
         // Each line from its words: cut where the voice changes, when the
         // words can be matched to the line's own; else whoever said most of it.
@@ -109,9 +211,14 @@ public enum CallVoices {
         var owners: [Int?] = []
         for index in indices {
             let segment = record.segments[index]
-            let inside = timed.indices.filter { i in
+            // Words starting from a word's length before the line on: the
+            // rest cannot have their middle inside it.
+            var i = firstIndex(in: timed, startingFrom: segment.start - 0.05 - longestWord)
+            var inside: [Int] = []
+            while i < timed.count, timed[i].start! <= segment.end + 0.05 {
                 let middle = (timed[i].start! + timed[i].end!) / 2
-                return middle >= segment.start - 0.05 && middle <= segment.end + 0.05
+                if middle >= segment.start - 0.05 && middle <= segment.end + 0.05 { inside.append(i) }
+                i += 1
             }
             let pieces = cut(segment, words: inside.map { timed[$0] }, voices: inside.map { voices[$0] },
                              spans: spans)
@@ -124,44 +231,89 @@ public enum CallVoices {
 
         // Too little talk to be believed: folded into the voice next to it.
         let talk = Dictionary(grouping: zip(lines, owners).compactMap { line, owner in
-            owner.map { ($0, line.end - line.start) }
+            owner.map { ($0, isTalk(line.text) ? line.end - line.start : 0) }
         }, by: \.0).mapValues { $0.reduce(0) { $0 + $1.1 } }
         let total = talk.values.reduce(0, +)
-        let floor = max(smallestTalk, total * smallestShare)
+        let floor = fewestSeconds(outOf: total)
         let loudest = talk.max { $0.value < $1.value }?.key
         let small = Set(talk.filter { $0.value < floor && $0.key != loudest }.keys)
         outcome.folded = small.count
+        outcome.talk = talk.values.sorted(by: >)
         owners = fold(owners, small: small)
 
         let kept = Set(owners.compactMap { $0 })
         guard kept.count > 1 else {
             outcome.reason = "one voice after folding"
+            unnumber(&record, indices, from: from, through: through, lone: kept.first, base: base,
+                     numbering: &numbering, before: before)
             return outcome
         }
 
-        // Numbered in the order they first spoke, after any earlier stretch's.
+        // Numbered in the order they were first believed, after any earlier
+        // stretch's: the order they first spoke, the first time round.
+        var firstSpoke: [Int] = []
+        for owner in owners.compactMap({ $0 }) where !firstSpoke.contains(owner) { firstSpoke.append(owner) }
+        numbering.believe(firstSpoke)
         var numbers: [Int: Int] = [:]
-        var next = record.lastPerson + 1
-        for owner in owners.compactMap({ $0 }) where numbers[owner] == nil {
-            numbers[owner] = next
-            next += 1
-        }
+        for voice in numbering.order where kept.contains(voice) { numbers[voice] = base + numbers.count + 1 }
         for i in lines.indices { lines[i].person = owners[i].flatMap { numbers[$0] } }
         outcome.people = numbers.count
+        numbering.people = numbers
+        numbering.lone = nil
 
-        let others = record.segments.indices.filter { !indices.contains($0) }.map { record.segments[$0] }
+        let chosen = Set(indices)
+        let others = record.segments.indices.filter { !chosen.contains($0) }.map { record.segments[$0] }
         record.replaceSegments(with: others + lines)
 
         // The shadow (the other language's lines, for the notes): whoever
         // was speaking for most of each.
         record.replaceShadow(with: record.shadow.map { line in
-            guard line.segment.speaker == .them, line.segment.start >= from else { return line }
+            guard line.segment.speaker == .them, line.segment.start >= from, line.segment.end <= through else {
+                return line
+            }
             var line = line
             line.segment.person = majority(over: line.segment.start, line.segment.end, in: spans)
                 .flatMap { voice in small.contains(voice) ? nil : numbers[voice] }
             return line
         })
+        if numbers != before { record.replaceNames(with: numbering.carry(record.names, numberedAs: before)) }
         return outcome
+    }
+
+    /// Nobody to tell apart in the stretch, or nobody any more: its lines
+    /// back to "Them", or "Someone", and the names given to its people with
+    /// them, all but the lone voice's.
+    private static func unnumber(_ record: inout MeetingRecord, _ indices: [Int], from: TimeInterval,
+                                 through: TimeInterval, lone: Int?, base: Int, numbering: inout Numbering,
+                                 before: [Int: Int]) {
+        guard indices.contains(where: { record.segments[$0].person != nil }) || !before.isEmpty else { return }
+        var segments = record.segments
+        for index in indices { segments[index].person = nil }
+        record.replaceSegments(with: segments)
+        record.replaceShadow(with: record.shadow.map { line in
+            guard line.segment.speaker == .them, line.segment.start >= from, line.segment.end <= through else {
+                return line
+            }
+            var line = line
+            line.segment.person = nil
+            return line
+        })
+        numbering.people = [:]
+        // The lines are the other side's one voice again only when no
+        // earlier stretch has people of its own.
+        numbering.lone = base == 0 ? lone : nil
+        record.replaceNames(with: numbering.carry(record.names, numberedAs: before))
+    }
+
+    /// The first of `words`, sorted by start, that starts at `time` or later.
+    static func firstIndex(in words: [CallLanguageFollow.Timed], startingFrom time: TimeInterval) -> Int {
+        var low = 0
+        var high = words.count
+        while low < high {
+            let middle = (low + high) / 2
+            if words[middle].start! < time { low = middle + 1 } else { high = middle }
+        }
+        return low
     }
 
     // MARK: - Voice activity to spans
@@ -206,6 +358,15 @@ public enum CallVoices {
             frames += count
         }
 
+        /// Every stretch so far, those still open as if they stopped at
+        /// the last frame, and how far into the meeting the model has
+        /// listened: what a pass during the call numbers from.
+        public var soFar: (spans: [Span], through: TimeInterval) {
+            var copy = self
+            copy.finish()
+            return (copy.spans, origin + Double(frames) * frameSeconds)
+        }
+
         /// Closes every stretch still open, at the last frame.
         public mutating func finish() {
             for (voice, from) in open.sorted(by: { $0.key < $1.key }) { close(voice, from: from, to: frames) }
@@ -224,12 +385,23 @@ public enum CallVoices {
     // MARK: - Words to voices
 
     /// The voice that overlaps `start…end` most, else the nearest within
-    /// `reach` of its middle, else nil.
-    static func voice(at start: TimeInterval, _ end: TimeInterval, in spans: [Span]) -> Int? {
-        if let best = majority(over: start, end, in: spans) { return best }
+    /// `reach` of its middle, else nil. `spans` sorted by start; `longest`,
+    /// the longest of them, when known, so only those that can reach the
+    /// word are looked at.
+    static func voice(at start: TimeInterval, _ end: TimeInterval, in spans: [Span],
+                      longest: TimeInterval? = nil) -> Int? {
+        let near: ArraySlice<Span>
+        if let longest {
+            let from = firstSpan(in: spans, startingFrom: start - longest - reach)
+            let to = firstSpan(in: spans, startingFrom: end + reach + 0.001)
+            near = spans[from..<max(from, to)]
+        } else {
+            near = spans[...]
+        }
+        if let best = majority(over: start, end, in: near) { return best }
         let middle = (start + end) / 2
         var nearest: (voice: Int, distance: TimeInterval)?
-        for span in spans {
+        for span in near {
             let distance = middle < span.start ? span.start - middle : max(0, middle - span.end)
             if distance <= reach, distance < (nearest?.distance ?? .infinity) {
                 nearest = (span.voice, distance)
@@ -238,9 +410,20 @@ public enum CallVoices {
         return nearest?.voice
     }
 
+    private static func firstSpan(in spans: [Span], startingFrom time: TimeInterval) -> Int {
+        var low = 0
+        var high = spans.count
+        while low < high {
+            let middle = (low + high) / 2
+            if spans[middle].start < time { low = middle + 1 } else { high = middle }
+        }
+        return low
+    }
+
     /// The voice with the most time inside `start…end`, nil when none.
     /// A zero-length stretch counts the voice speaking at that moment.
-    static func majority(over start: TimeInterval, _ end: TimeInterval, in spans: [Span]) -> Int? {
+    static func majority<Spans: Collection<Span>>(over start: TimeInterval, _ end: TimeInterval,
+                                                  in spans: Spans) -> Int? {
         var time: [Int: TimeInterval] = [:]
         for span in spans where span.start <= end && span.end >= start {
             let overlap = min(end, span.end) - max(start, span.start)

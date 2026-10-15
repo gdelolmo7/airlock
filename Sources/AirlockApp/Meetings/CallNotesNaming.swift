@@ -213,17 +213,38 @@ struct CallNotesRename: View {
     let call: CallNotesLibrary.Call
     let voice: Int
 
+    var body: some View {
+        CallVoiceRename(record: call.record, voice: voice,
+                        cancel: { library.renaming = nil },
+                        save: { names in library.name(call, as: names) })
+    }
+}
+
+/// "Who is Person 3?" for any record: the notes window's once the call is
+/// over, and the side window's while it goes on. `save` gets every voice's
+/// name, this one's new.
+struct CallVoiceRename: View {
+    let record: MeetingRecord
+    let voice: Int
+    /// Nil fills the width it is given.
+    var width: CGFloat? = 236
+    let cancel: () -> Void
+    let save: ([MeetingVoiceName]) -> Void
+
     @State private var draft: CallNotesNameDraft
     @FocusState private var focused: Int?
 
-    init(call: CallNotesLibrary.Call, voice: Int) {
-        self.call = call
+    init(record: MeetingRecord, voice: Int, width: CGFloat? = 236, cancel: @escaping () -> Void,
+         save: @escaping ([MeetingVoiceName]) -> Void) {
+        self.record = record
         self.voice = voice
-        _draft = State(initialValue: CallNotesNameDraft.all(of: call.record)[voice] ?? CallNotesNameDraft())
+        self.width = width
+        self.cancel = cancel
+        self.save = save
+        _draft = State(initialValue: CallNotesNameDraft.all(of: record)[voice] ?? CallNotesNameDraft())
     }
 
     var body: some View {
-        let record = call.record
         let sketch = MeetingNaming.sketches(of: record).first { $0.voice == voice }
         let label = record.givenLabel(of: voice) ?? sketch?.label ?? MeetingRecord.personLabel(voice)
         VStack(alignment: .leading, spacing: 0) {
@@ -237,15 +258,16 @@ struct CallNotesRename: View {
                 .padding(.top, 6)
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
-                CallNotesNamingButton("Cancel", small: true) { library.renaming = nil }
+                CallNotesNamingButton("Cancel", small: true) { cancel() }
                     .keyboardShortcut(.cancelAction)
-                CallNotesNamingButton("Save", primary: true, small: true) { save() }
+                CallNotesNamingButton("Save", primary: true, small: true) { saveDraft() }
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.top, 10)
         }
         .padding(12)
-        .frame(width: 236)
+        .frame(width: width)
+        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
         .task { focused = voice }
     }
 
@@ -256,7 +278,7 @@ struct CallNotesRename: View {
         func taken(_ name: String) -> Bool {
             offers.contains { CallNotesNaming.same($0.name, name) }
         }
-        for given in call.record.names where given.voice != voice && !given.isYou && !taken(given.name) {
+        for given in record.names where given.voice != voice && !given.isYou && !taken(given.name) {
             offers.append(.init(name: given.name, title: "Same as \(given.name)"))
         }
         for suggestion in sketch?.suggestions ?? [] where !taken(suggestion.name) {
@@ -265,13 +287,13 @@ struct CallNotesRename: View {
         return offers
     }
 
-    private func save() {
-        var drafts = CallNotesNameDraft.all(of: call.record)
+    private func saveDraft() {
+        var drafts = CallNotesNameDraft.all(of: record)
         if draft.isYou {
             for other in drafts.keys where drafts[other]?.isYou == true { drafts[other] = CallNotesNameDraft() }
         }
         drafts[voice] = draft
-        library.name(call, as: CallNotesNameDraft.names(drafts, in: call.record))
+        save(CallNotesNameDraft.names(drafts, in: record))
     }
 }
 

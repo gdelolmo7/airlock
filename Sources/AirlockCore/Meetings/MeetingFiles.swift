@@ -110,27 +110,32 @@ public enum MeetingFiles {
     }
 
     /// The calendar's name for the meeting when there is one, as written,
-    /// or the recording's it was added from. Otherwise "Call with Ana" when
-    /// the invite says it was one person, and "Call in Zoom" when nothing
-    /// better is known.
+    /// or the recording's it was added from, or the one its notes gave it
+    /// (`MeetingRecord.topic`). Otherwise "Call with Ana" when the invite
+    /// says it was one person, and "Call in Zoom" when nothing better is
+    /// known.
     public static func title(of record: MeetingRecord) -> String {
         if record.event?.name == nil, let recording = record.recording { return recording.title }
-        return title(event: record.event, callName: record.callName, inPerson: record.isInPerson)
+        return title(event: record.event, callName: record.callName, inPerson: record.isInPerson,
+                     topic: record.topic)
     }
 
     /// Whether `title(of:)` is a name, kept as written ("Budget review",
     /// "Kitchen planning"), rather than a description ("Call in Zoom").
     public static func titleIsAName(_ record: MeetingRecord) -> Bool {
-        record.event?.name != nil || record.recording != nil
+        record.event?.name != nil || record.recording != nil || record.topic != nil
     }
 
     /// `title(of:)` for a call whose record is not to hand: its calendar
-    /// event, if any, and the app's or the service's name (`callName`). The
+    /// event, if any, the name its notes gave it once they are written
+    /// (`topic`), and the app's or the service's name (`callName`). The
     /// panel names a call by this once its notes are taken, so the line
     /// about them and the list they are found in say the same.
     /// A meeting in person is a "Meeting", not a "Call in In person".
-    public static func title(event: MeetingEvent?, callName: String, inPerson: Bool = false) -> String {
+    public static func title(event: MeetingEvent?, callName: String, inPerson: Bool = false,
+                             topic: String? = nil) -> String {
         if let name = event?.name { return name }
+        if let topic { return topic }
         if let other = event?.oneToOne { return "\(inPerson ? "Meeting" : "Call") with \(other)" }
         return inPerson ? "Meeting in person" : "Call in \(callName)"
     }

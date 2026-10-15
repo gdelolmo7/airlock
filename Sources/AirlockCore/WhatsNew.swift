@@ -54,9 +54,17 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.0.21", title: "Call notes that keep up", items: [
+            Item("sparkles", "Subscribers' call notes are now written online by default, no question asked."),
+            Item("gearshape", "Rather keep them on your Mac? Turn off Write notes online in Settings › Voice."),
+            Item("captions.bubble", "Words show up as they're said, and the side window tells people apart during the call."),
+            Item("tag", "A call with no calendar name gets a title from what it was about."),
+        ]),
+        // 1.0.20 also said it asked first, under the next notes. Nothing asks
+        // since, and anyone who skips 1.0.20 reads these lines later, so that
+        // one is gone.
         Notes(version: "1.0.20", title: "Better call notes, online", items: [
             Item("sparkles", "Subscribers can have call notes written online, with better summaries and to-dos."),
-            Item("hand.raised", "Airlock asks you first, under your next notes. Nothing leaves your Mac before you say yes."),
             Item("lock.shield", "Nobody keeps your call. Offline, or if you'd rather not, your Mac writes the notes."),
             Item("gearshape", "Change your mind any time on the Voice page in Settings."),
         ]),

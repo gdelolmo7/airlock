@@ -187,6 +187,104 @@ public enum CallLive {
             .joined(separator: " ")
     }
 
+    /// What a side is heard saying past its last finished line, when a
+    /// second, faster recogniser supplies the words on screen: its
+    /// finished words the notes' recogniser has not finished yet
+    /// (`isFinished`), then its running guess, less whatever of the guess
+    /// the notes' recogniser has finished since. Times are seconds of the
+    /// meeting.
+    ///
+    /// - `said`: the fast recogniser's finished words, as it timed them.
+    /// - `guess`, from `guessStart`: its guess past them, as one run, which
+    ///   gives no word its own time.
+    /// - `finished`: the notes' recogniser's words, as it timed them, and
+    ///   `through` where its finished lines end.
+    ///
+    /// The guess is cut by its words, not by time: the notes' words from
+    /// `guessStart` on are the guess's first words (`covered`).
+    public static func unfinished(said: [CallLanguageFollow.Timed], guess: String, guessStart: TimeInterval?,
+                                  finished: [CallLanguageFollow.Timed], through: TimeInterval) -> String {
+        // A full stop it sends on its own ("." 24.66–25.02) goes on the word
+        // before, not after a space.
+        var open: [String] = []
+        for word in said where !isFinished(word, by: finished, through: through) {
+            if !open.isEmpty, MeetingText.key(word.text).isEmpty, !word.text.hasPrefix(" ") {
+                open[open.count - 1] += word.text
+            } else {
+                open.append(word.text)
+            }
+        }
+        var words = guess.split(whereSeparator: \.isWhitespace).map(String.init)
+        if let guessStart, through > guessStart {
+            let inGuess = finished.filter { word in
+                middle(of: word).map { $0 >= guessStart && $0 <= through } ?? false
+            }
+            words.removeFirst(covered(words, by: inGuess.map(\.text)))
+        }
+        return MeetingText.oneLine((open + words).joined(separator: " "))
+    }
+
+    /// Whether the notes' recogniser has finished `word`, one of the fast
+    /// recogniser's, with lines up to `through`: it ends by then, or it
+    /// runs across `through` and is the same word as one of `finished` it
+    /// overlaps.
+    ///
+    /// Its times alone cannot tell, because the fast one stretches words
+    /// over the pause between sentences, either way. It runs a sentence's
+    /// last word on into the pause ("week." 3.90–4.86 against 3.90–4.14),
+    /// and by its start that word showed twice. It begins the next
+    /// sentence's first word early ("Okay," 15.12 against 15.48; "Vale,"
+    /// 19.26–20.40 with the line ending at 19.92), and by its start, or even
+    /// its middle, that word went missing until its line came. Measured on
+    /// the same English and Spanish chats.
+    public static func isFinished(_ word: CallLanguageFollow.Timed, by finished: [CallLanguageFollow.Timed],
+                                  through: TimeInterval) -> Bool {
+        guard let start = word.start, let end = word.end else { return false }
+        if end <= through { return true }
+        guard start < through else { return false }
+        let key = MeetingText.key(word.text)
+        return finished.contains { other in
+            guard let otherStart = other.start, let otherEnd = other.end else { return false }
+            return otherStart < end + timingSlack && start < otherEnd + timingSlack
+                && MeetingText.key(other.text) == key
+        }
+    }
+
+    /// How much later the fast recogniser can time a word than the notes'
+    /// one does: up to 0.3 s, measured, so a short word ("de", 0.12 s) can
+    /// miss its twin entirely.
+    static let timingSlack: TimeInterval = 0.3
+
+    static func middle(of word: CallLanguageFollow.Timed) -> TimeInterval? {
+        guard let start = word.start, let end = word.end else { return nil }
+        return (start + end) / 2
+    }
+
+    /// How many of `guess`'s first words `finished` already says: about
+    /// as many as it has, moved up to three words either way to where its
+    /// last word (and the one before) turns up, the nearest such place
+    /// first. The two recognisers can split a stretch into a word more or
+    /// less; told by count alone, the screen would repeat or skip one.
+    static func covered(_ guess: [String], by finished: [String]) -> Int {
+        let expected = finished.count
+        guard expected > 0, !guess.isEmpty else { return 0 }
+        let fallback = min(expected, guess.count)
+        let lowest = max(1, expected - 3)
+        let highest = min(guess.count, expected + 3)
+        guard lowest <= highest, let last = finished.last.map(MeetingText.key) else { return fallback }
+        let before = finished.dropLast().last.map(MeetingText.key)
+        var best: (score: Int, distance: Int, count: Int)?
+        for count in lowest...highest {
+            var score = MeetingText.key(guess[count - 1]) == last ? 2 : 0
+            if count >= 2, let before, MeetingText.key(guess[count - 2]) == before { score += 1 }
+            guard score > 0 else { continue }
+            let distance = abs(count - expected)
+            if let best, best.score > score || (best.score == score && best.distance <= distance) { continue }
+            best = (score, distance, count)
+        }
+        return best?.count ?? fallback
+    }
+
     /// The newest words of `text` that fit in about `limit` characters,
     /// from a word's start, "…" in front of what was cut: a small space
     /// shows where the speaker has got to, not how they began.

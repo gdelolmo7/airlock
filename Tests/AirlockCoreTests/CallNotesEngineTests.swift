@@ -671,7 +671,7 @@ final class CallNotesPromptsTests: XCTestCase {
         ledger.add(MeetingDraft(decisions: [.init(text: "Launch on the twentieth", sources: ["S3"])]),
                    shown: Set(1...6))
         XCTAssertTrue(CallNotesPrompts.wrapUp(ledger.factList(), language: nil, inPerson: true)
-            .hasPrefix("Write the summary and key points for this meeting.\n"))
+            .hasPrefix("Write the summary, the title and the key points for this meeting.\n"))
     }
 
     func testTheRulesSayWhatMatters() {
@@ -694,7 +694,7 @@ final class CallNotesPromptsTests: XCTestCase {
         ledger.add(MeetingDraft(decisions: [.init(text: "Launch on the twentieth", sources: ["S3"])]),
                    shown: Set(1...6))
         XCTAssertEqual(CallNotesPrompts.wrapUp(ledger.factList(), language: "English"), """
-            Write the summary and key points for this call. Write them in English.
+            Write the summary, the title and the key points for this call. Write them in English.
 
             NOTES START
             F1 [decision] Launch on the twentieth
@@ -707,7 +707,7 @@ final class CallNotesPromptsTests: XCTestCase {
         ledger.add(MeetingDraft(decisions: [.init(text: "Launch on the twentieth", sources: ["S3"])]),
                    shown: Set(1...6))
         XCTAssertEqual(CallNotesPrompts.wrapUp(ledger.factList(), language: nil, invited: ledger.people.others), """
-            Write the summary and key points for this call.
+            Write the summary, the title and the key points for this call.
             Invited: Ana García, Luis Pérez.
 
             NOTES START

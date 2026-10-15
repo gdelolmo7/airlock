@@ -72,6 +72,8 @@ struct CallWrapUp {
     var purpose: String
     @Guide(description: "One or two plain sentences on what came out of it, naming two or three of the decisions, to-dos or open questions from the notes by what they are. A to-do is still to be done, not done.")
     var outcome: String
+    @Guide(description: "A name for the meeting by what it was about, in two to six words, as someone would file it. No quotes, no full stop, no date.")
+    var title: String
     @Guide(description: "Short lines on the topics discussed, saying what the decisions, to-dos and open questions do not already say.",
            .maximumCount(5))
     var keyPoints: [CallKeyPoint]
@@ -377,8 +379,11 @@ enum MeetingSummarizer {
                 options: GenerationOptions(sampling: .greedy, maximumResponseTokens: wrapUpAnswerTokens))
             let offered = response.content.keyPoints.map { MeetingDraft.Fact(text: $0.text, sources: $0.sources) }
             let keyPoints = ledger.keyPoints(offered, from: list)
-            log("summary: final step ok, \(keyPoints.count) of \(offered.count) key point(s) kept")
-            return ledger.notes(summary: response.content.summary, keyPoints: keyPoints.isEmpty ? nil : keyPoints)
+            var notes = ledger.notes(summary: response.content.summary, keyPoints: keyPoints.isEmpty ? nil : keyPoints)
+            notes.title = response.content.title
+            log("summary: final step ok, \(keyPoints.count) of \(offered.count) key point(s) kept"
+                + (notes.title == nil ? ", no title" : ", titled"))
+            return notes
         } catch {
             log("summary: final step failed (\(kind(of: error))), saved without a summary")
             return ledger.notes()

@@ -65,6 +65,13 @@ public struct MeetingNotes: Equatable, Sendable {
         }
     }
 
+    /// A short name for the meeting, from what was said ("Kitchen tiles
+    /// and the delivery date"), for a meeting nothing else names: no
+    /// calendar event and no recording (`MeetingFiles.title(of:)`). Nil
+    /// when the writer gave none. Always cleaned (`MeetingNotes.title(_:)`).
+    public var title: String? {
+        didSet { title = Self.title(title) }
+    }
     /// Two or three sentences: what the call was about and where it ended up.
     public var summary: String
     public var todos: [Item]
@@ -77,7 +84,9 @@ public struct MeetingNotes: Equatable, Sendable {
     public var unwritten: [Stretch]
 
     public init(summary: String = "", todos: [Item] = [], decisions: [Item] = [],
-                questions: [Item] = [], keyPoints: [Item] = [], unwritten: [Stretch] = []) {
+                questions: [Item] = [], keyPoints: [Item] = [], unwritten: [Stretch] = [],
+                title: String? = nil) {
+        self.title = Self.title(title)
         self.summary = MeetingText.clean(summary)
         self.unwritten = Stretch.merged(unwritten)
         self.todos = Self.tidy(todos)
@@ -95,6 +104,43 @@ public struct MeetingNotes: Equatable, Sendable {
     public var isEmpty: Bool {
         summary.isEmpty && todos.isEmpty && decisions.isEmpty && questions.isEmpty && keyPoints.isEmpty
     }
+
+    /// Characters a title has at most: it is a name, and a folder's
+    /// (`MeetingFiles.safe`) is cut at 60.
+    public static let titleLimit = 60
+
+    /// A title as the model wrote it, as a name: its first line, without
+    /// a "Title:" before it, quotes around it or a full stop after it,
+    /// and cut at a word to `titleLimit`. Nil when nothing is left.
+    public static func title(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let first = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        var title = MeetingText.clean(first)
+        if let colon = title.firstIndex(of: ":"),
+           titleLabels.contains(title[..<colon].trimmingCharacters(in: .whitespaces).lowercased()) {
+            title = String(title[title.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        }
+        let quotes = "\"'“”‘’«»「」*_"
+        while let last = title.last, quotes.contains(last) || ".。".contains(last) { title.removeLast() }
+        while let first = title.first, quotes.contains(first) { title.removeFirst() }
+        title = title.trimmingCharacters(in: .whitespaces)
+        if title.count > titleLimit {
+            let cut = title.prefix(titleLimit + 1)
+            title = cut.lastIndex(of: " ").map { String(cut[..<$0]) } ?? String(cut.prefix(titleLimit))
+            while let last = title.last, ",;:-–—".contains(last) || last.isWhitespace { title.removeLast() }
+        }
+        return title.isEmpty || titlePlaceholders.contains(title.lowercased()) ? nil : title
+    }
+
+    /// What a model writes before a title, lowercased, in the languages
+    /// the notes are written in most.
+    static let titleLabels: Set<String> = ["title", "título", "titulo", "títol", "titre", "titel", "titolo"]
+
+    /// Titles that name nothing, lowercased: "Meeting in person" says more.
+    static let titlePlaceholders: Set<String> = [
+        "meeting", "call", "untitled", "no title", "none", "n/a",
+        "reunión", "llamada", "sin título", "reunió", "trucada", "sense títol",
+    ]
 
     /// Fewer words than this and the model is not asked at all: there is
     /// nothing to take notes of, and a small model handed almost nothing
@@ -311,10 +357,13 @@ extension MeetingFiles {
                                  writtenFrom: String? = nil,
                                  writer: MeetingNotesWriter? = nil,
                                  timeZone: TimeZone = .current) -> String {
+        // Named by these notes when they name it, before the record is.
+        var record = record
+        if let named = notes?.title { record.topic = named }
         let title = title(of: record)
-        // The calendar's title is a name and keeps its capitals, as does a
-        // recording's; "Call in Zoom" is a description and reads as one
-        // after "Notes:".
+        // The calendar's title is a name and keeps its capitals, as do a
+        // recording's and the notes'; "Call in Zoom" is a description and
+        // reads as one after "Notes:".
         let heading = titleIsAName(record) ? title : title.lowercasedFirst
         var lines = ["# Notes: \(heading)", "", header(of: record, timeZone: timeZone), ""]
         if writer?.waitsForOnline == true { lines += ["_\(offlineLine)_", ""] }

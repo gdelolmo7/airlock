@@ -487,8 +487,7 @@ private struct NotesReady: View {
                 Spacer(minLength: 6)
                 // Still offered: the page keeps the transcript and anything
                 // jotted, but it is not the news, so it is not the bright one.
-                // Nor while the question below is asked: that has the one.
-                NotesPill("Open notes", prominent: !tooLittle && !meetings.readyAsksOnline) {
+                NotesPill("Open notes", prominent: !tooLittle) {
                     meetings.showNotes()
                 }
                 if notes != nil {
@@ -563,11 +562,6 @@ private struct NotesReady: View {
                     }
                 }
             }
-            // Asked once, before any meeting leaves the Mac: these notes
-            // were written here, and a yes writes them again online.
-            if meetings.readyAsksOnline {
-                NotesOnlineQuestion(meetings: meetings)
-            }
         }
         .onDisappear { copiedEnds?.cancel() }
     }
@@ -581,45 +575,6 @@ private struct NotesReady: View {
             guard !Task.isCancelled else { return }
             copied = false
         }
-    }
-}
-
-/// "Write better notes online?", under notes that could have been written
-/// online by someone who hasn't said whether they may (`CloudNotesQuestion`).
-/// Closing the line without an answer leaves it unasked, for the next meeting.
-private struct NotesOnlineQuestion: View {
-    let meetings: MeetingNotesModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(CloudNotesQuestion.title)
-                .font(Theme.chrome(11, .semibold))
-                .foregroundStyle(Theme.textPrimary)
-            Text(CloudNotesQuestion.text)
-                .font(Theme.chrome(10.5))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(alignment: .center, spacing: 6) {
-                Text(CloudNotesQuestion.settingsLine)
-                    .font(Theme.chrome(10))
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-                Spacer(minLength: 6)
-                NotesPill(CloudNotesQuestion.keepButton, quiet: true) { meetings.keepNotesOnMac() }
-                    .help("Notes stay written on this Mac, and this isn't asked again")
-                NotesPill(CloudNotesQuestion.writeButton, prominent: true) { meetings.writeNotesOnline() }
-                    .help("Writes these notes again online, keeping this Mac's beside them")
-            }
-            .padding(.top, 2)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(Color.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .padding(.top, 2)
-        .accessibilityElement(children: .contain)
     }
 }
 
