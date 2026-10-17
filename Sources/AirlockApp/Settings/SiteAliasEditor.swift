@@ -14,6 +14,7 @@ import AirlockCore
 /// row would look deletable when deleting it only means "until the next launch".
 struct SiteAliasEditor: View {
     @Environment(AssistantModel.self) private var assistant
+    @AppStorage(AdvancedSwitch.key) private var advanced = false
     @State private var entries: [Row] = []
     @State private var search = ""
     @State private var loaded = false
@@ -84,8 +85,12 @@ struct SiteAliasEditor: View {
                 LookButton("Save") { save() }
                     .disabled(entries.isEmpty)
                 Spacer()
-                LookButton("Open the file…") { assistant.siteAliasStore.revealInFinder() }
-                    .help("The same phrases, as a text file you can keep in version control.")
+                // The text file behind the list is for advanced settings: the
+                // rows above are the way to edit it.
+                if advanced {
+                    LookButton("Show in Finder") { assistant.siteAliasStore.revealInFinder() }
+                        .help("Your phrases are also kept as a text file.")
+                }
             }
             .padding(.top, 2)
 

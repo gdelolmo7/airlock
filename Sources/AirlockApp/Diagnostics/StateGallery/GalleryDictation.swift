@@ -19,7 +19,7 @@ enum GalleryDictation {
             strip("T2", "Listening with words", words: words),
             strip("T3", "No text field (\"Release to copy it\")", words: words, route: .copy),
             strip("T4", "Asking (purple)", words: "What's on my calendar tomorrow morning", asking: true),
-            strip("T5", "Key released, still finishing (identical to T2 — that is the finding)", words: words),
+            strip("T5", "Key released, still finishing the last words", words: words, finishing: true),
             strip("T6", "Tidying up", words: words, listening: false),
             strip("T6a", "Tidying up before any words showed (no grey \"…\" above it)", words: "", listening: false),
             GalleryState("T7", area, "Heard nothing (input fault)") {
@@ -42,7 +42,7 @@ enum GalleryDictation {
                     why: "A notification plus the Permissions rows in Settings. " + needsModel),
             notice("T12", "Microphone allowed after macOS's prompt (the hold before was spent on it)",
                    .microphoneAllowed(key: HoldKeyMonitor.Key.control.displayName, asking: false)),
-            notice("T13", "Nothing caught", .nothingCaught),
+            notice("T13", "Nothing caught", .nothingCaught(key: HoldKeyMonitor.Key.control.displayName)),
             notice("T14", "Nothing to type into", .copiedNowhereToType),
             notice("T15", "Microphone denied", .microphoneDenied),
             notice("T16", "No speech model", .noSpeechModel(locale: "en_US")),
@@ -73,15 +73,16 @@ enum GalleryDictation {
     /// The hold itself, as the open notch draws it. Levels are made-up peaks —
     /// a quiet room, or a mid-sentence wave — scaled the way the live meter is.
     private static func strip(_ id: String, _ name: String, words: String, route: DictationRoute = .type,
-                              asking: Bool = false, listening: Bool = true) -> GalleryState {
+                              asking: Bool = false, listening: Bool = true, finishing: Bool = false) -> GalleryState {
         GalleryState(id, area, name) {
-            listeningStrip(words: words, route: route, asking: asking, listening: listening)
+            listeningStrip(words: words, route: route, asking: asking, listening: listening, finishing: finishing)
         }
     }
 
     private static func listeningStrip(words: String, route: DictationRoute, asking: Bool,
-                                       listening: Bool) -> ListeningStrip {
-        ListeningStrip(isListening: listening, isSorting: false, isAsking: asking, askRoute: nil,
+                                       listening: Bool, finishing: Bool = false) -> ListeningStrip {
+        ListeningStrip(isListening: listening, isFinishing: finishing, isSorting: false, isAsking: asking,
+                       askRoute: nil,
                        route: route, destinationName: route == .copy ? "Finder" : "Notes",
                        liveText: words,
                        inputLevels: (words.isEmpty || !listening

@@ -97,7 +97,6 @@ struct DictationPane: View {
                         askingOptions
                         actingOptions
                         typingOptions
-                        permissionDetails
                         advancedOptions
                     }
                     .transition(.opacity)
@@ -262,9 +261,7 @@ struct DictationPane: View {
     /// under this one. Off, a call is only a call again.
     private var callNotesRow: some View {
         LookToggleRow("Call notes",
-                      subtitle: "Offers to take notes when a call starts. "
-                          + (writesNotesOnline ? "Written online, or on your Mac without internet"
-                                               : "Written on your Mac"),
+                      subtitle: "Offers to take notes when a call starts. " + notesPlace.settingsLine,
                       isOn: $callNotesOn)
             .settingsAnchor(.callNotes)
     }
@@ -272,8 +269,13 @@ struct DictationPane: View {
     /// A subscriber's: "Write notes online" shows.
     private var offersNotesOnline: Bool { cloudNotesOn && license?.entitlement.limits.writesNotesOnline == true }
 
-    /// Where the notes are written, for the line under "Call notes".
-    private var writesNotesOnline: Bool { offersNotesOnline && CloudNotesSetting.isOn(notesOnline) }
+    /// Where the notes are written, for the line under "Call notes": as
+    /// the plan and this Mac would write them, not this month's allowance.
+    private var notesPlace: NotesPlace {
+        NotesPlace.of(online: .init(exists: cloudNotesOn, settingOn: CloudNotesSetting.isOn(notesOnline), blocked: false),
+                      planWritesOnline: license?.entitlement.limits.writesNotesOnline == true,
+                      availability: dictation.cleanupAvailability)
+    }
 
     /// The way back to calls already over. Here because this is where call
     /// notes are set up, and the island only offers a call as it ends.
@@ -296,7 +298,9 @@ struct DictationPane: View {
         let minutes = Int(PlanLimits.freeNotesListen / 60)
         return LookRow(CloudNotesSetting.title,
                        subtitle: "The whole call, with notes written online by a better model. On Free: "
-                           + "words, transcript and notes for the first \(minutes) minutes, on your Mac.") {
+                           + (dictation.cleanupAvailability == .deviceNotEligible
+                               ? "words and transcript for the first \(minutes) minutes, on your Mac."
+                               : "words, transcript and notes for the first \(minutes) minutes, on your Mac.")) {
             PlanTagButton(.plus) { settings?.reveal(.plans) }
         }
         .settingsAnchor(.notesOnline)
@@ -407,6 +411,13 @@ struct DictationPane: View {
         }
     }
 
+    /// The page's one list of permissions: the line above says how many
+    /// still need you, and each missing one gets its own row with the button.
+    /// More options used to list all three again with their status.
+    ///
+    /// Input Monitoring counts what was MEASURED, not what macOS has on file:
+    /// a record pinned to a certificate the app no longer carries reads as
+    /// granted while every tap comes back disabled.
     private var missingPermissions: Int {
         [microphoneReady, dictation.readiness.canWatchHoldKey && dictation.holdKeyFault == nil,
          dictation.readiness.canType].filter { !$0 }.count
@@ -459,9 +470,9 @@ struct DictationPane: View {
         }
         .disabled(!dictation.isEnabled)
         LookNote(localeNote)
-        LookNote("A second language lets you switch mid-thought: it listens for both and keeps "
-                 + "whichever it heard more clearly. A little more work per dictation, and it "
-                 + "downloads the second language the first time you pick it.")
+        LookNote("For when you switch between two languages as you speak. Airlock listens for both "
+                 + "and types whichever it understood better. Dictation takes a moment longer, and "
+                 + "your Mac downloads the language the first time you pick it.")
         if callNotesOn { callLanguageOptions }
     }
 
@@ -494,7 +505,7 @@ struct DictationPane: View {
             // rarely, and ten lines of prompt would dwarf every other row.
             LookRow("How to tidy",
                     subtitle: dictation.cleanupInstructions == TranscriptCleanup.defaultInstructions
-                        ? "As it came" : "Edited by you") {
+                        ? "Standard" : "Changed by you") {
                 LookButton("Edit…") { editingCleanup = true }
             }
         }
@@ -512,7 +523,7 @@ struct DictationPane: View {
         if assistant.isEnabled {
             LookRow("How it answers",
                     subtitle: assistant.instructions == AssistantPrompt.defaultInstructions
-                        ? "As it came" : "Edited by you") {
+                        ? "Standard" : "Changed by you") {
                 LookButton("Edit…") { editingAnswers = true }
             }
         }
@@ -599,24 +610,6 @@ struct DictationPane: View {
         }
     }
 
-    /// Each permission with what it is for, whether or not it is missing.
-    /// TWO for the key, not one: Input Monitoring to see it, Accessibility to
-    /// type — a page that said "Accessibility twice over" sent people with a
-    /// dead key to a pane where Airlock was already ticked.
-    @ViewBuilder private var permissionDetails: some View {
-        LookGroupLabel("Permissions")
-        LookRow("Microphone", subtitle: "To hear you") {
-            LookStatus(ok: microphoneReady, text: microphoneText)
-        }
-        LookRow("Input Monitoring", subtitle: "To notice the hold key") {
-            LookStatus(ok: dictation.readiness.canWatchHoldKey && dictation.holdKeyFault == nil,
-                       text: holdKeyText)
-        }
-        LookRow("Accessibility", subtitle: "To type the words where you are") {
-            LookStatus(ok: dictation.readiness.canType, text: accessibilityText)
-        }
-    }
-
     @ViewBuilder private var advancedOptions: some View {
         AdvancedSwitch()
         // Kept for the permission case it was written for, shown only to
@@ -643,33 +636,6 @@ struct DictationPane: View {
     private var microphoneReady: Bool {
         dictation.readiness.blocker != .microphoneDenied
             && dictation.readiness.blocker != .microphoneUndetermined
-    }
-
-    private var microphoneText: String {
-        switch dictation.readiness.blocker {
-        case .microphoneDenied: return "Turned off"
-        case .microphoneUndetermined: return "Not asked yet"
-        default: return "Allowed"
-        }
-    }
-
-    private var accessibilityText: String {
-        dictation.readiness.canType ? "Allowed" : "Not allowed"
-    }
-
-    /// Reports what was MEASURED, not what TCC has on file.
-    ///
-    /// The two can disagree, and the machine this was found on is the proof: the
-    /// Input Monitoring record existed and read as granted while being pinned to
-    /// a certificate the app no longer carried, so nothing could satisfy it and
-    /// every tap came back disabled. "Allowed" there would have been the fourth
-    /// surface agreeing with the three that were already wrong.
-    private var holdKeyText: String {
-        switch dictation.holdKeyFault {
-        case .grantIsNotWorking: return "On, but not working"
-        case .notGranted: return "Not allowed"
-        case nil: return dictation.readiness.canWatchHoldKey ? "Allowed" : "Not allowed"
-        }
     }
 
     private var microphoneName: String {

@@ -40,9 +40,13 @@ public struct MeetingNotes: Equatable, Sendable {
             self.end = max(start, end)
         }
 
-        /// What the page, the notes window and the notch say about it.
-        public var sentence: String {
-            Self.lead + MeetingFiles.clock(start) + "–" + MeetingFiles.clock(end) + Self.tail
+        /// What the page and the notch say about it.
+        public var sentence: String { sentence(clock: MeetingFiles.clock) }
+
+        /// The same with the times as `clock` writes them: the notes window
+        /// passes the time of day (`CallsCard.time`).
+        public func sentence(clock: (TimeInterval) -> String = MeetingFiles.clock) -> String {
+            Self.lead + clock(start) + "–" + clock(end) + Self.tail
         }
 
         /// Around the times, so `MeetingPage` can read the line back.
@@ -351,8 +355,8 @@ extension MeetingFiles {
     /// `writer` is who wrote them, while notes online are switched on
     /// (`MeetingNotesWriter`): notes written online say so at the foot, with
     /// whose model wrote them, and notes still to be written online say so
-    /// under the date (`waitingLine`). Notes the Mac wrote say it was the
-    /// basic model, and why when it was meant to be the online one.
+    /// under the date (`waitingLine`). Notes the Mac wrote say so, and why
+    /// when they were meant to be written online.
     ///
     /// `noModel` is why the Mac had no model to write them with, for a page
     /// without notes: it says what to do about it (`noModelLines`).
@@ -415,18 +419,16 @@ extension MeetingFiles {
         }
         let by: String
         if writer?.place == .online {
-            by = "Written online by Airlock, "
-                + (CloudNotes.maker(ofModel: writer?.model).map { "with \($0), " } ?? "")
-                + "from \(transcriptName). "
+            by = "Written online by Airlock"
+                + (CloudNotes.maker(ofModel: writer?.model).map { ", with \($0)" } ?? "") + ". "
         } else if notes != nil {
-            by = (writer?.why == .serviceDown ? serviceDownFooter : basicModelFooter)
-                + ", from \(transcriptName). "
+            by = (writer?.why == .serviceDown ? serviceDownFooter : basicModelFooter) + ". "
         } else {
-            by = "Written on this Mac by Airlock from \(transcriptName). "
+            by = "Written on this Mac by Airlock. "
         }
         lines += ["---", "",
                   "_" + by
-                  + "No audio was kept. The summary is made by a model and can be wrong; "
+                  + "No audio was kept. The summary is written by AI and can be wrong; "
                   + "check the transcript before relying on it._"]
         return lines.joined(separator: "\n") + "\n"
     }
@@ -441,17 +443,19 @@ extension MeetingFiles {
         }
     }
 
-    /// "The full transcript is in Transcript.md.", on a page without notes.
-    public static let transcriptLine = "The full transcript is in \(transcriptName)."
+    /// "The full transcript is in the Transcript tab.", on a page without
+    /// notes: where the window shows it, never a file name.
+    public static let transcriptLine = "The full transcript is in the Transcript tab."
 
-    /// The foot of notes the Mac wrote: its own model is the basic one, and
-    /// the window offers a better one beside it (`CallNotesOffers`).
-    public static let basicModelFooter = "Written on your Mac with the basic model"
+    /// The foot of notes the Mac wrote, and the window offers better ones
+    /// beside it (`CallNotesOffers`). Older pages say more after it ("with
+    /// the basic model, from …"), so the window looks for how it begins.
+    public static let basicModelFooter = "Written on your Mac"
 
     /// The same, when the online notes service was asked and didn't answer:
     /// said on every plan, so a paid plan's Mac-written notes are explained.
     public static let serviceDownFooter =
-        "The online notes service didn't answer, so these were written on your Mac with the basic model"
+        "The online notes service didn't answer, so these were written on your Mac"
 
     /// Under the date of notes a plan's limit stopped
     /// (`MeetingRecord.stoppedAtLimit`): "These notes cover the first 30
@@ -503,7 +507,7 @@ extension MeetingFiles {
         switch availability {
         case .needsAppleIntelligence where writer?.waitsForOnline != true:
             return (turnOnAppleIntelligence,
-                    "Airlock writes call notes with your Mac's own model, and Apple Intelligence is switched off.")
+                    "Airlock writes call notes with Apple Intelligence, which is switched off.")
         case .deviceNotEligible:
             guard let plan = writer?.plan, !plan.limits.writesNotesOnline, writer?.waitsForOnline != true else {
                 return nil
@@ -530,8 +534,13 @@ extension MeetingFiles {
     public static let noNotesFailedLine = noNotesYet
         + " The online notes service didn't answer, so Airlock will try again later."
 
-    /// How `noNotesAllowanceLine` begins.
-    public static let noNotesAllowanceLead = noNotesYet + " You've used this month's online notes"
+    /// How `noNotesAllowanceLine` begins: said in the same words as
+    /// `allowanceUsedMacLead`, wherever the month's online notes ran out.
+    public static let noNotesAllowanceLead = noNotesYet + " " + allowanceUsedMacLead
+
+    /// How the line began on pages written before, which the window still
+    /// reads as the same notice.
+    public static let earlierNoNotesAllowanceLead = noNotesYet + " You've used this month's online notes"
 
     /// This month's online notes are used: "… these will be written on 1
     /// November." On Plus, that Pro has more.

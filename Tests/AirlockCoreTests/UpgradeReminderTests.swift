@@ -184,7 +184,8 @@ final class UpgradeReminderTests: XCTestCase {
         XCTAssertEqual(UpgradeReminder.agentInTerminal(asking: "api-server", answering: "storefront").message,
                        "While storefront was on the notch, api-server's question went to its terminal. "
                            + "On Plus, every agent can ask you here.")
-        XCTAssertEqual(UpgradeReminder.clipboardLine, "Free keeps your last 100. Plus keeps up to 1,000.")
+        XCTAssertEqual(UpgradeReminder.clipboardLine,
+                       "Free keeps your last 100, not counting pinned items. Plus keeps up to 1,000.")
         XCTAssertNil(UpgradeReminder.clipboardFull.notNowHint, "it never comes back anyway")
         XCTAssertEqual(UpgradeReminder.agentInTerminal(asking: "a", answering: nil).notNowHint,
                        "“Not now” hides this for 14 days")

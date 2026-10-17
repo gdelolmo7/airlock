@@ -76,6 +76,84 @@ final class MeetingTimelineTests: XCTestCase {
         XCTAssertEqual(MeetingTimeline.entries(of: record([])), [])
     }
 
+    // MARK: - Long turns, as the windows draw them
+
+    /// Forty lines of 99 characters by one voice, a second apart: one turn
+    /// of almost 4,000 characters in the file.
+    private var monologue: MeetingRecord {
+        record((0..<40).map { line in
+            said(.them, TimeInterval(line * 6), TimeInterval(line * 6 + 5), String(repeating: "word ", count: 20).dropLast() + "\(line % 10)")
+        })
+    }
+
+    private func turns(_ entries: [MeetingTimeline.Entry]) -> [MeetingSegment] {
+        entries.compactMap { entry in
+            if case .speech(let turn, _) = entry { return turn }
+            return nil
+        }
+    }
+
+    /// One row taller than about 5,000 points draws black, so the windows
+    /// never get one turn that long: it carries on in the rows below,
+    /// broken between lines, each with its own real times.
+    func testALongTurnIsShownInPiecesBrokenBetweenLines() {
+        let whole = turns(MeetingTimeline.entries(of: monologue))
+        let shown = turns(MeetingTimeline.shown(of: monologue))
+        XCTAssertEqual(whole.count, 1)
+        XCTAssertEqual(shown.count, 3)
+        XCTAssertTrue(shown.allSatisfy { $0.text.count <= MeetingTimeline.longestShown })
+        XCTAssertEqual(shown.map(\.text).joined(separator: " "), whole[0].text)
+        // Each piece starts where one of its lines started.
+        let starts = Set(monologue.segments.map(\.start))
+        XCTAssertTrue(shown.allSatisfy { starts.contains($0.start) })
+        XCTAssertEqual(shown.first?.start, whole[0].start)
+        XCTAssertEqual(shown.last?.end, whole[0].end)
+    }
+
+    /// Only drawn: the file, and what the notes are written from, keep the
+    /// turn whole, under one name.
+    func testTheFileKeepsTheTurnWhole() {
+        let text = MeetingFiles.transcript(of: monologue, timeZone: TimeZone(identifier: "UTC")!)
+        XCTAssertEqual(text.components(separatedBy: "**Them** ·").count - 1, 1)
+        XCTAssertEqual(NumberedTranscript(monologue).turns.count, 1)
+    }
+
+    /// The pieces read as one person talking on: one face and name, then
+    /// only the words, and what they say next still carries on the last.
+    func testThePiecesGoUnderOneFace() {
+        let shown = MeetingTimeline.shown(of: monologue)
+        XCTAssertEqual(CallLive.headed(shown, in: monologue).entries, [true, false, false])
+        let words = CallLive.Hearing(speaker: .them, text: "and so on", since: start.addingTimeInterval(240))
+        XCTAssertTrue(CallLive.continues(words, after: shown, startedAt: start))
+    }
+
+    /// A line too long on its own is cut at spaces, timed by its share.
+    func testOneVeryLongLineIsCutAtSpaces() {
+        let text = String(repeating: "word ", count: 800).dropLast()
+        let long = said(.me, 100, 500, String(text))
+        let shown = turns(MeetingTimeline.shown(of: record([long])))
+        XCTAssertEqual(shown.count, 3)
+        XCTAssertTrue(shown.allSatisfy { $0.text.count <= MeetingTimeline.longestShown })
+        XCTAssertTrue(shown.allSatisfy { !$0.text.hasPrefix(" ") && !$0.text.hasSuffix(" ") })
+        XCTAssertEqual(shown.map(\.text).joined(separator: " "), long.text)
+        XCTAssertEqual(shown.first?.start, 100)
+        XCTAssertEqual(shown.last?.end, 500)
+        XCTAssertEqual(zip(shown, shown.dropFirst()).filter { $0.end > $1.start }.count, 0)
+    }
+
+    /// A word longer than a piece is cut where it has to be.
+    func testAWordWithNoSpacesIsCutAnyway() {
+        let long = said(.them, 0, 10, String(repeating: "x", count: 3_200))
+        XCTAssertEqual(turns(MeetingTimeline.shown(of: record([long]))).map(\.text.count), [1_500, 1_500, 200])
+    }
+
+    /// A short call is drawn exactly as the file reads it.
+    func testShortTurnsAreShownAsTheyAre() {
+        var call = record([said(.them, 5, 9, "Budget?"), said(.me, 13, 15, "Friday.")])
+        call.jot("Budget by Friday", at: 12)
+        XCTAssertEqual(MeetingTimeline.shown(of: call), MeetingTimeline.entries(of: call))
+    }
+
     // MARK: - Where a line of notes points
 
     private var spaced: [MeetingTimeline.Entry] {

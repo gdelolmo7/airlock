@@ -290,6 +290,18 @@ final class AudioCaptureFailureTests: XCTestCase {
         capture.stop()
     }
 
+    /// The log says when the microphone was let go, so "sound input still
+    /// running" can be checked against it. Once: every path out of a hold
+    /// calls `stop()`, and the repeats stopped nothing.
+    func testAStopIsLoggedOnce() throws {
+        let (capture, _, log) = makeCapture()
+        _ = try capture.start(analyzerFormat: analyzerFormat)
+        XCTAssertFalse(log.lines.contains("  microphone stopped"), "\(log.lines)")
+        capture.stop()
+        capture.stop()
+        XCTAssertEqual(log.lines.filter { $0 == "  microphone stopped" }.count, 1, "\(log.lines)")
+    }
+
     /// The header's test for "input is not available", written so NaN fails
     /// it too.
     func testAFormatWithNoRateOrNoChannelsIsUnusable() {

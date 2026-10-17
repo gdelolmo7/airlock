@@ -6,7 +6,9 @@ import IOKit.pwr_mgt
 import Speech
 
 /// `meetings.log`: what the call notes did, for the owner. Same rules as the
-/// wave's log (`WaveDiagnostics`): main actor only, shut in tests, capped.
+/// wave's log (`WaveDiagnostics`): main actor only, shut in tests, capped,
+/// except that past the cap it is cut back rather than started over, so a
+/// long call keeps its first lines (`MeetingLogTrim`).
 /// Never a word of what was said: only counts, languages and timings.
 enum MeetingDiagnostics {
     static var url: URL {
@@ -20,10 +22,7 @@ enum MeetingDiagnostics {
         let line = "\(Date().formatted(date: .omitted, time: .standard))  \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
         let manager = FileManager.default
-        if let size = (try? manager.attributesOfItem(atPath: url.path)[.size]) as? Int,
-           size > 64 * 1024 {
-            try? manager.removeItem(at: url)
-        }
+        MeetingLogTrim.trimIfNeeded(at: url)
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
@@ -117,6 +116,10 @@ final class MeetingNotesModel {
     private(set) var readyWaiting: String?
     /// To-dos in those notes, for the line to mention.
     var readyTodoCount: Int { readyNotes?.todos.count ?? 0 }
+    /// When the finished call began, so its lines say times of day as the
+    /// notes window does. The record stays the last call's until a new one
+    /// begins.
+    var readyStartedAt: Date? { record?.startedAt }
 
     /// The call pill's mark. Stored rather than read off the flow, because
     /// it also hangs on the clock (the ask's ten seconds) and on the call
@@ -161,6 +164,17 @@ final class MeetingNotesModel {
     private var seenSwitch = MeetingNotesModel.isOn
     @ObservationIgnored private var switchWatch: NSObjectProtocol?
     var autoStart: Bool { Defaults.bool(Self.autoStartKey, default: false) }
+
+    /// Where this Mac would write a call's notes now, for the line under
+    /// "Take notes" (`NotesPlace`).
+    var notesPlace: NotesPlace {
+        if let previewNotesPlace { return previewNotesPlace }
+        let service = CloudNotesService.shared
+        return NotesPlace.of(online: service.offering, planWritesOnline: service.plan().limits.writesNotesOnline,
+                             availability: CleanupService().availability)
+    }
+    /// What `notesPlace` says instead of asking, for the state gallery.
+    @ObservationIgnored var previewNotesPlace: NotesPlace?
 
     /// Collapses the island when "Show" opens the notes window.
     @ObservationIgnored var onNavigateAway: (() -> Void)?
@@ -1215,7 +1229,7 @@ final class MeetingNotesModel {
                 folder = try store.makeFolder(for: record)
             } catch {
                 log("notes: folder FAILED: \(error.localizedDescription)")
-                send(.failed("Couldn't make a folder for the notes."))
+                send(.failed(CallLive.Stopped.noFolder))
                 return
             }
             self.record = record
@@ -1230,7 +1244,7 @@ final class MeetingNotesModel {
         madeCallsPage?.refreshIfOpen()
 
         guard let setup = await speechSetup() else {
-            send(.failed("The speech model isn't installed for your language yet."))
+            send(.failed(CallLive.Stopped.noSpeechModel))
             return
         }
         let (picked, format, listeners) = setup
@@ -1909,7 +1923,7 @@ final class MeetingNotesModel {
                 self?.recentCalls.refresh()
             } catch {
                 log("summary: save FAILED: \(error.localizedDescription)")
-                if announce { self?.send(.failed("Couldn't save the notes.")) }
+                if announce { self?.send(.failed(CallLive.Stopped.notSaved)) }
             }
             self?.summaries[folder] = nil
         }

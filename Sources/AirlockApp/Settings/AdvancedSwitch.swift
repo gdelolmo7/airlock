@@ -29,7 +29,7 @@ struct AdvancedSwitch: View {
     var body: some View {
         LookGroupLabel("Advanced")
         LookToggleRow("Show advanced settings",
-                      subtitle: "Diagnostics and file-level controls, on every page",
+                      subtitle: "Extra details for fixing problems, on every page",
                       isOn: $advanced)
     }
 }

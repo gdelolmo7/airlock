@@ -64,14 +64,6 @@ final class CallLiveTests: XCTestCase {
         XCTAssertFalse(CallLive.Stage.tooShort.isLive)
     }
 
-    func testTheClockReadsLikeTheTimeOfALine() {
-        let call = record()
-        XCTAssertEqual(CallLive.clock(call, now: start.addingTimeInterval(761)), "12:41")
-        XCTAssertEqual(CallLive.clock(call, now: start.addingTimeInterval(3_725)), "1:02:05")
-        // A clock a moment behind the start never reads negative.
-        XCTAssertEqual(CallLive.clock(call, now: start.addingTimeInterval(-2)), "0:00")
-    }
-
     func testHowLongSoFarAndOnceEnded() {
         XCTAssertEqual(CallLive.soFar(record(), now: start.addingTimeInterval(13 * 60 + 10)), "13 min so far")
         XCTAssertEqual(CallLive.soFar(record(), now: start.addingTimeInterval(5)), "1 min so far")

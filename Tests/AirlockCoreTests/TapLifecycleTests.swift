@@ -97,4 +97,128 @@ final class TapLifecycleTests: XCTestCase {
         }
         XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false), .start)
     }
+
+    // MARK: - Silence
+
+    private let song = ["Spotify", "Song", "Artist"]
+    private let nextSong = ["Spotify", "Next song", "Artist"]
+
+    /// Opens on `song` and has the tap hear nothing for the full stretch,
+    /// with the player still saying "playing" — Spotify gone silent.
+    private func restingOnASilentSong() -> TapLifecycle {
+        var lifecycle = TapLifecycle()
+        _ = lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song)
+        _ = lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStopping, isPlaying: true, track: song)
+        return lifecycle
+    }
+
+    /// The reason this exists: Spotify went silent while still saying it
+    /// played, the three missed reads never came, and the tap listened to
+    /// nothing until quit — sound input "still running" after a call.
+    func testMinutesOfSilenceCloseTheTapWhateverThePlayerSays() {
+        var lifecycle = TapLifecycle()
+        _ = lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song)
+        XCTAssertEqual(lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStopping - 1,
+                                          isPlaying: true, track: song), .hold)
+        XCTAssertFalse(lifecycle.isResting)
+        XCTAssertEqual(lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStopping,
+                                          isPlaying: true, track: song), .stop)
+        XCTAssertTrue(lifecycle.isResting)
+    }
+
+    /// A paused player is read once, so it gets one miss and never three.
+    func testAPausedPlayerThatIsReadOnceStillCloses() {
+        var lifecycle = TapLifecycle()
+        _ = lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: false, isRunning: true, track: song), .hold)
+        XCTAssertEqual(lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStopping,
+                                          isPlaying: false, track: song), .stop)
+    }
+
+    /// Music that can be heard is never closed for silence, however long.
+    func testSoundNeverCloses() {
+        var lifecycle = TapLifecycle()
+        _ = lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song)
+        for _ in 0..<10_000 {
+            XCTAssertEqual(lifecycle.listened(quietFor: nil, isPlaying: true, track: song), .hold)
+        }
+        XCTAssertEqual(lifecycle.listened(quietFor: 3, isPlaying: true, track: song), .hold,
+                       "a quiet passage or the gap between two tracks")
+    }
+
+    /// No loop: a player asked every few seconds that keeps saying the same
+    /// thing must not open the tap straight back into the same silence.
+    func testTheSameReportNeverOpensItAgain() {
+        var lifecycle = restingOnASilentSong()
+        for _ in 0..<100 {
+            XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song), .hold)
+        }
+        XCTAssertTrue(lifecycle.isResting)
+    }
+
+    func testTheNextSongOpensItAgain() {
+        var lifecycle = restingOnASilentSong()
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: nextSong), .start)
+        XCTAssertFalse(lifecycle.isResting)
+    }
+
+    func testPauseThenPlayOpensItAgain() {
+        var lifecycle = restingOnASilentSong()
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: false, isRunning: false, track: song), .hold)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song), .start)
+    }
+
+    /// Closed while paused: pressing play is the news.
+    func testPlayAfterAPausedCloseOpensItAgain() {
+        var lifecycle = TapLifecycle()
+        _ = lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song)
+        _ = lifecycle.evaluate(enabled: true, isPlaying: false, isRunning: true, track: song)
+        _ = lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStopping, isPlaying: false, track: song)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: false, isRunning: false, track: song), .hold)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song), .start)
+    }
+
+    /// Spotify sent to an iPad changes track every few minutes and stays
+    /// silent here. A tap opened again on that hint gets a short trial, not
+    /// another three minutes, so it is closed most of the time.
+    func testATapOpenedAgainThatHearsNothingClosesSooner() {
+        var lifecycle = restingOnASilentSong()
+        _ = lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: nextSong)
+        XCTAssertEqual(lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStoppingAgain - 1,
+                                          isPlaying: true, track: nextSong), .hold)
+        XCTAssertEqual(lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStoppingAgain,
+                                          isPlaying: true, track: nextSong), .stop)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: nextSong), .hold,
+                       "and stays closed on the same report")
+    }
+
+    /// One that hears something is back to normal: the full stretch again.
+    func testATapOpenedAgainThatHearsSoundGetsTheFullStretch() {
+        var lifecycle = restingOnASilentSong()
+        _ = lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: nextSong)
+        XCTAssertEqual(lifecycle.listened(quietFor: nil, isPlaying: true, track: nextSong), .hold)
+        XCTAssertEqual(lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStoppingAgain,
+                                          isPlaying: true, track: nextSong), .hold)
+        XCTAssertEqual(lifecycle.listened(quietFor: TapLifecycle.silenceBeforeStopping,
+                                          isPlaying: true, track: nextSong), .stop)
+    }
+
+    /// The three-miss rule still works on a tap opened again.
+    func testATapOpenedAgainStillClosesOnThreeMisses() {
+        var lifecycle = restingOnASilentSong()
+        _ = lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: nextSong)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: false, isRunning: true, track: nextSong), .hold)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: false, isRunning: true, track: nextSong), .hold)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: false, isRunning: true, track: nextSong), .stop)
+        XCTAssertFalse(lifecycle.isResting, "a pause, not a quiet close")
+    }
+
+    /// Switched off and on again, it starts from nothing: a plain playing read
+    /// opens it, as it would on launch.
+    func testSwitchingOffForgetsTheRest() {
+        var lifecycle = restingOnASilentSong()
+        XCTAssertEqual(lifecycle.evaluate(enabled: false, isPlaying: true, isRunning: false, track: song), .hold)
+        XCTAssertFalse(lifecycle.isResting)
+        XCTAssertEqual(lifecycle.evaluate(enabled: true, isPlaying: true, isRunning: false, track: song), .start)
+    }
 }

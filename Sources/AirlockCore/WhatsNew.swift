@@ -54,6 +54,12 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.0.24", title: "Discord calls, and plainer words", items: [
+            Item("headphones", "Discord calls are noticed now, so Airlock offers to take notes as it does for other calls."),
+            Item("macwindow", "The call notes window no longer goes black partway through a long call."),
+            Item("clock", "Call notes show the time of day for each part, and the live card counts the minutes."),
+            Item("text.bubble", "Plainer words in the notch and Settings, and every stop says what to do next."),
+        ]),
         Notes(version: "1.0.23", title: "Free, Plus and Pro", items: [
             Item("square.stack.3d.up", "Airlock now comes as Free, Plus or Pro. Settings › Plans shows yours and what each adds."),
             Item("checkmark.seal", "Subscribed before plans came? You're on Plus and keep everything you had."),

@@ -139,7 +139,7 @@ final class CallNotesLibrary {
     struct Spotlight: Equatable {
         /// The call it belongs to, so another call's entry is never lit.
         let call: String
-        /// Its place in `MeetingTimeline.entries(of:)`.
+        /// Its place in `MeetingTimeline.shown(of:)`.
         let entry: Int
         /// One more on every tap, so the same line tapped twice lands twice.
         let serial: Int
@@ -214,7 +214,7 @@ final class CallNotesLibrary {
         offering?.offers(call) ?? CallNotesOffers.of(call.record, page: call.page, plan: .free, online: .none)
     }
 
-    /// "Redo with the better model": the plans, on a plan that doesn't write
+    /// "Redo with better notes": the plans, on a plan that doesn't write
     /// notes online; otherwise the notes written again online, the page
     /// read again once they are.
     func redo(_ call: Call) {
@@ -255,7 +255,7 @@ final class CallNotesLibrary {
     static func said(_ redo: CloudNotesService.Redo, plan: PlanSnapshot, locale: Locale = .current,
                      timeZone: TimeZone = .current) -> String? {
         func usedUp(_ until: Date) -> String {
-            "This month's online notes are used up. They're back on "
+            MeetingFiles.allowanceUsedMacLead + ". Online notes are back on "
                 + "\(CloudNotesAllowance.day(until, locale: locale, timeZone: timeZone))."
                 + (plan.plan == .plus ? " " + MeetingFiles.proHasMore : "")
         }
@@ -327,7 +327,7 @@ final class CallNotesLibrary {
     }
 
     /// A name in the transcript, clicked: the call, and its place in
-    /// `MeetingTimeline.entries(of:)`.
+    /// `MeetingTimeline.shown(of:)`.
     struct Renaming: Equatable {
         let call: String
         let entry: Int
@@ -400,7 +400,7 @@ final class CallNotesLibrary {
         }
         if let entry, let call = calls.first { renaming = Renaming(call: call.id, entry: entry) }
         if let time, let call = calls.first,
-           let entry = MeetingTimeline.spoken(at: time, in: MeetingTimeline.entries(of: call.record)) {
+           let entry = MeetingTimeline.spoken(at: time, in: MeetingTimeline.shown(of: call.record)) {
             spotlight = Spotlight(call: call.id, entry: entry, serial: 0, lit: true)
         }
     }
@@ -419,7 +419,7 @@ final class CallNotesLibrary {
         fading?.cancel()
         spotlights += 1
         let serial = spotlights
-        spotlight = MeetingTimeline.spoken(at: time, in: MeetingTimeline.entries(of: call.record))
+        spotlight = MeetingTimeline.spoken(at: time, in: MeetingTimeline.shown(of: call.record))
             .map { Spotlight(call: call.id, entry: $0, serial: serial, lit: true) }
         withAnimation(Motion.swap.animation(reduceMotion: reduceMotion)) { tab = .transcript }
         guard spotlight != nil else { return }
@@ -560,18 +560,19 @@ final class CallNotesLibrary {
 
     /// What Copy puts on the clipboard from the Transcript tab: what the tab
     /// shows, typed notes, pauses and changes of language included, as plain
-    /// text.
-    static func plainTranscript(of record: MeetingRecord) -> String {
-        MeetingTimeline.entries(of: record).map { entry in
+    /// text, with the same times of day.
+    static func plainTranscript(of record: MeetingRecord, calendar: Calendar = .current) -> String {
+        let time = { (seconds: TimeInterval) in CallsCard.time(seconds, into: record.startedAt, calendar: calendar) }
+        return MeetingTimeline.entries(of: record).map { entry in
             switch entry {
             case .speech(let turn, _):
-                "\(record.label(for: turn)) · \(MeetingFiles.clock(turn.start))\n\(turn.text)"
+                "\(record.label(for: turn)) · \(time(turn.start))\n\(turn.text)"
             case .jot(let jot):
-                "Your note · \(MeetingFiles.clock(jot.at))\n\(jot.text)"
+                "Your note · \(time(jot.at))\n\(jot.text)"
             case .pause(let pause):
-                MeetingTimeline.pauseLabel(pause)
+                MeetingTimeline.pauseLabel(pause, clock: time)
             case .language(let listening):
-                MeetingTimeline.languageLabel(listening)
+                MeetingTimeline.languageLabel(listening, clock: time)
             }
         }
         .joined(separator: "\n\n")
@@ -585,19 +586,21 @@ final class CallNotesLibrary {
     }
 
     /// The calls the list shows, by the day each began, in the order given
-    /// (newest first): "Today", "Yesterday", "Friday 9 Oct".
+    /// (newest first): "Today", "Yesterday", "Fri 9 Oct". Each day once, so
+    /// its start (`day`) names it in the list: two days can share a
+    /// heading, a year apart, and two calls of one day can come apart.
     static func days(_ calls: [Call], now: Date = Date(),
-                     calendar: Calendar = .current) -> [(heading: String, calls: [Call])] {
+                     calendar: Calendar = .current) -> [(day: Date, heading: String, calls: [Call])] {
         var days: [(start: Date, calls: [Call])] = []
         for call in calls {
             let start = calendar.startOfDay(for: call.record.startedAt)
-            if let last = days.indices.last, days[last].start == start {
-                days[last].calls.append(call)
+            if let index = days.firstIndex(where: { $0.start == start }) {
+                days[index].calls.append(call)
             } else {
                 days.append((start, [call]))
             }
         }
-        return days.map { (CallsCard.dayHeading($0.start, now: now, calendar: calendar), $0.calls) }
+        return days.map { ($0.start, CallsCard.dayHeading($0.start, now: now, calendar: calendar), $0.calls) }
     }
 
     /// "Today 14:30", "Yesterday 09:05", "Mon 6 Oct 14:30" — and how long.
@@ -685,7 +688,7 @@ private struct CallNotesSidebar: View {
                 .padding(.bottom, 4)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(CallNotesLibrary.days(library.shown), id: \.heading) { day in
+                    ForEach(CallNotesLibrary.days(library.shown), id: \.day) { day in
                         Text(day.heading)
                             .font(Theme.chrome(10.5, .semibold))
                             .foregroundStyle(Theme.textTertiary)
@@ -966,7 +969,7 @@ private struct CallNotesDetail: View {
                     .padding(.horizontal, Self.margin)
                 }
                 .scrollIndicators(.automatic)
-                .followsNewest(said: following ? CallLive.spokenCount(MeetingTimeline.entries(of: call.record)) : 0,
+                .followsNewest(said: following ? CallLive.spokenCount(MeetingTimeline.shown(of: call.record)) : 0,
                                enabled: following, ground: SettingsLook.ground, pinsShortToFoot: false)
                 .task(id: library.spotlight?.serial) { await land(proxy) }
             }
@@ -1474,7 +1477,8 @@ private struct CallNotesReading: View {
                         HStack(spacing: 8) {
                             Text(MeetingRecord.someone)
                                 .font(Theme.chrome(12, .semibold))
-                            Text(MeetingFiles.clock(line.start))
+                            Text(reading.startedAt.map { CallsCard.time(line.start, into: $0) }
+                                 ?? MeetingFiles.clock(line.start))
                                 .font(Theme.chrome(11))
                                 .monospacedDigit()
                         }
@@ -1543,7 +1547,7 @@ private struct CallNotesDropOverlay: View {
                     .background(Capsule().fill(SettingsLook.ground))
                     .padding(.top, 12)
                 }
-                Text("Voice Memos, WhatsApp voice notes, or any sound file. It stays on your Mac.")
+                Text("Voice Memos, WhatsApp voice notes, or any sound file. The recording stays on your Mac.")
                     .font(Theme.chrome(12))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -1714,7 +1718,8 @@ struct CallNotesCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, look.kind == .summary ? 0 : 4)
         case .item(let text, let checked, let owner, let at):
-            let item = CallNotesItem(text: text, checked: checked, owner: owner, at: call == nil ? nil : at,
+            let said = call.flatMap { call in at.map { CallsCard.time($0, into: call.record.startedAt) } }
+            let item = CallNotesItem(text: text, checked: checked, owner: owner, said: said,
                                      look: look, yours: line.isYours, people: people)
             if let at, let call {
                 CallNotesJump(call: call, at: at) { item }
@@ -1725,7 +1730,8 @@ struct CallNotesCard: View {
             Group {
                 if let call {
                     CallNotesJump(call: call, at: from) {
-                        CallNotesUnwritten(stretch: MeetingNotes.Stretch(start: from, end: to))
+                        CallNotesUnwritten(stretch: MeetingNotes.Stretch(start: from, end: to),
+                                           start: call.record.startedAt)
                     }
                 } else {
                     CallNotesUnwritten(stretch: MeetingNotes.Stretch(start: from, end: to))
@@ -1759,9 +1765,9 @@ struct CallNotesCard: View {
 }
 
 /// The closing line under the cards: how the notes were made, under a lock,
-/// or a chip for notes the Mac's own model wrote. Beside those, on a plan
-/// that doesn't write notes online, "See what Plus writes"; under them,
-/// "Redo with the better model" (`CallNotesOffers`).
+/// or a chip for notes the Mac wrote. Beside those, on a plan that doesn't
+/// write notes online, "See what Plus writes"; under them, "Redo with
+/// better notes" (`CallNotesOffers`).
 private struct CallNotesClosing: View {
     @Environment(CallNotesLibrary.self) private var library
     let call: CallNotesLibrary.Call
@@ -1817,7 +1823,7 @@ private struct CallNotesClosing: View {
 
     private static let seePlusLink = URL(string: "airlock-notes://see-what-plus-writes")!
 
-    /// Whether the foot says the Mac's own model wrote them.
+    /// Whether the foot says the Mac wrote them.
     static func byTheMac(_ lines: [MeetingPage.Placed]) -> Bool {
         lines.contains { line in
             guard case .paragraph(let text) = line.block else { return false }
@@ -1827,13 +1833,13 @@ private struct CallNotesClosing: View {
     }
 }
 
-/// "Redo with the better model": a Plus tag where it opens the plans, the
+/// "Redo with better notes": a Plus tag where it opens the plans, the
 /// words "Writing them again…" while it is asked, and what came of it below.
 private struct CallNotesRedoButton: View {
     @Environment(CallNotesLibrary.self) private var library
     let call: CallNotesLibrary.Call
     let offers: CallNotesOffers
-    var title = "Redo with the better model"
+    var title = "Redo with better notes"
 
     var body: some View {
         let busy = library.redoing == call.id
@@ -1863,7 +1869,7 @@ private struct CallNotesRedoButton: View {
             }
             .buttonStyle(.plain)
             .disabled(library.redoing != nil)
-            .help(offers.redoTagged ? "Plus writes call notes online with a better model."
+            .help(offers.redoTagged ? "Plus writes better notes online."
                                     : "Writes these notes again online. Counts toward this month's online notes.")
             if let redone = library.redone, redone.call == call.id {
                 Text(redone.said)
@@ -2043,7 +2049,7 @@ private struct CallNotesNoModel: View {
     private var detail: String {
         switch empty {
         case .turnOnAppleIntelligence:
-            "Airlock writes call notes with your Mac's own model, and it's switched off. "
+            "Airlock writes call notes with Apple Intelligence, and it's switched off. "
                 + "The transcript of this call is ready."
         case .cantWriteNotes where offers.seePlus:
             "Apple Intelligence isn't available on this Mac, for example because of its region or language. "
@@ -2148,6 +2154,9 @@ struct CallNotesOfferButton: View {
 /// missing is right there in the transcript.
 private struct CallNotesUnwritten: View {
     let stretch: MeetingNotes.Stretch
+    /// When the call began, to say the stretch in times of day; nil says
+    /// it as the page does.
+    var start: Date?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -2156,7 +2165,8 @@ private struct CallNotesUnwritten: View {
                 .foregroundStyle(Theme.textTertiary)
                 .frame(width: 14)
                 .accessibilityHidden(true)
-            Text(stretch.sentence)
+            Text(start.map { start in stretch.sentence(clock: { CallsCard.time($0, into: start) }) }
+                 ?? stretch.sentence)
                 .font(Theme.chrome(12.5).italic())
                 .foregroundStyle(Theme.textSecondary)
                 .lineSpacing(3)
@@ -2168,12 +2178,12 @@ private struct CallNotesUnwritten: View {
 
 /// One list line of the notes: its marker (a dot in the card's colour, an
 /// empty circle for a to-do, a yellow bar for the person's own line), the
-/// words, who it is for, and when it was said.
+/// words, who it is for, and when it was said ("20:58").
 private struct CallNotesItem: View {
     let text: String
     let checked: Bool?
     let owner: String?
-    let at: TimeInterval?
+    let said: String?
     let look: CallNotesCardLook
     let yours: Bool
     let people: [CallPeople.Person]
@@ -2203,8 +2213,8 @@ private struct CallNotesItem: View {
                 .fixedSize()
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             }
-            if let at {
-                CallNotesTimeChip(at: at)
+            if let said {
+                CallNotesTimeChip(time: said)
             }
         }
         .padding(.vertical, 6)
@@ -2253,16 +2263,16 @@ private struct CallNotesItem: View {
     }
 }
 
-/// When a line of notes was said, in Airlock's purple: "2:15".
+/// When a line of notes was said, in Airlock's purple: "20:58".
 private struct CallNotesTimeChip: View {
-    let at: TimeInterval
+    let time: String
 
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "text.quote")
                 .font(.system(size: 9, weight: .semibold))
                 .accessibilityHidden(true)
-            Text(MeetingFiles.clock(at))
+            Text(time)
                 .font(Theme.chrome(11, .semibold))
                 .monospacedDigit()
         }
@@ -2272,7 +2282,7 @@ private struct CallNotesTimeChip: View {
         .background(Capsule().fill(Theme.assistant.opacity(0.13)))
         .fixedSize()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Said at \(MeetingFiles.clock(at))")
+        .accessibilityLabel("Said at \(time)")
     }
 }
 
@@ -2326,7 +2336,7 @@ private struct CallTranscript: View {
     @Environment(CallNotesLibrary.self) private var library
 
     var body: some View {
-        let entries = MeetingTimeline.entries(of: call.record)
+        let entries = MeetingTimeline.shown(of: call.record)
         let people = CallPeople.people(of: call.record)
         let hearing = live ? CallLive.speaking(library.live?.call.hearing ?? [:], paused: library.isPaused) : []
         if entries.isEmpty, hearing.isEmpty {
@@ -2493,7 +2503,7 @@ private struct CallTranscript: View {
                 Text("Your note")
                     .font(Theme.chrome(12, .semibold))
                     .foregroundStyle(CallsLook.yours)
-                Text(MeetingFiles.clock(jot.at))
+                Text(clock(jot.at))
                     .font(Theme.chrome(11, .medium))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)
@@ -2513,16 +2523,21 @@ private struct CallTranscript: View {
             .padding(.vertical, 4)
             .accessibilityElement(children: .combine)
         case .pause(let pause):
-            divider("pause.fill", MeetingTimeline.pauseLabel(pause))
+            divider("pause.fill", MeetingTimeline.pauseLabel(pause, clock: clock))
         case .language(let listening):
             // Quiet, like a pause: the lines below it say the rest.
-            divider("globe", MeetingTimeline.languageLabel(listening))
+            divider("globe", MeetingTimeline.languageLabel(listening, clock: clock))
         }
     }
 
-    /// "12:38", and "12:38 · just now" on a line just said.
+    /// When a moment of the call was, as the clock said it: "20:58".
+    private func clock(_ seconds: TimeInterval) -> String {
+        CallsCard.time(seconds, into: call.record.startedAt)
+    }
+
+    /// "20:58", and "20:58 · just now" on a line just said.
     private func time(_ turn: MeetingSegment, justNow: Bool) -> some View {
-        Text(justNow ? "\(MeetingFiles.clock(turn.start)) · just now" : MeetingFiles.clock(turn.start))
+        Text(justNow ? "\(clock(turn.start)) · just now" : clock(turn.start))
             .font(Theme.chrome(11, .medium))
             .monospacedDigit()
             .foregroundStyle(Theme.textTertiary)

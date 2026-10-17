@@ -66,6 +66,9 @@ protocol NotchWidget {
     /// Which side of the tab it takes. The panel is wide enough for two, and
     /// side-by-side beats a long column when neither widget needs full width.
     var column: WidgetColumn { get }
+    /// True for the widget whose buttons arrange mode lists in a row of their
+    /// own, so that row only shows while the widget itself is on.
+    var hasButtonRow: Bool { get }
 }
 
 /// Which side of a tab a widget occupies. `full` spans both and stacks below
@@ -155,6 +158,7 @@ extension NotchWidget {
     var demandsAttention: Bool { false }
     var isUnconfigured: Bool { false }
     var isFallback: Bool { false }
+    var hasButtonRow: Bool { false }
 
     /// What actually decides whether the widget is drawn: switched on, holding
     /// something that cannot wait, or switched on in spirit and waiting to be

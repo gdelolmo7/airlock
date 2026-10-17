@@ -61,7 +61,7 @@ enum SupportDiagnostics {
             // report that conflated them would reproduce the confusion it exists
             // to shorten: a dead dictation key with Accessibility allowed is the
             // exact pair of facts that took a day to tell apart.
-            .init("Input monitoring", inputMonitoringPermission()),
+            .init("Input Monitoring", inputMonitoringPermission()),
             .init("Audio capture", .asksOnFirstUse),
         ]
         #if AIRLOCK_GUIDE

@@ -14,6 +14,7 @@ struct ClipboardPane: View {
     /// so it asks first (X21). Clear unpinned keeps what was pinned and doesn't.
     @State private var confirmingClearAll = false
     @State private var moreOptions: Bool
+    @AppStorage(AdvancedSwitch.key) private var advanced = false
 
     init(moreOptions: Bool = false) {
         _moreOptions = State(initialValue: moreOptions)
@@ -60,7 +61,7 @@ struct ClipboardPane: View {
                 }
             }
             .confirmationDialog("Delete all clipboard history?", isPresented: $confirmingClearAll) {
-                Button("Delete All", role: .destructive) { clipboard.clearAll() }
+                Button("Delete all", role: .destructive) { clipboard.clearAll() }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Every item goes, pinned ones too, along with the images Airlock saved from them. This can't be undone.")
@@ -92,11 +93,14 @@ struct ClipboardPane: View {
                 .disabled(!clipboard.isEnabled || !clipboard.hotkeyEnabled)
             if clipboard.isEnabled, let error = clipboard.hotkeyError {
                 ProblemCard(sentence: error)
-            } else if clipboard.isEnabled, clipboard.hotkeyEnabled, clipboard.hotkey == .commandShiftC {
+            } else if clipboard.isEnabled, clipboard.hotkeyEnabled, clipboard.hotkey == .commandShiftC,
+                      Self.maccyIsHere {
                 // Registration can succeed for both apps; which one the system
                 // delivers to is then not something either can control. Worth
                 // saying out loud, because the symptom is "my hotkey opens the
-                // wrong app" with no error anywhere.
+                // wrong app" with no error anywhere. Only where that app is:
+                // ⇧⌘C is the default, so everyone else read about an app they
+                // never had.
                 LookNote("⇧⌘C is also Maccy's default. If Maccy is still running, one of the two "
                          + "will get the key and it won't be predictable which.")
             }
@@ -112,14 +116,21 @@ struct ClipboardPane: View {
             }
         } more: {
             LookGroupLabel("History")
-            LookNote("Off stops the watcher entirely — nothing is read and nothing is stored. "
+            LookNote("With history off, Airlock doesn't look at what you copy, and nothing new is kept. "
                      + "Items already saved stay until you clear them.")
             LookNote("Pinned items survive Clear unpinned. Clear all deletes the saved images too, not just the rows.")
             // Where it is kept belongs with what is kept, not with what is
             // refused.
-            LookRow("Kept at") {
-                LookValue(clipboard.storageDirectory, monospaced: true)
-                    .textSelection(.enabled)
+            // The folder itself is for whoever turned on advanced settings;
+            // everyone else gets a way to look at it.
+            LookRow("Kept at", subtitle: advanced ? nil : "A folder on this Mac") {
+                HStack(spacing: 8) {
+                    if advanced {
+                        LookValue(clipboard.storageDirectory, monospaced: true)
+                            .textSelection(.enabled)
+                    }
+                    LookButton("Show in Finder") { revealStorage() }
+                }
             }
             // The files are 0600 and the image folder 0700; what that means to
             // a person is the sentence. File names and modes are for us.
@@ -158,6 +169,19 @@ struct ClipboardPane: View {
     /// Copies out of sight are stored too, and a clear takes them.
     private var nothingStored: Bool {
         clipboard.history.items.isEmpty && clipboard.history.outOfSight.isEmpty
+    }
+
+    /// The other clipboard app whose default is also ⇧⌘C, on this Mac or
+    /// running. One Launch Services lookup, asked only while ⇧⌘C is the key.
+    private static var maccyIsHere: Bool {
+        let id = "org.p0deje.Maccy"
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) != nil
+            || !NSRunningApplication.runningApplications(withBundleIdentifier: id).isEmpty
+    }
+
+    private func revealStorage() {
+        let path = (clipboard.storageDirectory as NSString).expandingTildeInPath
+        NSWorkspace.shared.open(URL(fileURLWithPath: path, isDirectory: true))
     }
 
     /// A count this plan shows is the setting; a bigger one is a question

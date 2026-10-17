@@ -290,7 +290,7 @@ final class CloudNotesService {
     }
 
     /// A past call's notes written again online, because the person asked
-    /// ("Redo with the better model"): on a plan that writes notes online,
+    /// ("Redo with better notes"): on a plan that writes notes online,
     /// under every condition the end of a call has (`CloudNotesRoute`), and
     /// counted in this month's online notes like any. The page there was is
     /// kept beside the new one when it had notes; nothing is lost if the

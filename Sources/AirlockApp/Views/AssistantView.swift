@@ -95,7 +95,7 @@ struct AssistantView: View {
             // Return is bound to the top rung only, and the note says so —
             // otherwise the one keystroke everybody presses without reading is
             // the one that opens a terminal.
-            Text("Sentences that spawn a terminal never fire on ↩ alone unless they are top of this list")
+            Text("↩ picks the first choice. For another, press ⌘ and its number.")
                 .font(Theme.chrome(10))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -125,8 +125,8 @@ struct AssistantView: View {
 
     private func detail(_ route: PromptRouting.Route) -> String {
         switch route {
-        case .claudeCode: return "Opens a new terminal session carrying this prompt"
-        case .answer: return "On-device model, nothing runs, no terminal opens"
+        case .claudeCode: return "Opens Claude Code in a new terminal window, with this as its task"
+        case .answer: return "Answered right here on your Mac. Nothing runs."
         }
     }
 
@@ -273,7 +273,7 @@ struct AssistantView: View {
             // Switched off, so it can be switched on: the button beside it
             // goes straight there. No plan answers online instead.
             return "Asking needs Apple Intelligence, which is switched off on this Mac. "
-                + "It stays on your Mac on every plan."
+                + "Once it's on, answers are worked out on this Mac, whatever your plan."
         }
         return "This Mac can't run Apple's on-device model, so there is nothing to answer with. "
             + "Asking still works — it just has to go to Claude Code."
@@ -296,7 +296,10 @@ struct AssistantView: View {
                 }
             }
 
-            if !assistant.isStreaming, !assistant.answer.isEmpty {
+            // Not on "I couldn't find that in your calls": there is nothing
+            // in it to copy.
+            if !assistant.isStreaming, !assistant.answer.isEmpty,
+               !(assistant.answersFromCalls && CallAnswer.isMiss(assistant.answer)) {
                 action(copied ? "Copied" : "Copy",
                        symbol: copied ? "checkmark" : "doc.on.doc") {
                     assistant.copyAnswer()
@@ -374,24 +377,18 @@ struct AssistantView: View {
 enum CallSourceText {
     /// "Yesterday · 12:04".
     static func when(_ source: CallSource, now: Date = Date()) -> String {
-        "\(day(source.moment, now: now)) · \(source.moment.formatted(date: .omitted, time: .shortened))"
+        "\(day(source.moment, now: now)) · \(CallsCard.time(source.moment))"
     }
 
     /// "Weekly sync, yesterday at 12:04", for VoiceOver.
     static func spoken(_ source: CallSource, now: Date = Date()) -> String {
         let day = day(source.moment, now: now)
         let lead = day == "Today" || day == "Yesterday" ? day.lowercased() : day
-        return "\(source.title), \(lead) at \(source.moment.formatted(date: .omitted, time: .shortened))"
+        return "\(source.title), \(lead) at \(CallsCard.time(source.moment))"
     }
 
+    /// The day as the calls list says it (`CallsCard.day`).
     private static func day(_ date: Date, now: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
-        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
-           calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
-        if calendar.isDate(date, equalTo: now, toGranularity: .year) {
-            return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-        }
-        return date.formatted(.dateTime.day().month(.abbreviated).year())
+        CallsCard.day(date, now: now)
     }
 }

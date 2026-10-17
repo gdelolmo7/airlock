@@ -67,17 +67,19 @@ public enum UpgradeReminder: Equatable, Sendable {
 
     // MARK: - The quiet lines
 
-    /// Always under a full clipboard on Free, card or no card.
+    /// Always under a full clipboard on Free, card or no card. Pinned items
+    /// sit outside the limit, and the count beside this line includes them,
+    /// so the line says so rather than leave "101 items" looking like a miscount.
     public static var clipboardLine: String {
-        "Free keeps your last \(PlanLimits.freeClipboard). Plus keeps up to \(plusClipboard)."
+        "Free keeps your last \(PlanLimits.freeClipboard), not counting pinned items. "
+            + "Plus keeps up to \(plusClipboard)."
     }
 
     /// On an agent's row while it asks in its terminal because another had
-    /// the notch.
-    public static func agentLine(asking: String) -> String {
-        "Free answers one agent at a time, so \(asking) is asking in its terminal. "
-            + "Plus answers every agent here."
-    }
+    /// the notch. "This one" rather than the project's name: the row already
+    /// says which, and a name like "website" read as "so website is asking".
+    public static let agentLine = "Free answers one agent at a time, so this one is asking in its terminal. "
+        + "Plus answers every agent here."
 
     /// The most a clipboard keeps on Plus: the top of the person's own setting.
     static var plusClipboard: String { PlanCatalog.thousands(ClipboardHistory.capacityRange.upperBound) }

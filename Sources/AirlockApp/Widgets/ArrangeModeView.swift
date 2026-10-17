@@ -51,7 +51,10 @@ struct ArrangeModeView: View {
                 blocks
             }
 
-            if tab == .home { railSection }
+            // The buttons row belongs to the System controls block, so it goes
+            // when that block is off — otherwise it sat under "every widget is
+            // switched off" saying "6 on".
+            if tab == .home, movable.contains(where: { $0.hasButtonRow }) { railSection }
         }
         .padding(10)
         .background(
@@ -117,7 +120,7 @@ struct ArrangeModeView: View {
                 block(widget, column: column)
             }
             if widgets.isEmpty {
-                Text("empty")
+                Text("Empty")
                     .font(Theme.label)
                     .foregroundStyle(Theme.textTertiary)
                     .frame(maxWidth: .infinity)
@@ -202,7 +205,7 @@ struct ArrangeModeView: View {
                 Text("System controls buttons")
                     .font(Theme.chrome(10.5, .semibold))
                     .foregroundStyle(Theme.textSecondary)
-                Text("drag to reorder, drop below to switch off")
+                Text("Drag to reorder, drop below to switch off")
                     .font(Theme.chrome(10))
                     .foregroundStyle(Theme.textTertiary)
                 Spacer(minLength: 0)
@@ -221,7 +224,7 @@ struct ArrangeModeView: View {
                     chip(control, isOn: true)
                 }
                 if controls.shown.isEmpty {
-                    Text("no buttons shown")
+                    Text("No buttons shown")
                         .font(Theme.label)
                         .foregroundStyle(Theme.textTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -249,7 +252,7 @@ struct ArrangeModeView: View {
                 chip(control, isOn: false)
             }
             if controls.hidden.isEmpty {
-                Text("drop here to switch off")
+                Text("Drop here to switch off")
                     .font(Theme.label)
                     .foregroundStyle(Theme.textTertiary)
             }
@@ -274,7 +277,7 @@ struct ArrangeModeView: View {
         HStack(spacing: 4) {
             Image(systemName: control.symbol)
                 .font(.system(size: 10))
-            Text(control.label)
+            Text(control.title)
                 .font(Theme.chrome(10.5, .medium))
         }
         .foregroundStyle(isOn ? Theme.textPrimary : Theme.textTertiary)
@@ -286,7 +289,7 @@ struct ArrangeModeView: View {
         )
         .contentShape(.rect)
         .draggable(control.rawValue) {
-            Text(control.label)
+            Text(control.title)
                 .font(Theme.chrome(11, .medium))
                 .padding(6)
                 .background(Theme.rowFill, in: .rect(cornerRadius: 6))
@@ -336,7 +339,7 @@ struct ArrangeModeView: View {
                     // "chrome" — tier names from the code — and "chrome" could
                     // never even appear: only a waiting request is pinned here.
                     if widget.demandsAttention {
-                        Text("waiting for you")
+                        Text("Waiting for you")
                             .font(Theme.label)
                             .foregroundStyle(Theme.textTertiary)
                     }
@@ -358,12 +361,12 @@ struct ArrangeModeView: View {
             Text("Every widget on this tab is switched off")
                 .font(Theme.chrome(12, .semibold))
                 .foregroundStyle(Theme.textPrimary)
-            Text("Arranging an empty tab has nothing to act on. Switch something on and the blocks come back in the order you left them.")
+            Text("There's nothing to arrange. Switch a widget on and it comes back where you left it.")
                 .font(Theme.chrome(11))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(action: onOpenSettings) {
-                Text("Open Widgets…")
+            Button { WidgetsSettingsLink.open(then: onOpenSettings) } label: {
+                Text(WidgetsSettingsLink.title)
                     .font(Theme.chrome(11, .semibold))
                     .foregroundStyle(Theme.textPrimary)
                     .padding(.horizontal, 10)

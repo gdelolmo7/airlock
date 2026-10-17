@@ -62,7 +62,8 @@ public struct AgentsConnection: Equatable, Sendable {
     /// write, so the fix is the person's — the card says so rather than
     /// offering a button that would not do it.
     public static func blockedSentence(_ link: Link) -> String {
-        "\(link.name) can't connect: its settings file already has Airlock lines that Airlock didn't write. Delete them, then connect again."
+        "\(link.name) can't connect yet. Its settings file already has Airlock lines that Airlock didn't add, "
+            + "so it leaves them alone. Delete those lines, then connect again."
     }
 
     /// "Claude Code", "Claude Code and Codex", "A, B and C".

@@ -181,6 +181,63 @@ final class AppAudioMixTests: XCTestCase {
                                            among: ["com.foo"]))
     }
 
+    func testEveryAppAHelperIsNamedAfterIsListedMostSpecificFirst() {
+        // Discord registers both its helpers as apps of their own, so the
+        // helper's own entry comes first and Discord itself last.
+        XCTAssertEqual(["com.hnc.Discord.helper.Renderer", "com.hnc.Discord.helper", "com.hnc.Discord"],
+                       AppMix.owningBundleIDs(forHelper: "com.hnc.Discord.helper.Renderer",
+                                              among: ["com.hnc.Discord", "com.spotify.client",
+                                                      "com.hnc.Discord.helper",
+                                                      "com.hnc.Discord.helper.Renderer"]))
+    }
+
+    // MARK: - Picking the app a person would recognise
+
+    private struct Proc: Equatable {
+        let id: String
+        let regular: Bool
+    }
+
+    private func pick(own: Proc?, ancestors: [Proc] = [], named: [Proc] = []) -> Proc? {
+        AppMix.pickOwner(own: own, ancestors: ancestors, named: named, isRegular: \.regular)
+    }
+
+    private let discord = Proc(id: "com.hnc.Discord", regular: true)
+    private let renderer = Proc(id: "com.hnc.Discord.helper.Renderer", regular: false)
+
+    func testDiscordsVoiceHelperBelongsToDiscordNotToItself() {
+        // The live case: the helper on the mic is a background app of its
+        // own, with Discord as its parent. Taking it at its word lost the call.
+        XCTAssertEqual(discord, pick(own: renderer, ancestors: [discord], named: [renderer, discord]))
+    }
+
+    func testTheNameFindsTheAppWhenTheParentIsGone() {
+        XCTAssertEqual(discord, pick(own: renderer, named: [renderer, discord]))
+    }
+
+    func testARegularAppIsItsOwnOwnerEvenWithAnAppAboveIt() {
+        // An app opened from a terminal is that app, not the terminal.
+        let terminal = Proc(id: "com.googlecode.iterm2", regular: true)
+        let zoom = Proc(id: "us.zoom.xos", regular: true)
+        XCTAssertEqual(zoom, pick(own: zoom, ancestors: [terminal]))
+    }
+
+    func testTheNearestRegularAncestorWins() {
+        let middle = Proc(id: "com.example.helper", regular: false)
+        XCTAssertEqual(discord, pick(own: nil, ancestors: [middle, discord]))
+    }
+
+    func testABackgroundAppWithNothingAboveItStaysItself() {
+        // A menu-bar app keeps its own entry, which the callers then turn
+        // away for not being regular, exactly as before.
+        let menuBar = Proc(id: "com.example.menubar", regular: false)
+        XCTAssertEqual(menuBar, pick(own: menuBar, named: [menuBar]))
+    }
+
+    func testNothingToPickIsNil() {
+        XCTAssertNil(pick(own: nil))
+    }
+
     func testThePlayingAppIsNeverTheOneTheCapHides() {
         let apps = [app("a", "Aaa"), app("b", "Bbb"), app("c", "Ccc"),
                     app("z", "Zzz")]

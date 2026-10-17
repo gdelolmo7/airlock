@@ -387,7 +387,7 @@ enum GalleryIsland {
             ArrangeStandIn(id: "gallery.ask", displayName: "Ask", on: on),
             ArrangeStandIn(id: "gallery.media", displayName: "Media (Spotify & Apple Music)", on: on),
             ArrangeStandIn(id: "gallery.systemControls", displayName: "System controls",
-                           column: .leading, on: on),
+                           column: .leading, on: on, hasButtonRow: true),
             ArrangeStandIn(id: "gallery.keymap", displayName: "Shortcut map", column: .leading, on: on),
             ArrangeStandIn(id: "gallery.sound", displayName: "Sound (output & per-app volume)",
                            column: .trailing, on: on),
@@ -409,6 +409,7 @@ private struct ArrangeStandIn: NotchWidget {
     var column: WidgetColumn = .full
     var on = true
     var demandsAttention = false
+    var hasButtonRow = false
 
     var tier: WidgetTier { demandsAttention ? .interrupt : .ambient }
     var isToggleable: Bool { true }

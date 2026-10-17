@@ -76,7 +76,7 @@ final class NotesByPlanTests: XCTestCase {
                 XCTAssertEqual(offered, CallNotesOffers(seePlus: true, redo: .opensPlans), name)
                 XCTAssertTrue(offered.redoTagged, name)
             }
-            XCTAssertTrue(call(macWriter(plan)).page.contains("_\(MeetingFiles.basicModelFooter), from "), name)
+            XCTAssertTrue(call(macWriter(plan)).page.contains("_\(MeetingFiles.basicModelFooter). "), name)
         }
     }
 
@@ -85,7 +85,7 @@ final class NotesByPlanTests: XCTestCase {
         for (name, plan) in Self.plans {
             let written = call(.online(model: "google/gemini-3.8-flash", at: ended, plan: Self.plus))
             XCTAssertEqual(offers(written, on: plan), CallNotesOffers(), name)
-            XCTAssertFalse(written.page.contains("basic model"), name)
+            XCTAssertFalse(written.page.contains(MeetingFiles.basicModelFooter), name)
         }
     }
 
@@ -141,8 +141,8 @@ final class NotesByPlanTests: XCTestCase {
         for (name, plan) in Self.plans where !plan.limits.writesNotesOnline {
             let empty = call(macWriter(plan), model: .needsAppleIntelligence)
             XCTAssertEqual(firstParagraph(empty), MeetingFiles.turnOnAppleIntelligence
-                           + " Airlock writes call notes with your Mac's own model, and Apple Intelligence is "
-                           + "switched off. " + MeetingFiles.transcriptLine, name)
+                           + " Airlock writes call notes with Apple Intelligence, which is switched off. "
+                           + MeetingFiles.transcriptLine, name)
             XCTAssertFalse(MeetingFiles.hasNotes(empty.page), name)
             XCTAssertTrue(empty.page.contains(MeetingFiles.transcriptLine), name)
             XCTAssertEqual(offers(empty, on: plan), CallNotesOffers(empty: .turnOnAppleIntelligence), name)
@@ -243,10 +243,11 @@ final class NotesByPlanTests: XCTestCase {
                        "This month's online notes are used up, so these were written on your Mac.")
         XCTAssertEqual(MeetingFiles.noNotesAllowanceLine(until: firstOfNovember, plan: Self.plus, locale: gb,
                                                          timeZone: utc),
-                       "No notes yet. You've used this month's online notes, so these will be written on "
+                       "No notes yet. This month's online notes are used up, so these will be written on "
                        + "1 November. Pro has twice as many.")
         XCTAssertEqual(MeetingFiles.noNotesAllowanceLine(until: nil),
-                       "No notes yet. You've used this month's online notes, so these will be written once they're back.")
+                       "No notes yet. This month's online notes are used up, so these will be written once "
+                       + "they're back.")
     }
 
     /// Plus, used up: the Mac's notes say so under the date, and the window
@@ -273,8 +274,8 @@ final class NotesByPlanTests: XCTestCase {
     func testServiceDownIsSaidAtTheFootOnEveryPlan() {
         for (name, plan) in Self.plans {
             let down = call(macWriter(plan, why: .serviceDown))
-            XCTAssertTrue(down.page.contains("_\(MeetingFiles.serviceDownFooter), from "), name)
-            XCTAssertFalse(down.page.contains(MeetingFiles.basicModelFooter + ","), name)
+            XCTAssertTrue(down.page.contains("_\(MeetingFiles.serviceDownFooter). "), name)
+            XCTAssertFalse(down.page.contains("_" + MeetingFiles.basicModelFooter), name)
         }
         XCTAssertEqual(offers(call(macWriter(Self.pro, why: .serviceDown)), on: Self.pro).redo, .rewritesOnline)
     }
@@ -294,7 +295,12 @@ final class NotesByPlanTests: XCTestCase {
         XCTAssertEqual(CallNotesNotice.of(MeetingFiles.noNotesFailedLine),
                        .waitingForService("The online notes service didn't answer, so Airlock will try again later."))
         XCTAssertEqual(CallNotesNotice.of(MeetingFiles.noNotesAllowanceLine(until: nil)),
-                       .waitingForAllowance("You've used this month's online notes, so these will be written once they're back."))
+                       .waitingForAllowance("This month's online notes are used up, so these will be written once "
+                                            + "they're back."))
+        let earlier = "No notes yet. You've used this month's online notes, so these will be written on 1 November."
+        XCTAssertEqual(CallNotesNotice.of(earlier),
+                       .waitingForAllowance("You've used this month's online notes, so these will be written on "
+                                            + "1 November."), "a page written before reads the same")
         XCTAssertNil(CallNotesNotice.of("Marketing is over budget."))
         XCTAssertEqual(CallNotesNotice.plain("*Said.*"), "Said.")
         XCTAssertEqual(CallNotesNotice.plain("_"), "_")
@@ -393,7 +399,7 @@ final class NotesByPlanTests: XCTestCase {
     func testFreesExamplePageIsTheMacsFromTheFirstThirtyMinutes() throws {
         let page = NotesComparisonSample.page(.free)
         XCTAssertTrue(page.contains("_These notes cover the first 30 minutes of a 42-minute call._"))
-        XCTAssertTrue(page.contains("_\(MeetingFiles.basicModelFooter), from "))
+        XCTAssertTrue(page.contains("_\(MeetingFiles.basicModelFooter). "))
         XCTAssertFalse(page.contains("Person "), "names are put in, as on a saved page")
         XCTAssertTrue(NotesComparisonSample.written(.free).contains("Person "), "the writer read voices, not names")
         try assertEverythingSaidBefore(PlanLimits.freeNotesListen, in: page)

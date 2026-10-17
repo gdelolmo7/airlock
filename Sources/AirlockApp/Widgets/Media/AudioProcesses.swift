@@ -42,6 +42,11 @@ enum AudioProcesses {
     /// `Google Chrome Helper` on this machine has the main Chrome process as its
     /// direct parent.
     ///
+    /// A process that IS an application but not a regular one is not the
+    /// answer yet: Discord's voice helper registers itself as a background
+    /// app, and stopping there lost every Discord call. The parents and the
+    /// name are asked too, and a regular app among them wins (`pickOwner`).
+    ///
     /// **Known gap:** Safari renders media in WebKit XPC services that are
     /// children of `launchd`, not of Safari, and whose bundle ID
     /// (`com.apple.WebKit.WebContent`) shares no prefix with `com.apple.Safari`.
@@ -52,21 +57,26 @@ enum AudioProcesses {
                               bundleID: String?,
                               running: [NSRunningApplication],
                               bundleIDs: [String]) -> NSRunningApplication? {
-        if let direct = running.first(where: { $0.processIdentifier == pid }) { return direct }
+        let isRegular: (NSRunningApplication) -> Bool = { $0.activationPolicy == .regular }
+        let own = running.first { $0.processIdentifier == pid }
+        if let own, isRegular(own) { return own }
 
+        var ancestors: [NSRunningApplication] = []
         var walker = pid
         // Bounded: a cycle here would hang the enumeration on the main actor,
         // and no real process tree needs more than a couple of hops.
         for _ in 0..<6 {
             guard let parent = parentPID(walker), parent > 1 else { break }
-            if let app = running.first(where: { $0.processIdentifier == parent }) { return app }
+            if let app = running.first(where: { $0.processIdentifier == parent }) {
+                ancestors.append(app)
+                if isRegular(app) { break }
+            }
             walker = parent
         }
 
-        guard let bundleID,
-              let owner = AppMix.owningBundleID(forHelper: bundleID, among: bundleIDs)
-        else { return nil }
-        return running.first { $0.bundleIdentifier == owner }
+        let named = (bundleID.map { AppMix.owningBundleIDs(forHelper: $0, among: bundleIDs) } ?? [])
+            .compactMap { id in running.first { $0.bundleIdentifier == id } }
+        return AppMix.pickOwner(own: own, ancestors: ancestors, named: named, isRegular: isRegular)
     }
 
     static func string(_ object: AudioObjectID,

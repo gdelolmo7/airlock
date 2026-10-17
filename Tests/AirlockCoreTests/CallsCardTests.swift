@@ -235,7 +235,8 @@ final class CallsCardTests: XCTestCase {
         }
     }
 
-    func testDayHeadingsSayTodayYesterdayOrTheWholeDay() {
+    /// The same words as a row's day, so a day is written one way only.
+    func testDayHeadingsSayTodayYesterdayOrTheDay() {
         let now = at("2026-10-08 18:00")
         func heading(_ day: String) -> String {
             CallsCard.dayHeading(at(day), now: now, calendar: calendar)
@@ -243,9 +244,27 @@ final class CallsCardTests: XCTestCase {
         XCTAssertEqual(heading("2026-10-08 00:00"), "Today")
         XCTAssertEqual(heading("2026-10-08 23:59"), "Today")
         XCTAssertEqual(heading("2026-10-07 09:05"), "Yesterday")
-        XCTAssertEqual(heading("2026-10-06 14:30"), "Tuesday 6 Oct")
-        XCTAssertEqual(heading("2026-01-02 10:00"), "Friday 2 Jan")
+        XCTAssertEqual(heading("2026-10-06 14:30"), "Tue 6 Oct")
+        XCTAssertEqual(heading("2026-01-02 10:00"), "Fri 2 Jan")
         XCTAssertEqual(heading("2025-12-30 10:00"), "30 Dec 2025")
+        for day in ["2026-10-08 10:00", "2026-10-07 10:00", "2026-10-06 14:30", "2025-12-30 10:00"] {
+            let row = CallsCard.when(startedAt: at(day), endedAt: nil, now: now, calendar: calendar)
+            XCTAssertTrue(row.hasPrefix(heading(day) + " "), "\(row) / \(heading(day))")
+            XCTAssertEqual(CallsCard.day(at(day), now: now, calendar: calendar), heading(day))
+        }
+    }
+
+    /// A moment in a call as the clock said it, never as minutes that read
+    /// like an hour.
+    func testAMomentInACallIsTheTimeOfDay() {
+        let start = at("2026-10-08 20:52")
+        XCTAssertEqual(CallsCard.time(0, into: start, calendar: calendar), "20:52")
+        XCTAssertEqual(CallsCard.time(12 * 60 + 38, into: start, calendar: calendar), "21:04")
+        XCTAssertEqual(CallsCard.time(-5, into: start, calendar: calendar), "20:52", "never before the start")
+        var us = calendar
+        us.locale = Locale(identifier: "en_US")
+        XCTAssertEqual(CallsCard.time(12 * 60 + 38, into: start, calendar: us),
+                       CallsCard.time(at("2026-10-08 21:04"), calendar: us), "in the Mac's own way of writing it")
     }
 
     /// The day is the heading above, so a row says only the clock and the
@@ -281,7 +300,7 @@ final class CallsCardTests: XCTestCase {
             row("older", "2026-10-05 08:00"),
         ]
         let days = CallsCard.days(rows, now: at("2026-10-08 18:00"), calendar: calendar)
-        XCTAssertEqual(days.map(\.heading), ["Today", "Yesterday", "Monday 5 Oct"])
+        XCTAssertEqual(days.map(\.heading), ["Today", "Yesterday", "Mon 5 Oct"])
         XCTAssertEqual(days.map { $0.rows.map(\.folder) }, [["late", "early"], ["yesterday"], ["old", "older"]])
         XCTAssertEqual(days.map(\.start), [at("2026-10-08 00:00"), at("2026-10-07 00:00"), at("2026-10-05 00:00")])
     }

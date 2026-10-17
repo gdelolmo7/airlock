@@ -76,7 +76,7 @@ public struct PolicyStore: Sendable {
             let text = try String(contentsOf: url, encoding: .utf8)
             return try PolicyParser.parse(text)
         } catch {
-            problems.append("\(url.path): \(error)")
+            problems.append("\(url.path), \(error)")
             return Policy()
         }
     }

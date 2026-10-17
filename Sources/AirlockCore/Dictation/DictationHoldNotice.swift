@@ -29,8 +29,9 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// allowed. `key` is the held key's name ("⌃ Control"); `asking` says
     /// which key it was, so the advice names the right one.
     case microphoneAllowed(key: String, asking: Bool)
-    /// The hold ran and the recogniser found no words.
-    case nothingCaught
+    /// The hold ran and the recogniser found no words. `key` is the held
+    /// key's name, so "try again" says which one.
+    case nothingCaught(key: String)
     /// Nothing in front could take text, so the words went to the clipboard.
     case copiedNowhereToType
     /// A key or a click came while the person was talking. The hold kept
@@ -50,13 +51,16 @@ public enum DictationHoldNotice: Equatable, Sendable {
     public enum Fix: Equatable, Sendable {
         /// Privacy & Security › Microphone in System Settings.
         case openMicrophoneSettings
-        /// Settings › Dictation, at the input picker.
+        /// Settings › Voice, at the input picker.
         case chooseInput
+        /// Settings › Voice, at the language picker.
+        case chooseLanguage
 
         public var button: String {
             switch self {
             case .openMicrophoneSettings: return "Open System Settings"
             case .chooseInput: return "Choose input…"
+            case .chooseLanguage: return "Choose language…"
             }
         }
     }
@@ -86,8 +90,8 @@ public enum DictationHoldNotice: Equatable, Sendable {
             return "The microphone couldn't start. Try again in a moment."
         case .microphoneAllowed(let key, let asking):
             return "Microphone allowed. Hold \(key) again to \(asking ? "ask" : "dictate")."
-        case .nothingCaught:
-            return "Didn't catch anything. Hold the key and try again."
+        case .nothingCaught(let key):
+            return "Didn't catch anything. Hold \(key) and try again."
         case .copiedNowhereToType:
             return "There was nowhere to type, so your words are on the clipboard."
         case .copiedAfterKeyOrClick:
@@ -106,6 +110,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
         switch self {
         case .microphoneDenied: return .openMicrophoneSettings
         case .microphoneFailedToStart: return .chooseInput
+        case .noSpeechModel: return .chooseLanguage
         default: return nil
         }
     }
@@ -193,7 +198,8 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// Named in `displayLocale`, which is the person's own — so a Spanish Mac
     /// reads "inglés (Estados Unidos)" — and a parameter so the test can pin it.
     static func noSpeechModelSentence(locale: String, displayLocale: Locale = .current) -> String {
-        "Dictation isn't available in \(languageName(locale, displayLocale: displayLocale)) on this Mac yet."
+        "Dictation isn't available in \(languageName(locale, displayLocale: displayLocale)) on this Mac yet. "
+            + "Choose another language to dictate in."
     }
 
     /// "English (United States)" for `en_US`; "your language" when there is no

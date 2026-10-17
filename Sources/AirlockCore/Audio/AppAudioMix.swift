@@ -196,11 +196,40 @@ public enum AppMix {
     /// app's audio, which is worse than a missing row.
     public static func owningBundleID(forHelper helper: String,
                                       among running: [String]) -> String? {
-        if running.contains(helper) { return helper }
-        let candidates = running.filter { owner in
+        owningBundleIDs(forHelper: helper, among: running).first
+    }
+
+    /// Every running app a helper could belong to by name, most specific
+    /// first: the helper itself when it is a running app, then each app it
+    /// extends at a dot boundary, longest first. `owningBundleID` is the
+    /// first of these; the caller needs the rest when the first is a helper
+    /// that registered itself as a background app (see `pickOwner`).
+    public static func owningBundleIDs(forHelper helper: String,
+                                       among running: [String]) -> [String] {
+        let owners = Set(running.filter { owner in
             owner != helper && helper.hasPrefix(owner + ".")
-        }
-        return candidates.max { $0.count < $1.count }
+        }).sorted { $0.count > $1.count }
+        return (running.contains(helper) ? [helper] : []) + owners
+    }
+
+    /// Which of the apps a sound-making process could belong to is the one a
+    /// person would call its app.
+    ///
+    /// `own` is the process's own entry, `ancestors` the apps above it in the
+    /// process tree, nearest first, and `named` the apps it is named after,
+    /// most specific first (`owningBundleIDs`). A regular app wins, in that
+    /// order. Discord is why: its voice helper registers with macOS as a
+    /// background app of its own, so taking the process's own entry at its
+    /// word made every Discord call nobody's, with Discord itself right above
+    /// it. When none of them is a regular app the old answer stands — own
+    /// entry, then nearest ancestor, then by name — and the callers' own
+    /// regular-app test turns it away as before.
+    public static func pickOwner<App>(own: App?, ancestors: [App], named: [App],
+                                      isRegular: (App) -> Bool) -> App? {
+        if let own, isRegular(own) { return own }
+        if let app = ancestors.first(where: isRegular) { return app }
+        if let app = named.first(where: isRegular) { return app }
+        return own ?? ancestors.first ?? named.first
     }
 
     /// Processes that make sound but are not something a person would recognise

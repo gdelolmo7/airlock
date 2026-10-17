@@ -18,7 +18,7 @@ enum NotesComparisonPages {
         - [ ] Update the forecast with that — Person 1 · 5:43
         - [ ] Tell my team not to book anything new until the rules are written down — Person 2 · 5:50
         - [ ] Send the revised numbers to both of us by Friday · 6:02
-        - [ ] Halve the coffee machine January · 7:55
+        - [ ] Leave the coffee machine for January · 7:55
         - [ ] I'll send an invite — Person 1 · 11:03
         - [ ] I'll chase them tomorrow morning — Person 2 · 15:42
         - [ ] Write the note — Person 2 · 16:31
@@ -49,7 +49,7 @@ enum NotesComparisonPages {
 
         ---
 
-        _Written on your Mac with the basic model, from Transcript.md. No audio was kept. The summary is made by a model and can be wrong; check the transcript before relying on it._
+        _Written on your Mac. No audio was kept. The summary is written by AI and can be wrong; check the transcript before relying on it._
 
         """#
 
@@ -100,7 +100,7 @@ enum NotesComparisonPages {
 
         ---
 
-        _Written online by Airlock, with Google's Gemini, from Transcript.md. No audio was kept. The summary is made by a model and can be wrong; check the transcript before relying on it._
+        _Written online by Airlock, with Google's Gemini. No audio was kept. The summary is written by AI and can be wrong; check the transcript before relying on it._
 
         """#
 
@@ -153,7 +153,7 @@ enum NotesComparisonPages {
 
         ---
 
-        _Written online by Airlock, with OpenAI's GPT, from Transcript.md. No audio was kept. The summary is made by a model and can be wrong; check the transcript before relying on it._
+        _Written online by Airlock, with OpenAI's GPT. No audio was kept. The summary is written by AI and can be wrong; check the transcript before relying on it._
 
         """#
 }

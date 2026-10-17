@@ -281,9 +281,14 @@ final class DictationModel {
     private(set) var isListening = false {
         didSet {
             guard isListening != oldValue else { return }
+            isFinishing = false
             Moments.shared.announce(isListening ? .listeningStarted : .listeningStopped)
         }
     }
+    /// The key is up and the microphone off, but the last words are still
+    /// being written down. `isListening` stays true through it, so without
+    /// this the strip kept saying "Release to type" to someone who had.
+    private(set) var isFinishing = false
     /// Listening OR still tidying up. What the panel should follow.
     ///
     /// Not the same as `isListening`, and the difference was a real bug: the
@@ -447,6 +452,9 @@ final class DictationModel {
 
     /// Opens Settings at the input picker. Wired by whoever owns the window.
     @ObservationIgnored var onChooseInput: (() -> Void)?
+    /// Opens Settings › Voice at the language picker, for a language this
+    /// Mac can't dictate in.
+    @ObservationIgnored var onChooseLanguage: (() -> Void)?
 
     func chooseInput() {
         dismissHeardNothing()
@@ -472,6 +480,8 @@ final class DictationModel {
             NSWorkspace.shared.open(url)
         case .chooseInput:
             chooseInput()
+        case .chooseLanguage:
+            onChooseLanguage?()
         }
     }
 
@@ -1169,6 +1179,7 @@ final class DictationModel {
         // input sequence ending, so finishing the session against a live stream
         // never returns.
         capture.stop()
+        isFinishing = true
         let peak = capture.peakLevel
         // Measured before the flag is cleared, and against the analyzer coming
         // up rather than the key going down. See `listeningSince`.
@@ -1246,7 +1257,8 @@ final class DictationModel {
                     return
                 }
                 self.statusMessage = "Didn't catch anything."
-                self.showNotice(.nothingCaught)
+                self.showNotice(.nothingCaught(key: self.intent == .ask
+                    ? self.askKey?.displayName ?? "the ask key" : self.holdKey.displayName))
                 return
             }
 

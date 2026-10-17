@@ -1597,6 +1597,21 @@ private struct SlotLabel: ViewModifier {
     }
 }
 
+/// The way from the notch to the list of widgets, under one name. The blank
+/// tab and arrange mode called the same place "Manage widgets", "Add widgets"
+/// and "Open Widgets…", and the gear opened Settings wherever it was left.
+enum WidgetsSettingsLink {
+    static let title = "Choose widgets"
+    static let help = "Opens Settings › \(SettingsPane.appearance.tabTitle), where you choose the widgets"
+
+    /// Lands on the widgets list, then does what the gear does (Settings takes
+    /// focus, so the notch closes).
+    @MainActor static func open(then openSettings: () -> Void) {
+        Notifications.openSettings?(.appearance, .widgets)
+        openSettings()
+    }
+}
+
 /// Shown when the selected tab has nothing to render.
 ///
 /// Says which kind of empty it is, because the two need opposite advice: with
@@ -1616,7 +1631,7 @@ struct EmptyTabView: View {
             Text(anyEnabled ? "Nothing playing, nothing scheduled." : "No widgets turned on here.")
                 .font(Theme.chrome(12, .medium))
                 .foregroundStyle(Theme.textSecondary)
-            Text(anyEnabled ? "Manage widgets" : "Add widgets")
+            Text(WidgetsSettingsLink.title)
                 .font(Theme.chrome(11, .semibold))
                 .foregroundStyle(Theme.textPrimary)
                 .padding(.horizontal, 11)
@@ -1627,15 +1642,15 @@ struct EmptyTabView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onOpenSettings)
+        .onTapGesture { WidgetsSettingsLink.open(then: onOpenSettings) }
         .clickable()
-        .help("Open settings")
+        .help(WidgetsSettingsLink.help)
         // The only route out of a blank panel. The whole block is the target
         // for the pointer, so it has to be the whole element here too.
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens settings")
-        .accessibilityAction { onOpenSettings() }
+        .accessibilityHint(WidgetsSettingsLink.help)
+        .accessibilityAction { WidgetsSettingsLink.open(then: onOpenSettings) }
     }
 }
 

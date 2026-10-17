@@ -1,8 +1,8 @@
 import AirlockCore
 import SwiftUI
 
-/// A person's face (`Blobatar`): its shape and eyes from their name, its body
-/// in their call colour so the face and the name beside it read as one.
+/// A person's face (`Blobatar.face`): its shape and eyes from their name, its
+/// body in their call colour so the face and the name beside it read as one.
 /// No plate behind it: the body sits straight on the window's dark.
 struct BlobatarFace: View {
     let name: String
@@ -10,7 +10,7 @@ struct BlobatarFace: View {
     let colour: UInt32
 
     var body: some View {
-        let figure = Blobatar.figure(for: name)
+        let figure = Blobatar.face(for: name)
         let bodyColour = Self.color(colour)
         let eyeColour = Self.color(Self.value(Blobatar.eyeColour(on: colour)))
         Canvas { context, size in

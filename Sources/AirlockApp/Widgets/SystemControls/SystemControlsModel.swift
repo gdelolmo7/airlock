@@ -49,8 +49,10 @@ final class SystemControlsModel {
     /// first press is still the one macOS asks on.
     static let screenshotNeedsPermission = "Screenshots need the Screen Recording permission."
     static let recordingNeedsPermission = "Recording needs the Screen Recording permission."
-    static let screenshotDidNotStart = "The screenshot tool didn't start."
-    static let recorderDidNotStart = "The screen recorder didn't start."
+    /// The tool would not even open, so there is no reason to give beyond
+    /// that — only the macOS shortcut that does the same job.
+    static let screenshotDidNotStart = "The screenshot tool didn't open. Press ⇧⌘4 to take one instead."
+    static let recorderDidNotStart = "The screen recorder didn't open. Press ⇧⌘5 to record from there instead."
     static let displaySleepDidNotStart = "The display didn't go to sleep."
     /// Under the rail while an agent holds the Mac awake and the switch is
     /// off, so the cup in the notch and the unlit button stop disagreeing.
@@ -124,20 +126,8 @@ final class SystemControlsModel {
 
         var id: String { rawValue }
 
-        /// The label under the button — lowercase, as drawn.
-        var label: String {
-            switch self {
-            case .wifi: return "wifi"
-            case .awake: return "awake"
-            case .dark: return "dark"
-            case .capture: return "capture"
-            case .record: return "record"
-            case .sleepDisplay: return "sleep"
-            }
-        }
-
-        /// The Home rail's caption, in sentence case. `label` stays the
-        /// lowercase monospaced chip arrange mode draws.
+        /// The button's name, in sentence case: the Home rail's caption and
+        /// arrange mode's chip, so the same button has one name in both.
         var title: String {
             switch self {
             case .wifi: return "Wi-Fi"

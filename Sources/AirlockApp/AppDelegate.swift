@@ -391,6 +391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         assistant.onPerform = { voicePerformer.perform($0) }
 
         dictation.onChooseInput = { [weak self] in self?.appWindow?.show(anchor: .microphoneInput) }
+        dictation.onChooseLanguage = { [weak self] in self?.appWindow?.show(anchor: .language) }
         assistant.onRecordGate = { [weak model] request, outcome, _ in
             // `agent: "voice"` — a free string on `GateRecord`, so the log reads
             // back as what it was without pretending a session existed.

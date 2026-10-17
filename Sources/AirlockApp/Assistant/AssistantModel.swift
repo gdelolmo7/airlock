@@ -347,8 +347,8 @@ final class AssistantModel {
 
         var label: String {
             switch self {
-            case .grammar: return "grammar match"
-            case .classifier: return "model guess"
+            case .grammar: return "Matched what you said"
+            case .classifier: return "A guess at what you meant"
             }
         }
     }

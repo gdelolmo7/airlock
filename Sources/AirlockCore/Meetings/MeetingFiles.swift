@@ -92,21 +92,64 @@ public enum MeetingFiles {
     /// A line at or after one of `breaks` never joins a turn that started
     /// before it, so a change of language (`MeetingTimeline.dividers`) sits
     /// between two turns rather than after one that runs across it.
+    ///
+    /// `longest`, in characters: no turn grows past it. A line that would
+    /// take a turn over it starts the next one, and a line longer than it on
+    /// its own is cut at spaces (`pieces`). Only the windows ask for it
+    /// (`MeetingTimeline.shown`); the file keeps whole turns.
     public static func turns(_ segments: [MeetingSegment],
-                             breakingAt breaks: [TimeInterval] = []) -> [MeetingSegment] {
+                             breakingAt breaks: [TimeInterval] = [],
+                             longest: Int? = nil) -> [MeetingSegment] {
         var turns: [MeetingSegment] = []
-        for segment in segments {
+        var length = 0
+        let lines = longest.map { longest in segments.flatMap { pieces(of: $0, longest: longest) } } ?? segments
+        for segment in lines {
+            let size = longest == nil ? 0 : segment.text.count
             if var last = turns.last, last.speaker == segment.speaker, last.person == segment.person,
                segment.start - last.end <= turnPause,
-               !breaks.contains(where: { last.start < $0 && $0 <= segment.start }) {
+               !breaks.contains(where: { last.start < $0 && $0 <= segment.start }),
+               longest.map({ length + 1 + size <= $0 }) ?? true {
                 last.text += " " + segment.text
                 last.end = max(last.end, segment.end)
                 turns[turns.count - 1] = last
+                length += 1 + size
             } else {
                 turns.append(segment)
+                length = size
             }
         }
         return turns
+    }
+
+    /// `segment` in pieces of at most `longest` characters, each cut at the
+    /// last space that fits (anywhere, in a word longer than that) and timed
+    /// by its share of the line. A line no longer than that is itself.
+    static func pieces(of segment: MeetingSegment, longest: Int) -> [MeetingSegment] {
+        let text = segment.text
+        guard longest > 0, text.count > longest else { return [segment] }
+        let total = Double(text.count)
+        let span = segment.end - segment.start
+        var pieces: [MeetingSegment] = []
+        var from = text.startIndex
+        var before = 0
+        while from < text.endIndex {
+            var to = text.index(from, offsetBy: longest, limitedBy: text.endIndex) ?? text.endIndex
+            if to < text.endIndex, text[to] != " ", let space = text[from..<to].lastIndex(of: " "), space > from {
+                to = space
+            }
+            let count = text[from..<to].count
+            pieces.append(MeetingSegment(speaker: segment.speaker,
+                                         start: segment.start + span * Double(before) / total,
+                                         end: segment.start + span * Double(before + count) / total,
+                                         text: String(text[from..<to]), person: segment.person))
+            before += count
+            from = to
+            while from < text.endIndex, text[from] == " " {
+                from = text.index(after: from)
+                before += 1
+            }
+        }
+        return pieces
     }
 
     /// The calendar's name for the meeting when there is one, as written,

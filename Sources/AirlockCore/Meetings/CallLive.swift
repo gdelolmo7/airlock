@@ -36,6 +36,16 @@ public enum CallLive {
         public var isLive: Bool { self == .listening || self == .paused }
     }
 
+    /// Why the notes stopped, each with the way on: said in the notch, and
+    /// under "The notes stopped" in the call's window.
+    public enum Stopped {
+        public static let noFolder = "Couldn't make a folder for the notes. Check that your Mac has free space, "
+            + "then take notes again."
+        public static let noSpeechModel = "Airlock couldn't get the speech model for your language. Check that "
+            + "this Mac is online, then take notes again."
+        public static let notSaved = "Couldn't save the notes. The transcript so far is kept in Calls."
+    }
+
     /// A failure says so at once: notes that stop mid-call leave the call
     /// unended. Saved notes speak only for a call that is over, so a call
     /// that came back is live again whatever its notes were.
@@ -49,12 +59,6 @@ public enum CallLive {
         case .saved(.later, _): return .later
         case .saved(.notes, let todos): return .ready(todos: todos)
         }
-    }
-
-    /// "12:41": how long the call has run, as a turn's time is written, so
-    /// the clock and the newest line agree.
-    public static func clock(_ record: MeetingRecord, now: Date) -> String {
-        MeetingFiles.clock(now.timeIntervalSince(record.startedAt))
     }
 
     /// "13 min so far", where an ended call says how long it lasted.

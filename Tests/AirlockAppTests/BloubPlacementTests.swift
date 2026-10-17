@@ -13,7 +13,7 @@ final class BloubPlacementTests: XCTestCase {
     /// hold turned away after the trial wore the cloud too, until nothing
     /// locked any more.)
     func testOnlyHeardNothingGetsAFace() {
-        XCTAssertEqual(HoldNoticeCard.face(for: .nothingCaught), .confused)
+        XCTAssertEqual(HoldNoticeCard.face(for: .nothingCaught(key: "⌃ Control")), .confused)
 
         let others: [DictationHoldNotice] = [
             .microphoneDenied,

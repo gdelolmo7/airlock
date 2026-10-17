@@ -72,6 +72,21 @@ final class BlobatarTests: XCTestCase {
         XCTAssertNotEqual(Blobatar.figure(for: "Person 1"), Blobatar.figure(for: "Person 2"))
     }
 
+    /// No face Airlock draws is a triangle, which reads as a warning sign;
+    /// every other face is the original's, and faces stay apart.
+    func testAirlockNeverDrawsATriangle() {
+        let triangle = Blobatar.face(for: "alain", traits: ["shape": 0.99])
+        XCTAssertEqual(triangle, Blobatar.figure(for: "alain", traits: ["shape": 0.933]))
+        for seed in Self.seeds {
+            let face = Blobatar.face(for: seed)
+            XCTAssertNotEqual(face.shape, .triangle, seed)
+            if Blobatar.figure(for: seed).shape != .triangle { XCTAssertEqual(face, Blobatar.figure(for: seed), seed) }
+        }
+        let people = (1...6).map { Blobatar.face(for: "Person \($0)") }
+        XCTAssertFalse(people.contains { $0.shape == .triangle })
+        XCTAssertEqual(Set(people.map { "\($0.body)\($0.eyes)" }).count, people.count)
+    }
+
     func testEveryFaceHasTwoEyes() {
         for seed in Self.seeds.prefix(200) {
             XCTAssertEqual(Blobatar.figure(for: seed).eyes.count, 2, seed)

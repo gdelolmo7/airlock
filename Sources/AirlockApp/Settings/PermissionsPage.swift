@@ -183,23 +183,42 @@ struct PermissionsPage: View {
     // It ASKS. It cannot allow anything — macOS has no way to, by design — so
     // the label says "Ask for" and the line under it says what you will still
     // have to do by hand.
+    //
+    // With nothing left to ask for, the bright button would be asking you to
+    // press something that does nothing, so the row says it is all set.
     private var sweepRow: some View {
         LookRow("Ask for everything Airlock uses", subtitle: sweepSubtitle) {
-            LookButton(sweep == .asking ? "Asking…" : "Ask", prominent: true) {
-                actions.askForEverything()
+            if allSet {
+                LookStatus(ok: true, text: "All allowed")
+            } else {
+                LookButton(sweep == .asking ? "Asking…" : "Ask", prominent: true) {
+                    actions.askForEverything()
+                }
+                .disabled(sweep == .asking)
             }
-            .disabled(sweep == .asking)
         }
     }
 
+    private var allSet: Bool { sweep != .asking && facts.missing.isEmpty }
+
     private var sweepSubtitle: String {
+        if allSet { return "Nothing left to ask for" }
         guard sweep == .ran else { return "One at a time, each in turn" }
-        let missing = facts.missing
         // Named, because "some permissions are still missing" is the kind of
         // message that sends somebody back through every row to find out which.
-        return missing.isEmpty
-            ? "All allowed."
-            : "Still to allow by hand: \(missing.formatted(.list(type: .and)))."
+        return "Still to allow by hand: \(facts.missing.formatted(.list(type: .and)))."
+    }
+
+    // The first row on the page with a Fix, top to bottom. It carries the
+    // whole explanation; the ones below it only ask the question, so three
+    // refused permissions don't print the same paragraph three times.
+    private var firstFix: PermissionKind? {
+        if facts.calendar == .notAllowed { return .calendar }
+        if facts.microphone == .notAllowed { return .microphone }
+        if facts.inputMonitoring != .allowed, facts.inputMonitoring != .notWorking { return .inputMonitoring }
+        if facts.accessibility != .allowed { return .accessibility }
+        if let screen = facts.screenRecording, screen != .allowed { return .screenRecording }
+        return nil
     }
 
     // MARK: Calendar
@@ -223,7 +242,7 @@ struct PermissionsPage: View {
                 PaneReference("Which calendars show is up to you", to: SettingsAnchor.calendars, label: "Pick calendars")
             case .notAllowed:
                 TurnedOffCard(kind: .calendar, cost: "so your meetings don't show in the notch")
-                PermissionFixRow(kind: .calendar)
+                PermissionFixRow(kind: .calendar, brief: firstFix != .calendar)
             default:
                 if let note = facts.calendarNote {
                     LookNote(note)
@@ -249,7 +268,7 @@ struct PermissionsPage: View {
             .settingsAnchor(.permissionMicrophone)
             if facts.microphone == .notAllowed {
                 TurnedOffCard(kind: .microphone, cost: "so holding your dictation key records nothing")
-                PermissionFixRow(kind: .microphone)
+                PermissionFixRow(kind: .microphone, brief: firstFix != .microphone)
             }
         }
     }
@@ -280,7 +299,7 @@ struct PermissionsPage: View {
                     LookButton(PermissionPage.button) { PermissionPage.permission(.inputMonitoring).open() }
                 }
             }
-            PermissionFixRow(kind: .inputMonitoring)
+            PermissionFixRow(kind: .inputMonitoring, brief: firstFix != .inputMonitoring)
         }
     }
 
@@ -304,7 +323,7 @@ struct PermissionsPage: View {
             LookNote("Without it, dictation still listens — it just puts your words on the clipboard instead of "
                      + "typing them. And the notch stays on top of full-screen apps. Switch Airlock on in the list, "
                      + "or add it with + — this page notices within a second.")
-            PermissionFixRow(kind: .accessibility)
+            PermissionFixRow(kind: .accessibility, brief: firstFix != .accessibility)
         }
     }
 
@@ -328,7 +347,7 @@ struct PermissionsPage: View {
         if state != .allowed {
             LookNote("Without it, the guide cannot start: it has nothing to point at. macOS applies it after "
                      + "Airlock reopens, and offers Quit & Reopen itself when you switch it on.")
-            PermissionFixRow(kind: .screenRecording)
+            PermissionFixRow(kind: .screenRecording, brief: firstFix != .screenRecording)
         }
     }
 

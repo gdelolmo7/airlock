@@ -53,4 +53,41 @@ final class MediaQuietTests: XCTestCase {
         quiet.hear(sound, at: at(20))
         XCTAssertNil(quiet.silentSince(at: at(20)))
     }
+
+    // MARK: - How long it has been quiet
+
+    func testQuietForIsNilWhileThereIsSound() {
+        var quiet = MediaQuiet(startedAt: start)
+        quiet.hear(sound, at: at(1))
+        XCTAssertNil(quiet.quietFor(at: at(500)))
+    }
+
+    func testQuietForCountsFromTheLastSound() {
+        var quiet = MediaQuiet(startedAt: start)
+        quiet.hear(sound, at: at(1))
+        quiet.hear(silence, at: at(10))
+        XCTAssertEqual(quiet.quietFor(at: at(190)), 180)
+    }
+
+    func testQuietForCountsFromTheOpeningWhenNothingWasHeard() {
+        let quiet = MediaQuiet(startedAt: start)
+        XCTAssertEqual(quiet.quietFor(at: at(30)), 30)
+    }
+
+    /// Opened again after a quiet close: the island goes on seeing the old
+    /// silence, but the new tap is timed from its own opening, or it would be
+    /// closed again at once.
+    func testCarriedSilenceIsSilentAtOnceButTimedFromTheOpening() {
+        let quiet = MediaQuiet(startedAt: at(600), quietSince: at(10))
+        XCTAssertEqual(quiet.silentSince(at: at(600)), at(10))
+        XCTAssertEqual(quiet.quietFor(at: at(600)), 0)
+        XCTAssertEqual(quiet.quietFor(at: at(630)), 30)
+    }
+
+    func testCarriedSilenceEndsWithTheFirstSound() {
+        var quiet = MediaQuiet(startedAt: at(600), quietSince: at(10))
+        quiet.hear(sound, at: at(601))
+        XCTAssertNil(quiet.silentSince(at: at(601)))
+        XCTAssertNil(quiet.quietFor(at: at(601)))
+    }
 }

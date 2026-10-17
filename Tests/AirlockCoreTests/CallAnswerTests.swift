@@ -171,6 +171,18 @@ final class CallAnswerTests: XCTestCase {
                        "Todavía no hay llamadas guardadas en las que buscar.")
     }
 
+    /// Those sentences are told from an answer, so the panel offers no Copy
+    /// beside them.
+    func testASentenceSaidForNothingFoundIsNotAnAnswer() {
+        for language in ["English", "Spanish", nil] {
+            for miss in [CallAnswer.Miss.noCalls, .nothingFound, .unreadable("ca_ES")] {
+                XCTAssertTrue(CallAnswer.isMiss(CallAnswer.miss(miss, language: language)), "\(miss)")
+            }
+        }
+        XCTAssertFalse(CallAnswer.isMiss("Marta sends the revised numbers by Friday [1]."))
+        XCTAssertFalse(CallAnswer.isMiss(""))
+    }
+
     // MARK: - Language
 
     func testTheQuestionsLanguage() {

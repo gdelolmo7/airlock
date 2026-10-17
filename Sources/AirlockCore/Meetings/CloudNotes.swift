@@ -410,19 +410,20 @@ public enum CloudNotesAllowance {
     /// plan to move to yet; turning it on brings both back as they were.
     public static let offersUpgrade = false
 
-    /// Said where the notes say they are ready, never as an error.
+    /// Said where the notes say they are ready, never as an error, in the
+    /// words the notes page uses (`MeetingFiles.allowanceUsedMacLine`).
     /// `macWrites` false is a Mac that can't write notes: this call's are
     /// written online on that day instead (`CloudNotesRedo`). On Plus, it
     /// says that Pro has more (`MeetingFiles.proHasMore`).
     public static func message(until: Date, macWrites: Bool = true, plan: PlanSnapshot? = nil,
                                locale: Locale = .current, timeZone: TimeZone = .current,
                                offersUpgrade: Bool = CloudNotesAllowance.offersUpgrade) -> String {
-        let day = day(until, locale: locale, timeZone: timeZone)
-        return (macWrites
-                ? "You've used this month's online notes. Notes are written on your Mac until \(day)."
-                : "You've used this month's online notes, so this call's notes will be written on \(day).")
-            + (plan?.plan == .plus ? " " + MeetingFiles.proHasMore : "")
-            + (offersUpgrade ? " Upgrade for more." : "")
+        let said = macWrites
+            ? MeetingFiles.allowanceUsedMacLine(backOn: until, plan: plan, locale: locale, timeZone: timeZone)
+            : MeetingFiles.allowanceUsedMacLead + ", so this call's notes will be written on "
+                + day(until, locale: locale, timeZone: timeZone) + "."
+                + (plan?.plan == .plus ? " " + MeetingFiles.proHasMore : "")
+        return said + (offersUpgrade ? " Upgrade for more." : "")
     }
 
     /// The button beside the notice, only while `offersUpgrade` is on.

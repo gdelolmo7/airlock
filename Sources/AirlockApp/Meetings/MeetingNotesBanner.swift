@@ -35,9 +35,10 @@ struct MeetingNotesBanner: View {
                     NotesPill("Not now", quiet: true) { meetings.notNow() }
                 }
                 .foregroundStyle(Theme.textPrimary)
-                Text("Words only, written on this Mac. No audio is kept.")
+                Text(meetings.notesPlace.offerLine)
                     .font(Theme.chrome(10.5))
                     .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .modifier(BannerBox())
         case .startingSoon(let call, let startsAt):
@@ -242,7 +243,7 @@ private struct NotesBeingTaken: View {
         }
     }
 
-    /// "Taking notes · 4:12" in purple with the breathing dot, or paused in
+    /// "Taking notes · 4 min" in purple with the breathing dot, or paused in
     /// grey with a hollow one, as on the call pill: nothing is written.
     @ViewBuilder
     private var state: some View {
@@ -260,7 +261,9 @@ private struct NotesBeingTaken: View {
             HStack(spacing: 5) {
                 NotesBreathingDot(size: 7)
                 TimelineView(.periodic(from: firstStarted, by: 1)) { context in
-                    Text("Taking notes · \(CallNotesPanel.clock(context.date.timeIntervalSince(firstStarted)))")
+                    // How long, as the side window says it: "4:12" here
+                    // would read as a time of day beside its lines.
+                    Text("Taking notes · \(CallsCard.length(from: firstStarted, to: context.date))")
                         .monospacedDigit()
                 }
             }
@@ -368,7 +371,7 @@ private struct NotesBeingTaken: View {
     /// card doesn't spell it out (the pointer shows it).
     private var callHeadsUp: some View {
         HStack(spacing: 6) {
-            Text("Copy a heads-up to send them")
+            Text("Tell the others you're taking notes")
                 .font(Theme.chrome(10.5))
                 .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
@@ -524,7 +527,9 @@ private struct NotesReady: View {
                             .font(.system(size: 8.5, weight: .medium))
                             .foregroundStyle(Theme.textTertiary)
                             .accessibilityHidden(true)
-                        Text(stretch.sentence)
+                        Text(meetings.readyStartedAt.map { start in
+                            stretch.sentence(clock: { CallsCard.time($0, into: start) })
+                        } ?? stretch.sentence)
                             .font(Theme.chrome(10.5).italic())
                             .foregroundStyle(Theme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)

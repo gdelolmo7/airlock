@@ -48,10 +48,13 @@ public enum MeetingTimeline {
     }
 
     /// Everything in the call, in the order it happened. Speech is what the
-    /// transcript reads (`spokenSegments`, echoes gone), grouped into turns.
-    public static func entries(of record: MeetingRecord) -> [Entry] {
+    /// transcript reads (`spokenSegments`, echoes gone), grouped into turns,
+    /// none longer than `longest` characters when it is set
+    /// (`MeetingFiles.turns`).
+    public static func entries(of record: MeetingRecord, longest: Int? = nil) -> [Entry] {
         let dividers = dividers(of: record)
-        var entries: [Entry] = MeetingFiles.turns(record.spokenSegments, breakingAt: dividers.map(\.from))
+        var entries: [Entry] = MeetingFiles.turns(record.spokenSegments, breakingAt: dividers.map(\.from),
+                                                  longest: longest)
             .map { .speech($0, marked: record.isMarked($0)) }
         entries += record.jots.map(Entry.jot)
         entries += record.pauses.map(Entry.pause)
@@ -60,6 +63,25 @@ public enum MeetingTimeline {
         return entries.enumerated()
             .sorted { ($0.element.at, $0.element.rank, $0.offset) < ($1.element.at, $1.element.rank, $1.offset) }
             .map(\.element)
+    }
+
+    /// The longest turn the windows draw as one block, in characters. A
+    /// longer one carries on in the rows below it, under the same face.
+    ///
+    /// A row of a lazy list drawn taller than about 5,000 points comes out
+    /// solid black (macOS 26; about 11,000 characters in the live window's
+    /// column, measured), and the window blanks once that row fills it. One
+    /// person talking for minutes makes a turn that long, and so do voices
+    /// told apart again mid-call, when two people's turns become one. 1,500
+    /// characters is about 700 points there: a paragraph.
+    public static let longestShown = 1_500
+
+    /// `entries(of:)` as the windows draw them: a turn longer than
+    /// `longestShown` is several, broken between lines. Indexes into the
+    /// window's rows (a lit line, a name being given) are indexes into this.
+    /// The file, a copy and the notes keep whole turns.
+    public static func shown(of record: MeetingRecord) -> [Entry] {
+        entries(of: record, longest: longestShown)
     }
 
     /// Where a line of notes said at `time` points in `entries`: the turn
@@ -84,9 +106,11 @@ public enum MeetingTimeline {
     }
 
     /// "Paused 12:03–12:05", or "Paused from 12:03" while it is still on.
-    public static func pauseLabel(_ pause: MeetingPause) -> String {
-        guard let end = pause.end else { return "Paused from \(MeetingFiles.clock(pause.start))" }
-        return "Paused \(MeetingFiles.clock(pause.start))–\(MeetingFiles.clock(end))"
+    /// The windows pass the time of day as `clock` (`CallsCard.time`).
+    public static func pauseLabel(_ pause: MeetingPause,
+                                  clock: (TimeInterval) -> String = MeetingFiles.clock) -> String {
+        guard let end = pause.end else { return "Paused from \(clock(pause.start))" }
+        return "Paused \(clock(pause.start))–\(clock(end))"
     }
 
     /// The changes of language the transcript marks: each one after a side's
@@ -107,9 +131,10 @@ public enum MeetingTimeline {
         return shown
     }
 
-    /// "Catalan from 10:12".
-    public static func languageLabel(_ listening: MeetingListening) -> String {
+    /// "Catalan from 10:12", with the time of day as `clock` in the windows.
+    public static func languageLabel(_ listening: MeetingListening,
+                                     clock: (TimeInterval) -> String = MeetingFiles.clock) -> String {
         let name = CallLanguageFollow.name(of: listening.language) ?? listening.language
-        return "\(name) from \(MeetingFiles.clock(listening.from))"
+        return "\(name) from \(clock(listening.from))"
     }
 }

@@ -211,7 +211,25 @@ final class PastCallsTests: XCTestCase {
         XCTAssertEqual(days.map(\.heading), [CallsCard.dayHeading(now, now: now, calendar: calendar),
                                              "Yesterday"])
         XCTAssertEqual(days.map { $0.calls.map(\.id) }, [[calls[0].id, calls[1].id], [calls[2].id]])
+        XCTAssertEqual(days.map(\.day), [calendar.startOfDay(for: now),
+                                         calendar.startOfDay(for: now.addingTimeInterval(-86_400))])
         XCTAssertTrue(CallNotesLibrary.days([]).isEmpty)
+    }
+
+    /// The list names each day by its start, so a day is never there twice,
+    /// even from calls that come out of order.
+    func testADayIsInTheListOnce() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Madrid")!
+        let now = Self.monday.addingTimeInterval(12 * 3_600)
+        let calls = [
+            Self.call("a", title: "A", at: now.addingTimeInterval(-600)),
+            Self.call("b", title: "B", at: now.addingTimeInterval(-86_400)),
+            Self.call("c", title: "C", at: now.addingTimeInterval(-3_600)),
+        ]
+        let days = CallNotesLibrary.days(calls, now: now, calendar: calendar)
+        XCTAssertEqual(days.map { $0.calls.map(\.id) }, [[calls[0].id, calls[2].id], [calls[1].id]])
+        XCTAssertEqual(Set(days.map(\.day)).count, days.count)
     }
 
     // MARK: - Helpers

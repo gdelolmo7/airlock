@@ -485,7 +485,7 @@ final class CloudNotesServiceTests: XCTestCase {
         defaults.set(until, forKey: CloudNotesService.allowanceUntilKey)
         let folder = try savedWithoutNotes(.mac(.allowanceUsed(until: until)))
         let line = try XCTUnwrap(MeetingFiles.waitingLine(for: writer(in: folder)))
-        XCTAssertTrue(line.hasPrefix(MeetingFiles.noNotesYet + " You've used this month's online notes"))
+        XCTAssertTrue(line.hasPrefix(MeetingFiles.noNotesAllowanceLead))
         XCTAssertTrue(notes(in: folder).contains(line))
         let server = Server([.notes(text: Self.answer, model: "gemini-test", usedFraction: nil)])
         let service = service(server)

@@ -11,8 +11,18 @@ final class PlainProblemTests: XCTestCase {
     func testARefusalSaysAirlockIsNotAllowed() {
         for (domain, code) in [(NSCocoaErrorDomain, 513), (NSCocoaErrorDomain, 257),
                                (NSPOSIXErrorDomain, 13), (NSPOSIXErrorDomain, 1)] {
-            XCTAssertEqual(PlainProblem.file(domain: domain, code: code), "Airlock doesn't have permission for it.")
+            XCTAssertEqual(PlainProblem.file(domain: domain, code: code), PlainProblem.notAllowed)
+            XCTAssertTrue(PlainProblem.notAllowed.contains("Files & Folders"))
         }
+    }
+
+    func testARefusalIsRecognisedSoACallerCanNameTheFile() {
+        for (domain, code) in [(NSCocoaErrorDomain, 513), (NSCocoaErrorDomain, 257),
+                               (NSPOSIXErrorDomain, 13), (NSPOSIXErrorDomain, 1)] {
+            XCTAssertTrue(PlainProblem.isPermission(domain: domain, code: code))
+        }
+        XCTAssertFalse(PlainProblem.isPermission(domain: NSCocoaErrorDomain, code: 640))
+        XCTAssertTrue(PlainProblem.isPermission(CocoaError(.fileWriteNoPermission)))
     }
 
     func testAVanishedFileSaysItMoved() {

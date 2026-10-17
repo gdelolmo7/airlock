@@ -7,8 +7,9 @@ public enum CallNotesPanel {
     // MARK: - While notes are taken
 
     /// What "Copy" puts on the clipboard for the call's chat. Short, because
-    /// it lands in the middle of other people's meeting.
-    public static let headsUp = "Heads up: I'm taking notes of this call on my Mac. No recording is kept."
+    /// it lands in the middle of other people's meeting. Not "on my Mac":
+    /// on Plus and Pro the notes are written online.
+    public static let headsUp = "Heads up: I'm taking notes of this call. No recording is kept."
 
     /// The heads-up at a meeting in the room, where there is no chat to
     /// paste into: a reminder to say it out loud.

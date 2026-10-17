@@ -107,7 +107,7 @@ struct CallNotesWhosWho: View {
                         .foregroundStyle(Theme.textTertiary)
                 }
                 if let quote = sketch.quote {
-                    Text(CallNotesNaming.quote(quote))
+                    Text(CallNotesNaming.quote(quote, startedAt: call.record.startedAt))
                         .font(Theme.chrome(13))
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
@@ -551,11 +551,12 @@ enum CallNotesNaming {
         turns == 1 ? "spoke once" : "spoke \(turns) times"
     }
 
-    /// “What it said.” and, in purple, when.
-    static func quote(_ quote: MeetingNaming.Sketch.Quote) -> AttributedString {
+    /// “What it said.” and, in purple, when: the time of day, as the
+    /// transcript says it.
+    static func quote(_ quote: MeetingNaming.Sketch.Quote, startedAt: Date) -> AttributedString {
         var said = AttributedString("“\(quote.text)”")
         said.foregroundColor = CallsLook.quietText
-        var at = AttributedString("\u{2002}" + MeetingFiles.clock(quote.at))
+        var at = AttributedString("\u{2002}" + CallsCard.time(quote.at, into: startedAt))
         at.foregroundColor = CallsLook.saidText
         at.font = Theme.chrome(10.5, .semibold)
         return said + at

@@ -32,9 +32,13 @@ enum GalleryLiveTranscript {
                          ground: .window, width: side.width) {
                 window(record(ended: true), outcome: .saved(.notes, todos: 2))
             },
-            GalleryState("K58", area, "Side window: the notes stopped mid-call",
+            GalleryState("K58", area, "Side window: the notes stopped mid-call, the way to what was said",
                          ground: .window, width: side.width) {
-                window(record(), outcome: .failed("Notes stopped: the microphone went away."))
+                window(record(), outcome: .failed(CallLive.Stopped.notSaved))
+            },
+            GalleryState("K58a", area, "Side window: the notes stopped before a word, and what to do",
+                         ground: .window, width: side.width) {
+                window(record(said: false), outcome: .failed(CallLive.Stopped.noSpeechModel))
             },
             GalleryState("K59", area, "Window: the call that is on, its transcript live",
                          ground: .window, width: GalleryMeetings.size.width) {

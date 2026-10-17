@@ -80,7 +80,7 @@ final class DiagnosticsHealthTests: XCTestCase {
     /// Switched on and still refused: the old approval from an earlier build.
     /// It used to read "allowed" while the dictation key was dead (X5).
     func testAnOldApprovalThatDoesNotWorkIsAFault() {
-        let result = health(report(permissions: [.init("Input monitoring", .notWorking)]))
+        let result = health(report(permissions: [.init("Input Monitoring", .notWorking)]))
         XCTAssertEqual(result.rows.first?.severity, .fault)
         XCTAssertEqual(result.rows.first?.remedy, .permissionsSettings)
         XCTAssertEqual(result.rows.first?.detail, "on, but not working")

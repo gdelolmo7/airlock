@@ -22,8 +22,8 @@ public struct MeetingNotesSource: Sendable {
     /// is now in.
     public let record: MeetingRecord
     /// What the notes page says on top when anything was swapped: "Written
-    /// from a Spanish listening — Apple's notes writer can't read Catalan
-    /// yet." Nil when nothing was.
+    /// from a Spanish version of the call, because Apple Intelligence can't
+    /// read Catalan yet." Nil when nothing was.
     public let line: String?
     /// Locales of stretches nothing could stand in for, "ca_ES". Left in
     /// `record` as heard, and out of `readable`.
@@ -105,7 +105,7 @@ public struct MeetingNotesSource: Sendable {
         if let standIn = counts.max(by: { ($0.value, $1.key) < ($1.value, $0.key) })?.key,
            let name = CallLanguageFollow.name(of: standIn) {
             let article = "AEIOU".contains(name.first ?? "x") ? "an" : "a"
-            line = "Written from \(article) \(name) listening — Apple's notes writer can't read "
+            line = "Written from \(article) \(name) version of the call, because Apple Intelligence can't read "
                 + "\(swapped.joined(separator: " or ")) yet."
         } else {
             line = nil

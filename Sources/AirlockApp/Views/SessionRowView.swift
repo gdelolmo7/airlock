@@ -121,13 +121,15 @@ struct SessionRowView: View {
     /// The detail tiles' words, shared with the state gallery. The labels are
     /// what the limits are, not the "5h" / "7d" shorthand the top bar has to
     /// use for lack of room — the detail is where there is room to say it.
-    static let fiveHourLabel = "Last 5 hours"
-    static let weeklyLabel = "Last 7 days"
+    /// Named as Settings names them, and as Claude's: "Last 5 hours" read as
+    /// this session's own time.
+    static let fiveHourLabel = "Claude 5-hour limit"
+    static let weeklyLabel = "Claude weekly limit"
     static let repliesLabel = "Replies"
     static let repliesNote = "in this session"
     /// The limit's period ended after the reading — see `usageTile`.
     static let rolledNote = "limit has reset"
-    static let noReadingNote = "not read yet"
+    static let noReadingNote = "no figure yet"
 
     /// Every tile takes a note line, empty or not, so the three are one
     /// height: the replies tile used to stand shorter than its neighbours.
@@ -303,7 +305,7 @@ struct SessionRowView: View {
             // long as it asks there, so the row's "Needs you" has a reason.
             if model.passedOver.contains(session.id), SessionCardText.asksInItsTerminal(session),
                (license?.entitlement.plan ?? .free) == .free {
-                PlanLimitLine(text: UpgradeReminder.agentLine(asking: SessionCardText.place(of: session))) {
+                PlanLimitLine(text: UpgradeReminder.agentLine) {
                     license?.showPlans(from: "agent_limit")
                 }
                 .contentShape(Rectangle())

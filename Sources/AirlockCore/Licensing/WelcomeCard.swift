@@ -57,7 +57,7 @@ public struct WelcomeCard: Equatable, Sendable {
     }
 
     /// The question about `record`: its name, its day as the Calls tab says
-    /// it ("today", "yesterday", "Tuesday 13 Oct") and how long it ran.
+    /// it ("today", "yesterday", "Tue 13 Oct") and how long it ran.
     public func redoQuestion(for record: MeetingRecord, now: Date = Date(),
                              calendar: Calendar = .current) -> String {
         let end = record.endedAt ?? record.startedAt

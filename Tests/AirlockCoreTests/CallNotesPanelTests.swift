@@ -13,7 +13,7 @@ final class CallNotesPanelTests: XCTestCase {
 
     func testTheHeadsUpIsTheExactLineToPaste() {
         XCTAssertEqual(CallNotesPanel.headsUp,
-                       "Heads up: I'm taking notes of this call on my Mac. No recording is kept.")
+                       "Heads up: I'm taking notes of this call. No recording is kept.")
     }
 
     func testTheHeadsUpIsOfferedForTheFirstMinuteOnly() {

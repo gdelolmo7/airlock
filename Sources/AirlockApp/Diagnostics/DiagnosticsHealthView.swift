@@ -15,7 +15,9 @@ import AirlockCore
 /// See `DiagnosticsHealth`.
 struct DiagnosticsHealthView: View {
     let health: DiagnosticsHealth
-    let summary: String
+    /// The Mac's model and displays, for advanced settings only: "Mac16,7 ·
+    /// notch yes" is support's shorthand, not a sentence. Nil draws nothing.
+    let summary: String?
     var onCopy: () -> Void
     var onOpen: (DiagnosticsHealth.Remedy) -> Void
 
@@ -31,14 +33,17 @@ struct DiagnosticsHealthView: View {
             }
 
             HStack(spacing: 8) {
-                Text(summary)
-                    .font(Theme.chrome(10.5))
-                    .foregroundStyle(Theme.textTertiary)
+                if let summary {
+                    Text(summary)
+                        .font(Theme.chrome(10.5))
+                        .foregroundStyle(Theme.textTertiary)
+                }
                 Spacer(minLength: 8)
                 // Available even when nothing is wrong: a bug report from a
                 // healthy install is still a bug report, and "it all looks fine
-                // to me" is exactly the thing worth attaching.
-                LookButton(health.isHealthy ? "Copy anyway" : "Copy the report", action: onCopy)
+                // to me" is exactly the thing worth attaching. Says what it
+                // puts on the clipboard: "Copy anyway" didn't.
+                LookButton("Copy a report for support", action: onCopy)
             }
         }
     }

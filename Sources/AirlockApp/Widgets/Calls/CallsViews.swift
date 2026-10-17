@@ -81,6 +81,15 @@ struct CallsCardContent: View {
                 }
             } else if loaded, !takingNotes, reading == nil {
                 emptyState
+            } else if loaded, takingNotes, reading == nil {
+                // The first call, still going: without a line the heading
+                // stood alone over nothing.
+                Text(Self.firstCallLine)
+                    .font(Theme.chrome(11.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 4)
             }
         }
         // A call whose notes land while the panel is open joins the list as
@@ -192,6 +201,9 @@ struct CallsCardContent: View {
         .padding(.bottom, 18)
         .accessibilityElement(children: .combine)
     }
+
+    /// Under the heading while the first call's notes are being taken.
+    static let firstCallLine = "This call shows here once its notes are saved."
 
     /// The apps the empty tab shows, as a hint of where notes come from:
     /// Meet, Zoom, WhatsApp, Slack, Discord and a phone call.

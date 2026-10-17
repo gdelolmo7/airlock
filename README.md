@@ -10,8 +10,9 @@ approve/deny of permission prompts with a policy layer behind them, and
 one-click jump-back to the exact terminal tab. That surface is optional and
 defaults off when no agent hooks are installed — see `AgentsPresence`.
 
-**Get it at [useairlock.app](https://useairlock.app)** — 14 days free with
-nothing held back and no card, then €3.99/month or €35.99/year. Or
+**Get it at [useairlock.app](https://useairlock.app)** — free to start, with
+no card and no account. Plus (€3.99/month or €35.99/year) and Pro
+(€7.99/month or €71.99/year) add more. Or
 `brew install --cask gdelolmo7/tap/airlock`.
 
 The source is here to read, learn from and build for yourself. It is
@@ -36,9 +37,9 @@ swift test
 AIRLOCK_DEMO=1 swift run AirlockApp
 ```
 
-A build of your own is the same app as the download, including its 14-day
-trial: what you buy at useairlock.app is the subscription, not a different
-program.
+A build of your own is the same app as the download, with the same plans: it
+starts on Free, and what you buy at useairlock.app is a Plus or Pro
+subscription, not a different program.
 
 The status-bar menu has **Show / Hide Panel**, **Settings…** (⌘,), **Setup
 Guide…** and **Quit Airlock**. Settings covers agent

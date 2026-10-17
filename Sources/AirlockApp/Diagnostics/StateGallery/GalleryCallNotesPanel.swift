@@ -13,8 +13,17 @@ enum GalleryCallNotesPanel {
 
     static var states: [GalleryState] {
         [
-            GalleryState("K13", area, "Panel: notes offered for the call") {
+            GalleryState("K13", area, "Panel: notes offered for the call, written on this Mac") {
                 banner(.offering(meet()), event: weekly)
+            },
+            GalleryState("K13a", area, "Panel: notes offered, Plus or Pro, written online") {
+                banner(.offering(meet()), event: weekly, notesPlace: .online(macFallback: true))
+            },
+            GalleryState("K13b", area, "Panel: notes offered, Apple Intelligence switched off") {
+                banner(.offering(meet()), event: weekly, notesPlace: .needsAppleIntelligence)
+            },
+            GalleryState("K13c", area, "Panel: notes offered, Free on a Mac that can't write notes") {
+                banner(.offering(meet()), event: weekly, notesPlace: .transcriptOnly(.upgrade))
             },
             GalleryState("K14", area, "Panel: \"Always\" counting down to the notes") {
                 banner(.startingSoon(meet(), startsAt: Date().addingTimeInterval(MeetingNotesFlow.countdown)),
@@ -38,6 +47,9 @@ enum GalleryCallNotesPanel {
             },
             GalleryState("K18", area, "Panel: call over, writing the notes") {
                 banner(.writing(faceTime(since: 840)), event: withAna)
+            },
+            GalleryState("K18a", area, "Panel: the notes stopped, and what to do") {
+                banner(.failed(CallLive.Stopped.noSpeechModel))
             },
             GalleryState("K19", area, "Panel: notes ready, five to-dos") {
                 let call = meet(since: 1_860)
@@ -112,11 +124,13 @@ enum GalleryCallNotesPanel {
                                endedBySleep: Bool = false, stoppedAtLimit: Bool = false,
                                record: MeetingRecord? = nil, notes: MeetingNotes? = nil,
                                event: MeetingEvent? = nil,
-                               allowanceUntil: Date? = nil, listening: NotesListening? = nil) -> some View {
+                               allowanceUntil: Date? = nil, listening: NotesListening? = nil,
+                               notesPlace: NotesPlace = .mac) -> some View {
         let flow = MeetingNotesFlow(previewing: phase, pausedSince: pausedSince, endedBySleep: endedBySleep,
                                     listening: listening, stoppedAtLimit: stoppedAtLimit)
         let model = MeetingNotesModel(previewing: flow, record: record, notes: notes, event: event,
                                       allowanceUntil: allowanceUntil)
+        model.previewNotesPlace = notesPlace
         return MeetingNotesBanner(meetings: model)
     }
 

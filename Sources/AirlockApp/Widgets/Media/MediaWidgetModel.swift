@@ -328,6 +328,10 @@ final class MediaWidgetModel {
             if !isEnabled {
                 state = nil; pausedAt = nil; dormant = nil
                 cancelScrub(); clearPendingSeek()
+                // `refresh()` is what usually syncs the tap, and it does
+                // nothing while the widget is off, so a tap open at this moment
+                // would go on listening until quit.
+                syncTap()
             }
             onChange?()
             if isEnabled { Task { await refresh() } }
@@ -357,6 +361,11 @@ final class MediaWidgetModel {
     /// rather than leaving a switch that looks on and does nothing.
     private(set) var tapFailure: String?
 
+    /// The tap closed because it heard nothing for minutes
+    /// (`TapLifecycle.silenceBeforeStopping`), and opens again when the player
+    /// changes. Mirrors `lifecycle.isResting`, observable for the Settings line.
+    private(set) var waveResting = false
+
     /// What the tap is doing right now, in a sentence.
     ///
     /// Worth its own property because the interesting failure is not "it did
@@ -374,7 +383,13 @@ final class MediaWidgetModel {
         guard let player = state?.player, state?.isPlaying == true else {
             return "Waiting for something to play."
         }
-        guard tap != nil else { return "Starting…" }
+        guard tap != nil else {
+            guard waveResting else { return "Starting…" }
+            // A verdict from before the quiet close still stands: closing the
+            // tap granted no permission and moved no output.
+            return tapDiagnosis.isProblem ? tapDiagnosis.message(player: player.displayName)
+                                          : Self.restingSentence(player: player.displayName)
+        }
         return tapDiagnosis.message(player: player.displayName)
     }
 
@@ -384,17 +399,24 @@ final class MediaWidgetModel {
     /// having returned `noErr`.
     var tapStatusIsProblem: Bool {
         if tapFailure != nil { return true }
-        return tap != nil && tapDiagnosis.isProblem
+        return (tap != nil || waveResting) && tapDiagnosis.isProblem
     }
 
     /// Whether the status deserves the button to the recording permission.
     var tapStatusNeedsPermission: Bool {
         if tapFailure != nil { return true }
-        return tap != nil && tapDiagnosis.needsPermission
+        return (tap != nil || waveResting) && tapDiagnosis.needsPermission
     }
 
     /// The tap would not start at all. Static so the gallery draws it.
     nonisolated static let tapRefused = "macOS didn't let Airlock hear the music, so the wave uses its own animation."
+
+    /// The tap closed after minutes of hearing nothing. Says what brings it
+    /// back, so a wave that stopped following is not read as broken.
+    nonisolated static func restingSentence(player: String) -> String {
+        "Nothing has come from \(player) for a few minutes, so the wave stopped listening. "
+            + "It listens again at the next song, or when you pause and play."
+    }
 
     /// Observable on purpose, unlike `hasHeardAudio` beneath it: this is the one
     /// the settings text reads, and the verdict legitimately changes a second
@@ -607,8 +629,12 @@ final class MediaWidgetModel {
         // `if` in the middle of a model that also talks to AppleScript.
         switch lifecycle.evaluate(enabled: reactiveWave && isEnabled,
                                   isPlaying: state?.isPlaying == true,
-                                  isRunning: tap != nil) {
+                                  isRunning: tap != nil,
+                                  track: MediaPauseStamp.identity(state)) {
         case .hold:
+            // Switched off while resting: the lifecycle forgot the rest, so
+            // the silence it kept for the island goes too.
+            if waveResting, !lifecycle.isResting { endRest() }
             return
         case .stop:
             return teardownTap()
@@ -617,6 +643,15 @@ final class MediaWidgetModel {
         }
 
         guard let player = state?.player else { return }
+
+        // Back after a quiet close: the player changed, which is a reason to
+        // listen, not proof there is sound. Until the new tap hears some, the
+        // island goes on showing the silence it was showing.
+        let carried = waveResting ? silentSince : nil
+        if waveResting {
+            waveResting = false
+            WaveDiagnostics.log("listening again: the player changed")
+        }
 
         let tap = SystemAudioTap()
         // EXACTLY the player that is playing, and nothing else.
@@ -632,32 +667,55 @@ final class MediaWidgetModel {
             // The overwhelmingly likely cause, and the only one the user can do
             // anything about.
             tapFailure = Self.tapRefused
+            if silentSince != nil {
+                silentSince = nil
+                onChange?()
+            }
             return
         }
         tapFailure = nil
         self.tap = tap
-        quiet = MediaQuiet(startedAt: Date())
+        quiet = MediaQuiet(startedAt: Date(), quietSince: carried)
         tapTicks = 0
         tapDiagnosis = .starting
         startPump()
     }
 
-    private func teardownTap() {
+    /// `resting` is a close for silence: the island keeps the silence it was
+    /// showing, and Settings the verdict, until the player changes.
+    private func teardownTap(resting: Bool = false) {
         guard tap != nil || pump != nil else { return }
+        WaveDiagnostics.log(resting
+            ? "stop: heard nothing for \(Int(quiet?.quietFor(at: Date()) ?? 0))s, until the player changes"
+            : "stop")
         pump?.cancel()
         pump = nil
         tap?.stop()
         tap = nil
         quiet = nil
+        if !resting {
+            if silentSince != nil {
+                silentSince = nil
+                onChange?()
+            }
+            tapDiagnosis = .starting
+        }
+        if waveResting != resting { waveResting = resting }
+        hasHeardAudio = false
+        tapTicks = 0
+        envelope = WaveEnvelope()
+        if !waveLevels.isEmpty { waveLevels = [] }
+    }
+
+    /// Forgets a quiet close once there is no tap to come back.
+    private func endRest() {
+        guard waveResting else { return }
+        waveResting = false
+        tapDiagnosis = .starting
         if silentSince != nil {
             silentSince = nil
             onChange?()
         }
-        hasHeardAudio = false
-        tapTicks = 0
-        tapDiagnosis = .starting
-        envelope = WaveEnvelope()
-        if !waveLevels.isEmpty { waveLevels = [] }
     }
 
     /// Reads the tap at the rate the glyph is drawn, not the rate audio arrives.
@@ -716,6 +774,16 @@ final class MediaWidgetModel {
                 if self.pumpTicks == 1 {
                     WaveDiagnostics.log("  pump #\(self.pumpTicks) levels="
                         + self.waveLevels.map { String(format: "%.2f", $0) }.joined(separator: " "))
+                }
+
+                // Here and not in `syncTap`: a paused player may never be read
+                // again, and a silent one may go on saying it plays. The tap
+                // hearing nothing for minutes is the one sign that always comes.
+                if self.lifecycle.listened(quietFor: self.quiet?.quietFor(at: Date()),
+                                           isPlaying: self.state?.isPlaying == true,
+                                           track: MediaPauseStamp.identity(self.state)) == .stop {
+                    self.teardownTap(resting: true)
+                    return
                 }
             }
         }

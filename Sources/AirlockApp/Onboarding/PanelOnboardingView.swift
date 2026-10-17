@@ -226,7 +226,8 @@ struct PanelOnboardingView: View {
         case .welcome:
             "You're looking at it. What each tab above is for:"
         case .agents:
-            "Connect them and the Agents tab starts filling in. Skip, and Airlock stays a clock with a clipboard."
+            "Connect them and the Agents tab starts filling in. Skip, and the clipboard, files, "
+                + "dictation and call notes all work without them."
         case .features:
             "These reach the notch while it's closed."
         case .permissions:

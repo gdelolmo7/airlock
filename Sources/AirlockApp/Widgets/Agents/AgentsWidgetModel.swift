@@ -217,9 +217,15 @@ final class AgentsWidgetModel {
     }
 
     /// What the card says when connecting failed. Static so the state gallery
-    /// draws the same sentence.
+    /// draws the same sentence. A refusal names the file it was about:
+    /// "doesn't have permission for it" left people looking for a switch in
+    /// System Settings that does not exist.
     static func connectFailure(_ error: any Error) -> String {
-        "Your coding agent couldn't be connected. \(PlainProblem.file(error))"
+        if PlainProblem.isPermission(error) {
+            return "Your coding agent couldn't be connected: macOS didn't let Airlock change its settings file. "
+                + "Make sure that file isn't locked, then try again."
+        }
+        return "Your coding agent couldn't be connected. \(PlainProblem.file(error))"
     }
 
     /// Re-read after hooks are installed or removed.

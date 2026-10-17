@@ -222,12 +222,23 @@ public enum CallAnswer {
             let code = CallLanguage.code(of: locale) ?? locale
             if spanish {
                 let name = Locale(identifier: "es").localizedString(forLanguageCode: code) ?? code
-                return "No he encontrado nada de eso. Parte de tus llamadas está en \(name), "
-                    + "y el modelo de Apple todavía no puede leerlo."
+                return unreadableLead.spanish + "\(name), y el modelo de Apple todavía no puede leerlo."
             }
             let name = Locale(identifier: "en").localizedString(forLanguageCode: code) ?? code
-            return "I couldn't find that. Part of your calls is in \(name), "
-                + "which Apple's model can't read yet."
+            return unreadableLead.english + "\(name), which Apple's model can't read yet."
+        }
+    }
+
+    /// How `.unreadable` begins, before the language's name.
+    private static let unreadableLead = (english: "I couldn't find that. Part of your calls is in ",
+                                         spanish: "No he encontrado nada de eso. Parte de tus llamadas está en ")
+
+    /// Whether `answer` is one of the sentences `miss` says rather than an
+    /// answer: nothing in it is worth copying.
+    public static func isMiss(_ answer: String) -> Bool {
+        if answer.hasPrefix(unreadableLead.english) || answer.hasPrefix(unreadableLead.spanish) { return true }
+        return [Miss.noCalls, .nothingFound].contains { miss in
+            ["English", "Spanish"].contains { self.miss(miss, language: $0) == answer }
         }
     }
 

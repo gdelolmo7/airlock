@@ -251,6 +251,10 @@ final class AudioCapture {
                 engineIsStale = true
             }
             isRunning = false
+            // The other end of the tap format line a start writes. Without it
+            // the log cannot tell a microphone that was let go from one left on,
+            // which macOS reports as sound input still running.
+            log("  microphone stopped")
         }
         // Closing the stream is what lets `finalizeAndFinishThroughEndOfInput`
         // return — see the ordering note in `SpeechSession.finish`.

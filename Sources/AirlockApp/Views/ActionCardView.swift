@@ -57,7 +57,7 @@ struct ActionCardView: View {
                 if let always { alwaysNote(always) }
                 buttons
             case .refused(let rule):
-                refusal("A rule in your policy refuses this.", rule: rule)
+                refusal("One of your rules says no to this.", rule: rule)
             case .perform:
                 // Never drawn: `propose` performs and clears in one step, so a
                 // card in this state would be one nobody needs to answer.
@@ -93,21 +93,17 @@ struct ActionCardView: View {
         .foregroundStyle(risk == nil ? Theme.running : Theme.danger)
     }
 
-    /// `Voice.AudioOutput · grammar match` — what it resolved to, and what did
-    /// the resolving.
+    /// "Matched what you said" or "A guess at what you meant" — what did the
+    /// resolving. The action's internal name stays off the card: the summary
+    /// below already says what it does, in words.
     ///
     /// The only place a trigger match and a model guess are told apart. Both
     /// arrive as the same card with the same buttons, so without this the user
     /// approves a 3B model's inference exactly as readily as their own words.
     private var provenanceChip: some View {
-        HStack(spacing: 4) {
-            Text(pending.proposal.toolName)
-                .font(Theme.label)
-            Text("·")
-            Text(pending.provenance.label)
-                .font(Theme.chrome(10))
-        }
-        .foregroundStyle(Theme.textTertiary)
+        Text(pending.provenance.label)
+            .font(Theme.chrome(10))
+            .foregroundStyle(Theme.textTertiary)
     }
 
     /// The resolved subject, spelled out before anything happens.
@@ -157,25 +153,38 @@ struct ActionCardView: View {
         HStack(spacing: 5) {
             Image(systemName: "text.badge.checkmark")
                 .font(.system(size: 9))
-            Text("Always writes \(candidate.text) — \(candidate.summary)")
+            // What it allows in words, and where it can be undone; the rule
+            // as written is for the tooltip.
+            Text("Always allows \(Self.lowercasedFirst(candidate.summary)). "
+                 + "Change it in Settings › \(SettingsPane.agents.tabTitle).")
                 .font(Theme.chrome(10))
                 .lineLimit(2)
+                .help(candidate.text)
             Spacer(minLength: 0)
         }
         .foregroundStyle(Theme.textTertiary)
     }
 
+    /// Which rule, and where to change it. The rule as written is a tooltip:
+    /// "Voice.AudioOutput(*)" means nothing to most people reading the card.
     private func refusal(_ message: String, rule: String?) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Label(message, systemImage: "hand.raised.fill")
                 .font(Theme.chrome(11, .semibold))
                 .foregroundStyle(Theme.danger)
-            if let rule {
-                Text(rule)
-                    .font(Theme.code)
-                    .foregroundStyle(Theme.textTertiary)
-            }
+            Text("You can change your rules in Settings › \(SettingsPane.agents.tabTitle).")
+                .font(Theme.chrome(10))
+                .foregroundStyle(Theme.textTertiary)
+                .help(rule ?? "")
         }
+    }
+
+    /// "Only sound…" reads as "only sound…" mid-sentence. Acronyms and names
+    /// that open a summary keep their capital.
+    private static func lowercasedFirst(_ text: String) -> String {
+        guard let first = text.first, first.isUppercase,
+              text.dropFirst().first.map({ !$0.isUppercase }) ?? true else { return text }
+        return first.lowercased() + text.dropFirst()
     }
 
     /// Do it / No / Always. Shortcuts are bound always and printed only while

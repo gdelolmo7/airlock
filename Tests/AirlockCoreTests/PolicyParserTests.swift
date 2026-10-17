@@ -78,7 +78,7 @@ extension PolicyParserTests {
         }
         XCTAssertTrue(message("allow:\n  - Bash(git push\n").contains("missing a closing bracket"),
                       message("allow:\n  - Bash(git push\n"))
-        XCTAssertTrue(message("allow:\n  - Bash()\n").contains("brackets are empty"),
+        XCTAssertTrue(message("allow:\n  - Bash()\n").contains("empty brackets"),
                       message("allow:\n  - Bash()\n"))
     }
 

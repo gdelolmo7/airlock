@@ -84,6 +84,7 @@ struct DictationOverlayView: View {
 
     private var listening: some View {
         ListeningStrip(isListening: dictation.isListening,
+                       isFinishing: dictation.isFinishing,
                        isSorting: dictation.isSorting,
                        isAsking: dictation.isAsking,
                        askRoute: dictation.askRoute,
@@ -237,16 +238,16 @@ struct HeardNothingCard: View {
                     Text(isInputFault ? "Heard nothing" : "Too short")
                         .font(Theme.chrome(11, .semibold))
                         .foregroundStyle(Theme.textPrimary)
-                    Text(isInputFault ? "the level never moved — \(silent.device)"
-                                      : "the input had not started yet")
+                    Text(isInputFault ? "\(silent.device) stayed silent"
+                                      : "let go before the microphone started")
                         .font(Theme.chrome(10))
                         .foregroundStyle(Theme.textTertiary)
                         .lineLimit(1)
                 }
 
                 Text(isInputFault
-                     ? "The hold registered and the transcriber ran, so this is the microphone rather than the app. Check the input in Settings › Dictation, or hold again closer."
-                     : "The key came back up before any audio arrived. A Bluetooth input takes about a second to switch from playing to recording — hold it a little longer and speak once the panel is up.")
+                     ? "Airlock was listening, but no sound came in. Check that the right microphone is chosen, or hold the key again and speak closer."
+                     : "The key came up before the microphone was ready. Bluetooth headphones take about a second to switch on their microphone, so hold a little longer and speak once the panel shows.")
                     .font(Theme.chrome(11.5))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -303,6 +304,8 @@ private struct OverlayCardButton: View {
 struct ListeningStrip: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isListening: Bool
+    /// The key is up; the last words are still arriving.
+    var isFinishing = false
     let isSorting: Bool
     let isAsking: Bool
     let askRoute: GuideRouting.Route?
@@ -370,7 +373,7 @@ struct ListeningStrip: View {
     /// keyboard shortcuts, which is why it is allowed to be a heuristic at all.
     private var caption: some View {
         HStack(spacing: 5) {
-            if isListening {
+            if isListening && !isFinishing {
                 Image(systemName: symbol)
                     .font(.system(size: 9.5, weight: .semibold))
                     .foregroundStyle(tint)
@@ -397,6 +400,9 @@ struct ListeningStrip: View {
             // working. Named, so it is not read as the app missing the key.
             return isSorting ? "Working out what you meant…" : "Tidying up…"
         }
+        // Let go already: "Release to…" would be an instruction already
+        // followed, and read as the key not having registered.
+        if isFinishing { return "Catching your last words…" }
         if isAsking {
             // With the guide on, the line says which way the words are leaning
             // as they are spoken, so "how do I…" visibly becomes a guide.

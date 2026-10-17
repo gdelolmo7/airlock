@@ -457,7 +457,8 @@ final class CloudNotesAllowanceTests: XCTestCase {
     func testTheMessageSaysUntilWhenInDayAndMonth() {
         let until = Fixture.date("2026-11-01T00:00:00Z")
         XCTAssertEqual(CloudNotesAllowance.message(until: until, locale: britain, timeZone: Fixture.utc),
-                       "You've used this month's online notes. Notes are written on your Mac until 1 November.")
+                       "This month's online notes are used up, so these were written on your Mac. "
+                       + "Online notes are back on 1 November.")
         XCTAssertEqual(CloudNotesAllowance.day(until, locale: Locale(identifier: "en_US"), timeZone: Fixture.utc),
                        "November 1")
     }
@@ -467,7 +468,7 @@ final class CloudNotesAllowanceTests: XCTestCase {
         let until = Fixture.date("2026-11-01T00:00:00Z")
         XCTAssertEqual(CloudNotesAllowance.message(until: until, macWrites: false, locale: britain,
                                                    timeZone: Fixture.utc),
-                       "You've used this month's online notes, so this call's notes will be written on 1 November.")
+                       "This month's online notes are used up, so this call's notes will be written on 1 November.")
     }
 
     /// No higher plan exists yet, so nothing offers one.
@@ -484,8 +485,8 @@ final class CloudNotesAllowanceTests: XCTestCase {
         let until = Fixture.date("2026-11-01T00:00:00Z")
         XCTAssertEqual(CloudNotesAllowance.message(until: until, locale: britain, timeZone: Fixture.utc,
                                                    offersUpgrade: true),
-                       "You've used this month's online notes. Notes are written on your Mac until 1 November. "
-                       + "Upgrade for more.")
+                       "This month's online notes are used up, so these were written on your Mac. "
+                       + "Online notes are back on 1 November. Upgrade for more.")
         XCTAssertEqual(CloudNotesAllowance.upgradeButton, "Upgrade")
     }
 
@@ -757,7 +758,7 @@ final class CloudNotesFilesTests: XCTestCase {
         XCTAssertTrue(emptyPage(failed).contains(
             "\n\n_No notes yet. The online notes service didn't answer, so Airlock will try again later._\n\n"))
         XCTAssertEqual(MeetingFiles.waitingLine(for: used, locale: Locale(identifier: "en_GB"), timeZone: Fixture.utc),
-                       "No notes yet. You've used this month's online notes, so these will be written on 1 November.")
+                       "No notes yet. This month's online notes are used up, so these will be written on 1 November.")
         XCTAssertTrue(emptyPage(offline).contains("No summary this time: Made up."), "and still why the Mac wrote none")
         XCTAssertNil(MeetingFiles.waitingLine(for: CloudNotesRedo.stopped(failed)))
         XCTAssertNil(MeetingFiles.waitingLine(for: nil))
@@ -803,39 +804,42 @@ final class CloudNotesFilesTests: XCTestCase {
 
     func testNotesWrittenOnlineSaySoAtTheFoot() {
         let online = page(.online(model: "gemini-x", at: Fixture.start))
-        XCTAssertTrue(online.contains("_Written online by Airlock, with Google's Gemini, from "
-                                      + "\(MeetingFiles.transcriptName). No audio was kept."))
+        XCTAssertTrue(online.contains("_Written online by Airlock, with Google's Gemini. No audio was kept."))
         XCTAssertFalse(online.contains("Written on this Mac"))
-        XCTAssertFalse(online.contains("basic model"))
-        XCTAssertTrue(page(nil).contains("_Written on your Mac with the basic model, from \(MeetingFiles.transcriptName)."))
+        XCTAssertFalse(online.contains("model"))
+        XCTAssertTrue(page(nil).contains("_Written on your Mac. No audio was kept."))
     }
 
-    /// Notes the Mac wrote say it was the basic model, on every plan; when
-    /// the online service was meant to write them, the foot says it didn't
-    /// answer instead.
-    func testTheMacsNotesSayTheyCameFromTheBasicModel() {
+    /// Notes the Mac wrote say so, on every plan; when the online service
+    /// was meant to write them, the foot says it didn't answer instead. No
+    /// foot names a model or a file.
+    func testTheMacsNotesSayTheMacWroteThem() {
         for plan in AirlockPlan.allCases {
             let snapshot = PlanSnapshot(plan: plan, isPaid: plan != .free)
-            XCTAssertTrue(page(.mac(at: Fixture.start, why: .plan, plan: snapshot))
-                .contains("\n_Written on your Mac with the basic model, from \(MeetingFiles.transcriptName). "),
-                          plan.label)
+            let mac = page(.mac(at: Fixture.start, why: .plan, plan: snapshot))
+            XCTAssertTrue(mac.contains("\n_Written on your Mac. No audio was kept. "), plan.label)
             let down = page(.mac(at: Fixture.start, why: .serviceDown, plan: snapshot))
             XCTAssertTrue(down.contains("\n_The online notes service didn't answer, so these were written on your "
-                                        + "Mac with the basic model, from \(MeetingFiles.transcriptName). "), plan.label)
+                                        + "Mac. No audio was kept. "), plan.label)
+            for page in [mac, down] {
+                XCTAssertFalse(page.contains("model"), plan.label)
+                XCTAssertFalse(page.contains(MeetingFiles.transcriptName), plan.label)
+            }
         }
-        XCTAssertTrue(emptyPage(nil).contains("_Written on this Mac by Airlock from"),
+        XCTAssertTrue(emptyPage(nil).contains("_Written on this Mac by Airlock. No audio was kept."),
                       "a page without notes names no model")
+        XCTAssertFalse(emptyPage(nil).contains(MeetingFiles.transcriptName))
     }
 
     /// The foot names whose model wrote them, from the model the server
     /// says it used; one it doesn't know is left unnamed rather than guessed.
     func testTheFootNamesWhoseModelWroteThem() {
         XCTAssertTrue(page(.online(model: "openai/gpt-6.1-sol", at: Fixture.start))
-            .contains("_Written online by Airlock, with OpenAI's GPT, from \(MeetingFiles.transcriptName)."))
+            .contains("_Written online by Airlock, with OpenAI's GPT. "))
         XCTAssertTrue(page(.online(model: "google/gemini-3.8-flash", at: Fixture.start))
-            .contains("with Google's Gemini, from"))
+            .contains("with Google's Gemini. "))
         XCTAssertTrue(page(.online(model: "somebody/else-1", at: Fixture.start))
-            .contains("_Written online by Airlock, from \(MeetingFiles.transcriptName)."))
+            .contains("_Written online by Airlock. No audio was kept."))
         XCTAssertEqual(CloudNotes.maker(ofModel: nil), "Google's Gemini", "notes from before the model was kept")
         XCTAssertEqual(CloudNotes.maker(ofModel: "gpt-6.1-sol"), "OpenAI's GPT")
         XCTAssertEqual(CloudNotes.maker(ofModel: "gemini-x"), "Google's Gemini")

@@ -127,7 +127,7 @@ final class CallLanguageSwitchTests: XCTestCase {
         XCTAssertEqual(source.record.segments.filter { $0.speaker == .me }.count, 2)
         XCTAssertEqual(source.record.languages, ["es_ES"])
         XCTAssertEqual(source.line,
-                       "Written from a Spanish listening — Apple's notes writer can't read Catalan yet.")
+                       "Written from a Spanish version of the call, because Apple Intelligence can't read Catalan yet.")
         XCTAssertTrue(source.unreadable.isEmpty)
         XCTAssertEqual(source.readable.count, source.record.spokenSegments.count)
     }
@@ -181,7 +181,8 @@ final class CallLanguageSwitchTests: XCTestCase {
         let page = MeetingFiles.notesPage(for: call(), notes: MeetingNotes(summary: "Se habló del presupuesto."),
                                           writtenFrom: source.line, timeZone: TimeZone(identifier: "UTC")!)
         let lines = page.components(separatedBy: "\n")
-        XCTAssertEqual(lines[4], "_Written from a Spanish listening — Apple's notes writer can't read Catalan yet._")
+        XCTAssertEqual(lines[4], "_Written from a Spanish version of the call, "
+                       + "because Apple Intelligence can't read Catalan yet._")
         XCTAssertEqual(lines[6], "## Summary")
     }
 
@@ -222,7 +223,7 @@ final class CallLanguageSwitchTests: XCTestCase {
     func testGoingBackIsMarkedToo() {
         var record = call()
         record.switchLanguage(of: .them, at: 690, to: "es_ES", lines: [line(.them, 690, "Volvemos al castellano.")])
-        XCTAssertEqual(MeetingTimeline.dividers(of: record).map(MeetingTimeline.languageLabel),
+        XCTAssertEqual(MeetingTimeline.dividers(of: record).map { MeetingTimeline.languageLabel($0) },
                        ["Catalan from 10:12", "Spanish from 11:30"])
     }
 

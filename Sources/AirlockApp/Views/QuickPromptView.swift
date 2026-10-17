@@ -100,10 +100,13 @@ struct TerminalTroubleCard: View {
         ProblemCard(icon: "terminal",
                     sentence: trouble.sentence,
                     tone: .stopped,
-                    button: trouble.opensAutomationSettings ? "Open Settings" : "Dismiss",
+                    // The sentence sends you to System Settings, so the button
+                    // goes there and says so: "Open Settings" in the notch
+                    // reads as Airlock's own.
+                    button: trouble.opensAutomationSettings ? PermissionPage.button : "Dismiss",
                     action: {
                         if trouble.opensAutomationSettings {
-                            Notifications.openSettings?(.permissions, .permissionAutomation)
+                            PermissionPage.automation.open()
                         }
                         model.dismissTerminalTrouble()
                     })

@@ -96,6 +96,12 @@ public enum PermissionKind: String, CaseIterable, Sendable {
         "Already switched on for Airlock in System Settings, and still not allowed here?"
     }
 
+    /// The same question, short, for every Fix after the first on a page:
+    /// the long one is read once, not once per row.
+    public var fixQuestionAgain: String {
+        "\(systemName) also switched on and still not allowed?"
+    }
+
     /// The sentence beside the Fix button: what it does, before it does it.
     public var fixExplanation: String {
         var text = "macOS may be holding an old approval from an earlier version of Airlock. "

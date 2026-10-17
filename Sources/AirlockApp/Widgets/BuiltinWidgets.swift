@@ -108,6 +108,7 @@ struct SystemControlsWidget: NotchWidget {
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { true }
     var column: WidgetColumn { .leading }
+    var hasButtonRow: Bool { true }
     var isEnabled: Bool {
         get { WidgetToggle(key: "widget.systemControls.enabled", defaultValue: true).value }
         nonmutating set {

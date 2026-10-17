@@ -251,7 +251,7 @@ enum GallerySettings {
     private static let brokenPolicy = SettingsModel.PolicyInfo(
         path: "~/.airlock/policy.yaml", exists: true, allow: [], deny: [],
         askTimeout: Policy.defaultAskTimeout,
-        problems: ["line 4: expected a list item under `allow`, found `Bash(git push`"])
+        problems: ["~/.airlock/policy.yaml, line 4: \u{201c}Bash(git push\u{201d} is missing a closing bracket."])
 
     /// A suite nothing writes to, with Advanced registered on. Registration is
     /// in memory only, so it reaches no file.
@@ -292,7 +292,7 @@ enum GallerySettings {
         let report = DiagnosticsReport(
             version: "1.4.0 (642)", macOS: "26.0", hardware: "Mac16,7", hasNotch: true, displayCount: 1,
             permissions: [.init("Calendar", .notAsked), .init("Microphone", .allowed),
-                          .init("Accessibility", .allowed), .init("Input monitoring", inputMonitoring),
+                          .init("Accessibility", .allowed), .init("Input Monitoring", inputMonitoring),
                           .init("Audio capture", .asksOnFirstUse)],
             hooks: [.init("Claude Code", .installed), .init("Codex", .notInstalled)],
             updater: .configured(automaticChecks: true), license: .trial(daysRemaining: 10),
@@ -301,7 +301,7 @@ enum GallerySettings {
         return LookColumn {
             LookGroupLabel("Health")
             DiagnosticsHealthView(health: DiagnosticsHealth.from(report),
-                                  summary: "Mac16,7 · notch yes · 1 display",
+                                  summary: nil,
                                   onCopy: {}, onOpen: { _ in })
                 .lookRowBox()
         }

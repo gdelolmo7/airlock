@@ -428,9 +428,11 @@ struct LookMoreButton: View {
         } label: {
             HStack(spacing: 4) {
                 Text(isOpen ? "Fewer options" : "More options")
+                // Up once open: "Fewer options" folds them back up, and an
+                // arrow pointing down said the opposite.
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
-                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .rotationEffect(.degrees(isOpen ? -90 : 0))
             }
             .font(Theme.chrome(11.5))
             .foregroundStyle(Theme.textSecondary)

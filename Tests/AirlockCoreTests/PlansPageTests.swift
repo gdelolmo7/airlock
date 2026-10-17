@@ -177,6 +177,8 @@ final class PlansPageTests: XCTestCase {
         XCTAssertTrue(cards[0].bullets.contains { $0.contains("first 30 minutes") })
         XCTAssertEqual(cards[1].bullets[0], "Clipboard keeps up to 1,000")
         XCTAssertEqual(cards[2].bullets.count, 2)
+        XCTAssertTrue(cards[1].bullets.contains("A set number of online notes each month"),
+                      "Plus says it has a monthly number, so Pro's \"twice as many\" has something to double")
     }
 
     func testOnlyRealButtonsAct() {
@@ -260,7 +262,7 @@ final class PlansPageTests: XCTestCase {
         XCTAssertEqual(card.redoQuestion(for: record, now: start.addingTimeInterval(86_400), calendar: calendar),
                        card.redoQuestion(title: title, when: "yesterday", minutes: minutes))
         XCTAssertTrue(card.redoQuestion(for: record, now: start.addingTimeInterval(5 * 86_400), calendar: calendar)
-            .contains("(Thursday 15 Oct, "))
+            .contains("(Thu 15 Oct, "))
     }
 
     /// A welcome is for more than before: a bigger plan, or the same plan

@@ -919,7 +919,7 @@ private struct AboutDetails: View {
         LookGroupLabel("Health")
         DiagnosticsHealthView(
             health: health,
-            summary: healthSummary,
+            summary: advanced ? healthSummary : nil,
             onCopy: { copyDiagnostics() },
             onOpen: { remedy in
                 switch remedy {
@@ -956,7 +956,7 @@ private struct AboutDetails: View {
                 .lookRowBox()
                 .accessibilityLabel("Diagnostics, as they will be copied")
             HStack(spacing: 10) {
-                LookButton("Copy Diagnostics") { copyDiagnostics() }
+                LookButton("Copy diagnostics") { copyDiagnostics() }
                 if copied {
                     LookStatus(ok: true, text: "Copied")
                 }
@@ -1092,15 +1092,15 @@ struct AgentsPane: View {
             }
         }
         if case .conflict = row.status {
-            // The same card the Agents tab draws (X25): Airlock never edits
-            // lines it didn't write, so the way forward is the file, then a
-            // fresh look.
+            // The same sentence the Agents tab draws (X25): Airlock never
+            // edits lines it didn't write, so the way forward is the file —
+            // the bright button on the row — then a fresh look from here.
             ProblemCard(icon: "exclamationmark.triangle",
                         sentence: AgentsConnection.blockedSentence(
                             .init(name: row.name, status: row.status, settingsPath: row.configPath)),
                         tone: .needs,
-                        button: AgentsEmptyState.showFile,
-                        action: { model.revealConfig(row) })
+                        button: "Check again",
+                        action: { model.refresh() })
         }
         if let error = row.actionError {
             ProblemCard(sentence: error, tone: .stopped)
@@ -1193,7 +1193,7 @@ struct AgentsPane: View {
         LookGroupLabel("Connected")
         LookNote("If Airlock isn't running, your agents carry on as before and ask you in the terminal.")
         // The file's path is for developers (X24): with Advanced on, or as
-        // the conflict card's "Show the file".
+        // the conflict row's "Show the file".
         if advanced {
             ForEach(model.agents) { row in
                 LookRow(row.name, subtitle: row.configPath) {
@@ -1207,7 +1207,8 @@ struct AgentsPane: View {
                  + "and a keypress meant for your editor would answer something you hadn't read. Press the shortcut "
                  + "and the request becomes answerable; only then does it show its shortcuts.")
         LookNote("With nothing waiting it opens the Agents tab, and pressing it again closes it. It works even with "
-                 + "AI agents switched off in Settings › The notch, because a waiting request is shown either way.")
+                 + "AI agents switched off in Settings › \(SettingsPane.appearance.tabTitle), because a waiting request is "
+                 + "shown either way.")
         LookNote("Without a sound, the notch opening is the signal, and that reaches you only if you're looking at "
                  + "the screen. A sound reaches you wherever you are; the spoken announcement reaches VoiceOver users. "
                  + "Settings › General › Sounds turns every Airlock sound on or off.")
@@ -1237,8 +1238,9 @@ struct AgentsPane: View {
         case .notInstalled:
             LookButton("Connect", prominent: true) { model.toggle(row) }
         case .conflict:
-            // The file is the card below; this is the fresh look after it.
-            LookButton("Check again") { model.refresh() }
+            // The fix is an edit in that file, so the file is the first thing
+            // to reach for; the card below has the fresh look after it.
+            LookButton(AgentsEmptyState.showFile, prominent: true) { model.revealConfig(row) }
         }
     }
 
@@ -1546,7 +1548,7 @@ private struct PolicyRows: View {
                 }
                 .fixedSize()
 
-                TextField("Tool or Tool(pattern)", text: $draft)
+                TextField("Read, or Bash(git push)", text: $draft)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(add)
 
@@ -1598,7 +1600,13 @@ private struct PolicyRows: View {
             // No list at all, ever, beside a parse failure. An empty list next
             // to a warning reads as "this file has no rules", and the truth is
             // "this file is not being read".
-            ProblemCard(sentence: "Can't show the rules — this file didn't parse.", tone: .stopped)
+            // The way out on the first of the two lists only: one button is
+            // enough for one file.
+            ProblemCard(sentence: "Can't show the rules: this file has a mistake in it. Fix it in your editor, "
+                            + "then press Reload.",
+                        tone: .stopped,
+                        button: kind == .deny ? "Open in editor" : nil,
+                        action: kind == .deny ? { model.openPolicyInEditor() } : nil)
         case .missing:
             LookNote(model.policyScope == .everywhere
                      ? "No rules yet."
@@ -1709,15 +1717,18 @@ private struct PolicyRows: View {
 
     private var draftHelp: String {
         if draftIsInvalid {
-            return "Not a rule yet. Use a tool name (Read) or a tool with a glob pattern — Bash(git status), Bash(npm run *), Edit(*/secrets/*)."
+            return "Not a rule yet. Type a tool's name, like Read, or a tool with what it acts on in brackets, "
+                + "like Bash(git status)."
         }
         if let parsed, parsed.pattern == nil {
             return "\(parsed.tool) matches every use of that tool, whatever the arguments."
         }
         if let parsed, let pattern = parsed.pattern {
-            return "Matches \(parsed.tool) when the \(parsed.tool == "Bash" ? "command" : "path") glob-matches \(pattern)."
+            return "Matches \(parsed.tool) when its \(parsed.tool == "Bash" ? "command" : "file") fits \(pattern). "
+                + "A * stands for anything."
         }
-        return "Tool name for any use, or Tool(pattern) for a glob — Bash(git status), Bash(npm run *), Edit(*/secrets/*)."
+        return "A tool's name covers every use of it. Add what it acts on in brackets to narrow it down: "
+            + "Bash(git status), Bash(npm run *), Edit(*/secrets/*). A * stands for anything."
     }
 
     private func add() {
@@ -1787,7 +1798,7 @@ private struct PolicyDetails: View {
                 }
                 .lookRowBox()
                 LookRow("Kept on this Mac only, the latest 500") {
-                    LookButton("Clear History") { model.clearGateHistory() }
+                    LookButton("Clear history") { model.clearGateHistory() }
                 }
             }
             LookNote("Match counts and \u{201c}added by\u{201d} come from the request history, which doesn't record "
@@ -1809,10 +1820,10 @@ private struct PolicyDetails: View {
             LookRow("File", subtitle: model.scopedPolicy.path) {
                 HStack(spacing: 6) {
                     if model.scopedPolicy.exists {
-                        LookButton("Open in Editor") { model.openPolicyInEditor() }
+                        LookButton("Open in editor") { model.openPolicyInEditor() }
                         LookButton("Show in Finder") { model.revealPolicy() }
                     } else {
-                        LookButton("Create Starter Rules", prominent: true) { model.createStarterPolicy() }
+                        LookButton("Create starter rules", prominent: true) { model.createStarterPolicy() }
                     }
                     LookButton("Reload") { model.refresh() }
                 }

@@ -19,10 +19,16 @@ public struct MediaQuiet: Equatable, Sendable {
     /// When the current stretch of silence began, or nil while there is sound.
     public private(set) var since: Date?
 
+    /// When this tap opened.
+    public let openedAt: Date
+
     /// `startedAt` is when the tap opened: it starts out not having heard
-    /// anything.
-    public init(startedAt: Date) {
-        since = startedAt
+    /// anything. `quietSince` carries over the silence of a tap that closed on
+    /// it, so a player that was quiet stays quiet rather than looking audible
+    /// for another four seconds.
+    public init(startedAt: Date, quietSince: Date? = nil) {
+        openedAt = startedAt
+        since = min(quietSince ?? startedAt, startedAt)
     }
 
     /// One reading of the tap's bands.
@@ -39,5 +45,14 @@ public struct MediaQuiet: Equatable, Sendable {
     public func silentSince(at now: Date) -> Date? {
         guard let since, now.timeIntervalSince(since) >= Self.after else { return nil }
         return since
+    }
+
+    /// How long this tap has heard nothing, nil while it hears something —
+    /// what `TapLifecycle.listened` closes it on. Never reaches back past
+    /// `openedAt`: a silence carried over was already counted by the tap that
+    /// closed on it, and counting it again would close this one at once.
+    public func quietFor(at now: Date) -> TimeInterval? {
+        guard let since else { return nil }
+        return now.timeIntervalSince(max(since, openedAt))
     }
 }

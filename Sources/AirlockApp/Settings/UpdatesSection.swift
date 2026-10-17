@@ -24,7 +24,7 @@ struct UpdatesSection: View {
         // the button not being there would read as the updater having gone
         // away. Greyed out, it now always has the line below saying why.
         LookRow("Last checked", subtitle: lastCheckLabel) {
-            LookButton("Check Now", action: onCheck)
+            LookButton("Check now", action: onCheck)
                 .disabled(!canCheck)
         }
         if let statusLine {

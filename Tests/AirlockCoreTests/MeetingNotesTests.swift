@@ -414,7 +414,8 @@ final class MeetingFilesTests: XCTestCase {
         let page = MeetingFiles.notesPage(for: record, notes: nil,
                                           unavailableReason: "Apple Intelligence is off", timeZone: utc)
         XCTAssertTrue(page.contains("No summary this time: Apple Intelligence is off"))
-        XCTAssertTrue(page.contains("Transcript.md"))
+        XCTAssertTrue(page.contains("The full transcript is in the Transcript tab."))
+        XCTAssertFalse(page.contains(MeetingFiles.transcriptName), "where the window shows it, not a file name")
     }
 
     /// A long call's last stretch failed: the page says which minutes,

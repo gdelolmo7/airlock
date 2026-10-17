@@ -325,7 +325,7 @@ struct LiveTranscriptView: View {
                 if stage.isLive {
                     LiveTranscriptFoot(paused: stage == .paused, actions: actions)
                 } else {
-                    LiveTranscriptOutcome(stage: stage, actions: actions)
+                    LiveTranscriptOutcome(stage: stage, hasWords: !record.segments.isEmpty, actions: actions)
                         .padding([.horizontal, .bottom], 12)
                 }
             } else {
@@ -359,8 +359,8 @@ private struct LiveTranscriptNaming: View {
     }
 }
 
-/// Close, the call's dot, its name and clock, and the way to the notes
-/// window. Dragging it moves the window.
+/// Close, the call's dot, its name and how long so far, and the way to the
+/// notes window. Dragging it moves the window.
 private struct LiveTranscriptHeader: View {
     let record: MeetingRecord
     let stage: CallLive.Stage
@@ -385,8 +385,10 @@ private struct LiveTranscriptHeader: View {
                 .accessibilityAddTraits(.isHeader)
             Group {
                 if stage.isLive {
+                    // How long, not a clock: the lines below say the time of
+                    // day, and "12:45" beside them would read as one.
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(CallLive.clock(record, now: context.date))
+                        Text(CallLive.soFar(record, now: context.date))
                     }
                 } else {
                     Text("Ended")
@@ -479,7 +481,7 @@ private struct LiveTranscriptLines: View {
     let name: (Int) -> Void
 
     var body: some View {
-        let entries = MeetingTimeline.entries(of: record)
+        let entries = MeetingTimeline.shown(of: record)
         let people = CallPeople.people(of: record)
         let carried = hearing.first { CallLive.continues($0, after: entries, startedAt: record.startedAt) }
         let others = hearing.filter { $0 != carried }
@@ -568,7 +570,7 @@ private struct LiveTranscriptRow: View {
                                 .foregroundStyle(CallsLook.colour(for: seat))
                                 .lineLimit(1)
                         }
-                        Text(MeetingFiles.clock(turn.start))
+                        Text(time(turn.start))
                             .font(Theme.chrome(11))
                             .monospacedDigit()
                             .foregroundStyle(LiveLook.faint)
@@ -594,7 +596,7 @@ private struct LiveTranscriptRow: View {
                         .accessibilityHidden(true)
                     Text("Your note")
                         .font(Theme.chrome(11.5, .semibold))
-                    Text(MeetingFiles.clock(jot.at))
+                    Text(time(jot.at))
                         .font(Theme.chrome(11))
                         .monospacedDigit()
                         .foregroundStyle(LiveLook.faint)
@@ -613,10 +615,15 @@ private struct LiveTranscriptRow: View {
             .padding(.leading, 32)
             .accessibilityElement(children: .combine)
         case .pause(let pause):
-            LiveTranscriptDivider(symbol: "pause.fill", text: MeetingTimeline.pauseLabel(pause))
+            LiveTranscriptDivider(symbol: "pause.fill", text: MeetingTimeline.pauseLabel(pause, clock: time))
         case .language(let listening):
-            LiveTranscriptDivider(symbol: "globe", text: MeetingTimeline.languageLabel(listening))
+            LiveTranscriptDivider(symbol: "globe", text: MeetingTimeline.languageLabel(listening, clock: time))
         }
+    }
+
+    /// When a moment of the call was, as the clock said it: "20:58".
+    private func time(_ seconds: TimeInterval) -> String {
+        CallsCard.time(seconds, into: record.startedAt)
     }
 }
 
@@ -722,6 +729,8 @@ private struct LiveTranscriptDivider: View {
 /// none, with the way to them.
 private struct LiveTranscriptOutcome: View {
     let stage: CallLive.Stage
+    /// Something was written down before the notes stopped: the way to it.
+    let hasWords: Bool
     let actions: LiveTranscriptActions
 
     var body: some View {
@@ -810,6 +819,11 @@ private struct LiveTranscriptOutcome: View {
                 LiveCardButton("Close") { actions.close() }
             }
         case .tooLittleSaid:
+            HStack(spacing: 8) {
+                LiveCardButton("Open in Calls", prominent: true) { actions.open(.transcript) }
+                LiveCardButton("Close") { actions.close() }
+            }
+        case .failed where hasWords:
             HStack(spacing: 8) {
                 LiveCardButton("Open in Calls", prominent: true) { actions.open(.transcript) }
                 LiveCardButton("Close") { actions.close() }

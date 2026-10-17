@@ -93,16 +93,17 @@ struct QuestionReceiptView: View {
         return "\(name) · \(elapsed)"
     }
 
+    /// The handed-back case says where to answer, so the "Needs you" above it
+    /// has a place to go: "went back where it came from" left people looking
+    /// for it in the notch.
     private var explanation: String {
         switch receipt.reason {
         case .ignored:
-            return "\(sessionName) — “\(receipt.question)” went back where it came from. Nothing is waiting on the notch."
+            let terminal = TerminalName.pretty(session.terminal?.app ?? session.jumpTarget?.terminalApp)
+            return "“\(receipt.question)” is waiting for your answer in \(terminal ?? "its terminal"). "
+                + "The notch can't answer it any more."
         case .agentExited:
             return "Nothing is listening for this answer. The session drops off the tab when you dismiss."
         }
-    }
-
-    private var sessionName: String {
-        SessionCardText.title(of: session)
     }
 }

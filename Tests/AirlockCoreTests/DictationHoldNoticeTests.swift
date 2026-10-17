@@ -6,7 +6,7 @@ import XCTest
 final class DictationHoldNoticeTests: XCTestCase {
     private static let every: [DictationHoldNotice] = [
         .microphoneDenied, .noSpeechModel(locale: "en_US"), .notBundled, .microphoneFailedToStart,
-        .microphoneAllowed(key: "⌃ Control", asking: false), .nothingCaught, .copiedNowhereToType,
+        .microphoneAllowed(key: "⌃ Control", asking: false), .nothingCaught(key: "⌃ Control"), .copiedNowhereToType,
         .copiedAfterKeyOrClick, .reachedLimit, .tidyingFailed, .secureInput(holder: "1Password"), .secureInput(holder: nil),
     ]
 
@@ -20,6 +20,8 @@ final class DictationHoldNoticeTests: XCTestCase {
                        "Microphone allowed. Hold ⌃ Control again to dictate.")
         XCTAssertEqual(DictationHoldNotice.microphoneAllowed(key: "⌥ Option", asking: true).sentence,
                        "Microphone allowed. Hold ⌥ Option again to ask.")
+        XCTAssertEqual(DictationHoldNotice.nothingCaught(key: "⌃ Control").sentence,
+                       "Didn't catch anything. Hold ⌃ Control and try again.")
         XCTAssertEqual(DictationHoldNotice.secureInput(holder: nil).sentence,
                        "Another app is keeping your typing private, so the notch waits a second before it opens.")
     }
@@ -44,8 +46,9 @@ final class DictationHoldNoticeTests: XCTestCase {
         XCTAssertEqual(DictationHoldNotice.microphoneDenied.fix, .openMicrophoneSettings)
         XCTAssertEqual(DictationHoldNotice.microphoneDenied.fix?.button, "Open System Settings")
         XCTAssertEqual(DictationHoldNotice.microphoneFailedToStart.fix, .chooseInput)
+        XCTAssertEqual(DictationHoldNotice.noSpeechModel(locale: "de_DE").fix, .chooseLanguage)
         XCTAssertEqual(DictationHoldNotice.microphoneFailedToStart.fix?.button, "Choose input…")
-        for notice in Self.every where notice != .microphoneDenied && notice != .microphoneFailedToStart {
+        for notice in Self.every where notice.tone != .problem || notice == .notBundled {
             XCTAssertNil(notice.fix, "\(notice)")
         }
     }
@@ -61,7 +64,7 @@ final class DictationHoldNoticeTests: XCTestCase {
     /// its own — the button is the only other way to close it. The one about a
     /// hold still running goes with the hold.
     func testHowLongEachStays() {
-        XCTAssertEqual(DictationHoldNotice.nothingCaught.closesAfter, 4)
+        XCTAssertEqual(DictationHoldNotice.nothingCaught(key: "⌃ Control").closesAfter, 4)
         XCTAssertEqual(DictationHoldNotice.microphoneDenied.closesAfter, 10)
         XCTAssertNil(DictationHoldNotice.secureInput(holder: nil).closesAfter)
         for notice in Self.every {
@@ -73,7 +76,8 @@ final class DictationHoldNoticeTests: XCTestCase {
         let english = Locale(identifier: "en_GB")
         XCTAssertEqual(DictationHoldNotice.languageName("en_US", displayLocale: english), "English (United States)")
         XCTAssertEqual(DictationHoldNotice.noSpeechModelSentence(locale: "de_DE", displayLocale: english),
-                       "Dictation isn't available in German (Germany) on this Mac yet.")
+                       "Dictation isn't available in German (Germany) on this Mac yet. "
+                           + "Choose another language to dictate in.")
         // Nothing to name: a vaguer phrase rather than an empty gap.
         XCTAssertEqual(DictationHoldNotice.languageName("", displayLocale: english), "your language")
     }

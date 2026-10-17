@@ -62,6 +62,8 @@ extension View {
 struct PermissionFixRow: View {
     let kind: PermissionKind
     var knownOldApproval = false
+    /// A Fix above on the same page already explained what Fix does.
+    var brief = false
     @State private var confirming = false
     @State private var running = false
     @State private var result: String?
@@ -76,7 +78,8 @@ struct PermissionFixRow: View {
                             action: { if !running { confirming = true } })
                 LookNote(kind.oldApprovalSteps)
             } else {
-                LookRow(kind.fixQuestion, subtitle: kind.fixExplanation) {
+                LookRow(brief ? kind.fixQuestionAgain : kind.fixQuestion,
+                        subtitle: brief ? nil : kind.fixExplanation) {
                     LookButton(running ? "Fixing…" : "Fix") { confirming = true }
                         .disabled(running)
                 }

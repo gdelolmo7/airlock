@@ -93,7 +93,7 @@ public enum CallsCard {
     public struct Day: Equatable, Sendable, Identifiable {
         /// The day's first moment, in the calendar the rows were grouped in.
         public let start: Date
-        /// "Today", "Yesterday", "Tuesday 6 Oct".
+        /// "Today", "Yesterday", "Tue 6 Oct".
         public let heading: String
         public let rows: [Row]
 
@@ -234,11 +234,18 @@ public enum CallsCard {
         return "\(day) \(span(from: start, to: end, calendar: calendar))"
     }
 
-    /// A day's heading on the tab: "Today", "Yesterday", "Tuesday 6 Oct",
-    /// with the year once it is not this one. The weekday is written out,
-    /// since the heading has a line to itself.
+    /// A day's heading on the tab: "Today", "Yesterday", "Tue 6 Oct", with
+    /// the year once it is not this one. The same words as the rows and the
+    /// header (`day`), so a day is never written two ways.
     public static func dayHeading(_ day: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
-        dayName(of: day, now: now, calendar: calendar, weekday: .wide)
+        self.day(day, now: now, calendar: calendar)
+    }
+
+    /// "Today", "Yesterday", "Tue 6 Oct", or "30 Dec 2025": the one way the
+    /// call notes say a day, in the list, above a call's notes and under an
+    /// answer from the calls.
+    public static func day(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        dayName(of: date, now: now, calendar: calendar, weekday: .abbreviated)
     }
 
     /// A row's second line on the tab: "12:55–13:39 · 44 min". The day is
@@ -266,6 +273,14 @@ public enum CallsCard {
     /// a day's heading.
     public static func time(_ date: Date, calendar: Calendar = .current) -> String {
         date.formatted(timeStyle(calendar))
+    }
+
+    /// The clock `seconds` into a call that began at `start`: "20:58", where
+    /// the files write "6:12". What the windows show beside a line, so a
+    /// moment in a call reads as the time it was, never as minutes that look
+    /// like an hour.
+    public static func time(_ seconds: TimeInterval, into start: Date, calendar: Calendar = .current) -> String {
+        time(start.addingTimeInterval(max(0, seconds)), calendar: calendar)
     }
 
     /// The clock in the calendar's own words: "14:30" in Spain, "2:30 PM"

@@ -13,7 +13,7 @@ import Foundation
 /// Read from the page on disk and the record beside it, like the window, so
 /// a page from before plans gets the same offers as a new one.
 public struct CallNotesOffers: Equatable, Sendable {
-    /// "Redo with the better model".
+    /// "Redo with better notes".
     public enum Redo: Equatable, Sendable {
         /// On a plan that doesn't write notes online: opens the plans, with
         /// a Plus tag on the button.
@@ -156,7 +156,7 @@ public enum CallNotesNotice: Equatable, Sendable {
         let rest = String(text.dropFirst(waiting.count))
         if text == MeetingFiles.noNotesOfflineLine { return .waitingForNetwork(rest) }
         if text == MeetingFiles.noNotesFailedLine { return .waitingForService(rest) }
-        if text.hasPrefix(MeetingFiles.noNotesAllowanceLead) {
+        if text.hasPrefix(MeetingFiles.noNotesAllowanceLead) || text.hasPrefix(MeetingFiles.earlierNoNotesAllowanceLead) {
             return .waitingForAllowance(rest)
         }
         return nil

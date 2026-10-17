@@ -47,6 +47,20 @@ public enum Blobatar {
         return layout(t)
     }
 
+    /// The face Airlock draws for `name`: `figure(for:)`, except that a
+    /// triangle is drawn as a hexagon from the same name. Beside a call's
+    /// words, a triangle in a warm colour reads as a warning sign.
+    public static func face(for name: String, traits overrides: [String: Double] = [:]) -> Figure {
+        let figure = figure(for: name, traits: overrides)
+        guard figure.shape == .triangle else { return figure }
+        var overrides = overrides
+        overrides["shape"] = hexagonBand
+        return self.figure(for: name, traits: overrides)
+    }
+
+    /// A value inside the hexagon's band (`bands`).
+    static let hexagonBand = 0.933
+
     // MARK: - The seed
 
     /// Mixes bytes into a 32-bit state (murmur3's body step).

@@ -165,7 +165,7 @@ final class AirlockWindowController {
             window.setFrameAutosaveName("airlock.window")
             // Re-read on every return to the window.
             //
-            // The Rules pane offers "Open in Editor". Edit the file there, come
+            // The Rules pane offers "Open in editor". Edit the file there, come
             // back, and the list was whatever it had been when the window
             // opened — with a live trash button beside rules that had already
             // moved. `refresh()` ran on `show()` only, and the window is kept
