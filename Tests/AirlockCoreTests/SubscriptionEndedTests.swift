@@ -32,42 +32,43 @@ final class SubscriptionEndedTests: XCTestCase {
 
     // MARK: - The hole
 
-    /// THE regression. Past `checkBy` with the server having said no, the app
-    /// stops. This is the case that used to work forever.
-    func testARefusedSubscriptionStopsTheApp() {
+    /// THE regression. Past `checkBy` with the server having said no, the
+    /// plan ends and the Mac is on Free. This is the case that used to keep
+    /// its plan forever.
+    func testARefusedSubscriptionMovesToFree() {
         let entitlement = resolve(license(renewsInDays: 30), ended: true, daysAfterIssue: 60)
-        XCTAssertEqual(entitlement, .trialExpired)
-        XCTAssertFalse(entitlement.allowsUse)
+        XCTAssertEqual(entitlement, .free)
+        XCTAssertFalse(entitlement.limits.writesNotesOnline)
     }
 
-    /// And it stops in grace too — grace is patience for a payment that might
-    /// still land, not for one that has been confirmed dead.
+    /// And in grace too: grace is patience for a payment that might still
+    /// land, not for one that has been confirmed dead.
     func testARefusedSubscriptionDoesNotGetTheGraceWindow() {
-        XCTAssertFalse(resolve(license(renewsInDays: 30), ended: true, daysAfterIssue: 35).allowsUse)
+        XCTAssertEqual(resolve(license(renewsInDays: 30), ended: true, daysAfterIssue: 35), .free)
     }
 
     // MARK: - What must NOT happen
 
     /// **The rule everything else is subordinate to.** Without a refusal, the
     /// dates behave exactly as they always have: grace is silent, overdue keeps
-    /// working. A customer offline for a month is not a customer who cancelled.
+    /// its plan. A customer offline for a month is not a customer who cancelled.
     func testTimeAloneNeverEndsALicence() {
         for day in [35, 60, 400] {
-            XCTAssertTrue(resolve(license(renewsInDays: 30), ended: false, daysAfterIssue: day).allowsUse,
-                          "day \(day) with no refusal must keep working")
+            let entitlement = resolve(license(renewsInDays: 30), ended: false, daysAfterIssue: day)
+            XCTAssertNotEqual(entitlement, .free, "day \(day) with no refusal keeps its plan")
+            XCTAssertEqual(entitlement.plan, .plus, "day \(day)")
         }
     }
 
     /// A period already paid for is untouchable, even by a refusal. Cancelling
-    /// means "will not renew" — `terms.html` promises exactly this in writing,
+    /// means "will not renew": `terms.html` promises exactly this in writing,
     /// and the Worker mints through `ends_at` before it ever refuses.
     func testAPaidPeriodSurvivesEvenARefusal() {
         let entitlement = resolve(license(renewsInDays: 30), ended: true, daysAfterIssue: 5)
-        XCTAssertTrue(entitlement.allowsUse,
-                      "they paid through day 30; a refusal on day 5 must not shorten that")
         guard case .licensed = entitlement else {
-            return XCTFail("still licensed, not merely tolerated")
+            return XCTFail("they paid through day 30; a refusal on day 5 must not shorten that")
         }
+        XCTAssertTrue(entitlement.isPaid)
     }
 
     /// The flag is about a licence, never about a trial. Someone mid-trial has
@@ -77,7 +78,6 @@ final class SubscriptionEndedTests: XCTestCase {
                                               now: t0.addingTimeInterval(3 * 86_400),
                                               subscriptionEnded: true)
         XCTAssertEqual(entitlement, .trialing(daysRemaining: 11))
-        XCTAssertTrue(entitlement.allowsUse)
     }
 
     /// Default false, so every existing caller keeps the old behaviour and the
@@ -85,6 +85,6 @@ final class SubscriptionEndedTests: XCTestCase {
     func testTheFlagDefaultsToOff() {
         let byDefault = Entitlement.resolve(verdict: .valid(license(renewsInDays: 30)),
                                             trialStarted: t0, now: t0.addingTimeInterval(60 * 86_400))
-        XCTAssertTrue(byDefault.allowsUse)
+        XCTAssertEqual(byDefault, .overdue(license(renewsInDays: 30)))
     }
 }

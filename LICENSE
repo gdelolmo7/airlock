@@ -70,7 +70,9 @@ personal, noncommercial use, and to prepare contributions offered back to the
 licensor's repository at <https://github.com/gdelolmo7/airlock>. Forking that
 repository on GitHub in order to offer a contribution is allowed. This
 permission does not let you distribute the software, a changed copy, or a build
-of either, to anyone else.
+of either, to anyone else. Nor does it let you remove or work around the
+software's licensing or the limits of its plans in a changed copy or a build
+of one.
 
 Third-party components are licensed under their own terms; see
 THIRD-PARTY-LICENSES.txt.

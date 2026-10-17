@@ -36,7 +36,6 @@ public enum Moment: String, CaseIterable, Sendable {
     case keepAwakeStopped
     case usageLimitClose
     case outputSwitched
-    case licenceBlocked
     /// A list or a scroll ran out under the person's fingers (card D3's soft
     /// stop). Announced only while they are scrolling, never for content
     /// that grows into place.
@@ -68,7 +67,6 @@ public enum Moment: String, CaseIterable, Sendable {
         case .keepAwakeOn, .keepAwakeStopped: "M21"
         case .usageLimitClose: "M22"
         case .outputSwitched: "M23"
-        case .licenceBlocked: "M24"
         case .scrolledToEnd: "M25"
         }
     }

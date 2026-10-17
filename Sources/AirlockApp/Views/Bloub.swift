@@ -2,7 +2,9 @@ import SwiftUI
 import AirlockCore
 
 // The bloub — Airlock's character, ported off generated SVGs: twelve at first,
-// plus `scared` added later from its own static/animated pair.
+// plus `scared` added later from its own static/animated pair, plus `stressed`,
+// which has no source file at all: it is `scared` with a drop of sweat drawn
+// here (the owner's pick, 2026-10-15, from a mockup of four faces).
 //
 // The numbers below were extracted from the source SVGs once — the first twelve
 // by hand, `scared` by script — and THIS FILE is the source of truth from here
@@ -24,7 +26,9 @@ import AirlockCore
 // the scale in its matrix; same construction, so it reads through unchanged. So no path
 // data is needed for the eyes at all: an expression is two sizes and two affine
 // poses, and that is why `BloubEye` is a value type and adding an expression is
-// one line rather than an asset.
+// one line rather than an asset. The one thing that is not an eye is the sweat
+// drop, and it is drawn beside the eyes rather than folded into them
+// (`BloubSweat`), so the capsule rule above still holds for every face.
 //
 // **The body is one shape.** The static files each carry a slightly different
 // body (generator jitter, ~0.3 units); the animated ones all share a single
@@ -60,6 +64,14 @@ enum BloubExpression: String, CaseIterable, Sendable {
     /// than renormalised: a decomposition would be arithmetic nobody could check
     /// against the file it came from.
     case scared
+    /// `scared`'s eyes plus a drop of sweat: for a limit being reached, which
+    /// is worrying rather than alarming. Drawn here, not extracted.
+    ///
+    /// Meant for the body's normal blue, never the attention orange: orange
+    /// already means an agent is waiting for an answer, and a limit is not
+    /// that. Nothing resolves to it from a status, for the reason `.angry` is
+    /// mapped to by nothing.
+    case stressed
 
     private static func e(_ w: CGFloat, _ h: CGFloat, _ a: CGFloat, _ b: CGFloat,
                          _ c: CGFloat, _ d: CGFloat, _ tx: CGFloat, _ ty: CGFloat) -> BloubEye {
@@ -94,12 +106,15 @@ enum BloubExpression: String, CaseIterable, Sendable {
         case .unimpressed: return (e(30, 12, 0.75, 0, -0.01, 0.41, -58.45, 1.04),
                                    e(30, 12, 0.99, 0, -0.01, 0.41, -11.92, 1.39))
         // Extracted by script rather than by hand — see the note on the case.
-        case .scared: return (e(40, 60, 0.91, 0.16, 0, 0.93, -40.9, 33.11),
-                              e(40, 60, 0.96, -0.1, 0, 0.93, 25.18, 31.07))
+        case .scared, .stressed: return (e(40, 60, 0.91, 0.16, 0, 0.93, -40.9, 33.11),
+                                         e(40, 60, 0.96, -0.1, 0, 0.93, 25.18, 31.07))
         case .sleepy: return (e(20, 42, 0.99, -0.02, 0.06, 0.45, -13.65, 13.71),
                               e(20, 42, 0.91, -0.05, 0.06, 0.45, 39.63, 9.84))
         }
     }
+
+    /// Whether the face carries a drop of sweat (`BloubSweat`).
+    var sweats: Bool { self == .stressed }
 }
 
 extension BloubExpression {
@@ -279,6 +294,43 @@ struct BloubEyes: Shape {
     }
 }
 
+/// The drop of sweat on `stressed`, in the same source space as the eyes.
+///
+/// A tear shape on the top right of the head, half above the outline, which
+/// is what makes it read as sweat rather than a spot. It stays clear of both
+/// eyes and inside the body's bounds, so it never widens or clips the frame
+/// (`BloubTests` holds both).
+///
+/// `outline` returns the rim as a filled ring rather than asking for a stroke,
+/// so the rim's weight is in source units and scales with the character: a
+/// fixed one-point line would vanish at 22pt and go heavy at 200.
+struct BloubSweat: Shape {
+    var outline = false
+
+    /// Rim width, in source units: the mockup's.
+    static let rim: CGFloat = 3
+
+    static let drop: Path = {
+        var p = Path()
+        let tip = CGPoint(x: 70, y: -72)
+        p.move(to: tip)
+        p.addCurve(to: CGPoint(x: 86, y: -39), control1: tip, control2: CGPoint(x: 86, y: -48))
+        // The round bottom, right to left through its lowest point.
+        p.addArc(center: CGPoint(x: 70, y: -39), radius: 16,
+                 startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
+        p.addCurve(to: tip, control1: CGPoint(x: 54, y: -48), control2: tip)
+        p.closeSubpath()
+        return p
+    }()
+
+    func path(in rect: CGRect) -> Path {
+        let shape = outline
+            ? Self.drop.strokedPath(StrokeStyle(lineWidth: Self.rim, lineJoin: .round))
+            : Self.drop
+        return shape.applying(BloubBody.fit(in: rect))
+    }
+}
+
 private extension CGAffineTransform {
     /// Translated in the space it maps INTO (unlike `translatedBy(x:y:)`).
     func translatedBy(_ offset: CGSize) -> CGAffineTransform {
@@ -324,6 +376,10 @@ struct BloubView: View {
         ZStack {
             BloubBody().fill(tint ?? Theme.bloubBody)
             BloubEyes(expression: expression, lid: lid).fill(Theme.bloubEyes)
+            if expression.sweats {
+                BloubSweat().fill(Theme.bloubSweat)
+                BloubSweat(outline: true).fill(Theme.bloubEyes)
+            }
         }
         .aspectRatio(BloubBody.bounds.width / BloubBody.bounds.height, contentMode: .fit)
         .accessibilityHidden(true)

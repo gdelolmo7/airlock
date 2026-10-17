@@ -74,14 +74,15 @@ final class CloudNotesServiceTests: XCTestCase {
         }
         let service = CloudNotesService(defaults: defaults, store: store,
                                         transport: { _, _, _ in await server.answer() })
-        service.entitlement = { paid ? Self.subscriber : .free }
+        service.plan = { paid ? Self.subscriber.snapshot : .free }
         service.access = { (URL(string: "https://notes.invalid/notes")!, "token") }
         service.hasServer = { true }
         return service
     }
 
     private static func record(startingAt start: Date = start, said: [String]? = nil,
-                               writer: MeetingNotesWriter? = nil) -> MeetingRecord {
+                               writer: MeetingNotesWriter? = nil,
+                               startedOn: PlanSnapshot? = nil) -> MeetingRecord {
         let lines = said ?? [
             "Can you send me the budget by Friday?",
             "Sure, I'll send it on Thursday.",
@@ -95,7 +96,8 @@ final class CloudNotesServiceTests: XCTestCase {
                            start: Double(index * 10), end: Double(index * 10 + 8), text: text)
         }
         return MeetingRecord(bundleID: "us.zoom.xos", appName: "Zoom", startedAt: start,
-                             endedAt: start.addingTimeInterval(90), segments: segments, notesWriter: writer)
+                             endedAt: start.addingTimeInterval(90), segments: segments, notesWriter: writer,
+                             startedOn: startedOn)
     }
 
     // MARK: - One meeting
@@ -121,7 +123,7 @@ final class CloudNotesServiceTests: XCTestCase {
         let free = await service(server, switchedOn: nil, paid: false).write(Self.record(), log: { _ in })
         guard case .mac(.notSubscribed) = free else { return XCTFail("\(free)") }
         let stillOnce = await server.asked
-        XCTAssertEqual(stillOnce, 1, "a trial: nothing leaves")
+        XCTAssertEqual(stillOnce, 1, "Free: nothing leaves")
     }
 
     func testOnlyASubscriberWithTheSettingOnIsAsked() async {
@@ -133,6 +135,37 @@ final class CloudNotesServiceTests: XCTestCase {
         guard case .mac(.settingOff) = off else { return XCTFail("\(off)") }
         let asked = await server.asked
         XCTAssertEqual(asked, 0)
+    }
+
+    // MARK: - The plan a call started on
+
+    /// A subscription that ends during a call still gets that call's notes
+    /// written online: the plan is the one it started on.
+    func testACallKeepsThePlanItStartedOn() async {
+        let server = Server([])
+        let paidAtTheStart = Self.subscriber.snapshot
+        _ = await service(server, paid: false).write(Self.record(startedOn: paidAtTheStart), log: { _ in })
+        let asked = await server.asked
+        XCTAssertEqual(asked, 1, "started on Plus, so written online although it is Free now")
+    }
+
+    /// Bought during the call: whoever just paid expects it to count.
+    func testAPlanBoughtDuringACallCounts() async {
+        let server = Server([])
+        _ = await service(server).write(Self.record(startedOn: .free), log: { _ in })
+        let asked = await server.asked
+        XCTAssertEqual(asked, 1)
+    }
+
+    /// A call from before plans has nothing to keep, so it goes by the plan
+    /// now, either way.
+    func testACallFromBeforePlansGoesByThePlanNow() async {
+        let server = Server([])
+        let free = await service(server, paid: false).write(Self.record(), log: { _ in })
+        guard case .mac(.notSubscribed) = free else { return XCTFail("\(free)") }
+        _ = await service(server).write(Self.record(), log: { _ in })
+        let asked = await server.asked
+        XCTAssertEqual(asked, 1)
     }
 
     // MARK: - On unless switched off
@@ -308,7 +341,7 @@ final class CloudNotesServiceTests: XCTestCase {
         let server = Server([.notes(text: Self.answer, model: "gemini-test", usedFraction: nil)])
         let service = service(server)
         var redone: [URL] = []
-        service.onRedone = { folder, _ in redone.append(folder) }
+        service.onRedone = { folder, _, _ in redone.append(folder) }
 
         await service.redoNow()
 
@@ -399,5 +432,184 @@ final class CloudNotesServiceTests: XCTestCase {
         XCTAssertEqual(asked, 0)
         XCTAssertEqual(writer(in: folder)?.waitsForOnline, false)
         XCTAssertFalse(notes(in: folder).contains(MeetingFiles.offlineLine))
+    }
+
+    // MARK: - A Mac that can't write notes
+
+    /// A meeting the Mac couldn't write notes for, as left on disk when the
+    /// call ended (`Self.ended`).
+    private func savedWithoutNotes(_ missed: CloudNotesRedo.Missed) throws -> URL {
+        try saved(writer: XCTUnwrap(CloudNotesRedo.withoutNotes(missed, now: Self.ended)))
+    }
+
+    private static let ended = start.addingTimeInterval(90)
+
+    /// No Apple Intelligence, and online notes didn't work when the call
+    /// ended: nothing is sent before the hour is up, then they are written,
+    /// the call's first, with no empty page kept beside them.
+    func testAFailedCallOnAMacThatCantWriteNotesEndsWithNotesWrittenLater() async throws {
+        let folder = try savedWithoutNotes(.failed)
+        XCTAssertTrue(notes(in: folder).contains(MeetingFiles.noNotesFailedLine))
+        let server = Server([.notes(text: Self.answer, model: "gemini-test", usedFraction: nil)])
+        let service = service(server)
+        var redone: [Bool] = []
+        service.onRedone = { _, _, first in redone.append(first) }
+
+        service.now = { Self.ended.addingTimeInterval(30 * 60) }
+        await service.redoNow()
+        var asked = await server.asked
+        XCTAssertEqual(asked, 0, "not before its hour")
+
+        service.now = { Self.ended.addingTimeInterval(3_601) }
+        await service.redoNow()
+
+        asked = await server.asked
+        XCTAssertEqual(asked, 1)
+        let page = notes(in: folder)
+        XCTAssertTrue(page.contains("A call to plan the launch."))
+        XCTAssertFalse(page.contains(MeetingFiles.noNotesYet))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: folder.appendingPathComponent(MeetingFiles.earlierNotesFirstName).path),
+                       "a page with no notes isn't kept")
+        XCTAssertEqual(writer(in: folder)?.place, .online)
+        XCTAssertEqual(writer(in: folder)?.waitsForOnline, false)
+        XCTAssertNil(writer(in: folder)?.noNotesYet)
+        XCTAssertEqual(redone, [true], "the call's first notes")
+    }
+
+    /// No Apple Intelligence, and this month's online notes were used when
+    /// the call ended: the page says the day, a look is planned for it,
+    /// nothing is sent before it, and the notes are written on it.
+    func testAUsedMonthOnAMacThatCantWriteNotesEndsWithNotesWrittenOnTheDay() async throws {
+        let until = Self.ended.addingTimeInterval(10 * 86_400)
+        defaults.set(until, forKey: CloudNotesService.allowanceUntilKey)
+        let folder = try savedWithoutNotes(.mac(.allowanceUsed(until: until)))
+        let line = try XCTUnwrap(MeetingFiles.waitingLine(for: writer(in: folder)))
+        XCTAssertTrue(line.hasPrefix(MeetingFiles.noNotesYet + " You've used this month's online notes"))
+        XCTAssertTrue(notes(in: folder).contains(line))
+        let server = Server([.notes(text: Self.answer, model: "gemini-test", usedFraction: nil)])
+        let service = service(server)
+        var redone: [Bool] = []
+        service.onRedone = { _, _, first in redone.append(first) }
+
+        service.now = { until.addingTimeInterval(-60) }
+        await service.redoNow()
+        await service.planNextLook()
+        XCTAssertEqual(service.nextLookAt, until)
+        var asked = await server.asked
+        XCTAssertEqual(asked, 0, "not before its day")
+
+        service.now = { until.addingTimeInterval(60) }
+        await service.redoNow()
+
+        asked = await server.asked
+        XCTAssertEqual(asked, 1)
+        XCTAssertTrue(notes(in: folder).contains("A call to plan the launch."))
+        XCTAssertFalse(notes(in: folder).contains(MeetingFiles.noNotesYet))
+        XCTAssertEqual(writer(in: folder)?.place, .online)
+        XCTAssertEqual(redone, [true])
+        await service.planNextLook()
+        XCTAssertNil(service.nextLookAt, "nothing else waits for a day")
+    }
+
+    /// Sent on its hour and refused: this month's notes are used. It waits
+    /// for the new day, its try given back, and the page says the day.
+    func testARefusalMovesTheDayAndCostsNoTry() async throws {
+        let folder = try savedWithoutNotes(.failed)
+        let tried = Self.ended.addingTimeInterval(3_660)
+        let resets = Self.ended.addingTimeInterval(20 * 86_400)
+        let server = Server([.allowanceUsed(resetsAt: resets)])
+        let service = service(server)
+        service.now = { tried }
+
+        await service.redoNow()
+
+        let asked = await server.asked
+        XCTAssertEqual(asked, 1)
+        let waiting = try XCTUnwrap(writer(in: folder))
+        XCTAssertTrue(waiting.waitsForOnline)
+        XCTAssertEqual(waiting.onlineTries, 0, "a refusal costs no try")
+        XCTAssertEqual(waiting.noNotesYet, .allowanceUsed)
+        XCTAssertEqual(waiting.notBefore, resets)
+        let page = notes(in: folder)
+        XCTAssertTrue(page.contains(try XCTUnwrap(MeetingFiles.waitingLine(for: waiting))))
+        XCTAssertFalse(page.contains(MeetingFiles.noNotesFailedLine))
+    }
+
+    /// Waiting for the network, and this month's notes turn out used: it
+    /// learns the day without a request, and the page says it.
+    func testAWaitingCallLearnsTheDayWithoutAsking() async throws {
+        let folder = try savedWithoutNotes(.mac(.offline))
+        XCTAssertTrue(notes(in: folder).contains(MeetingFiles.noNotesOfflineLine))
+        let until = Self.ended.addingTimeInterval(5 * 86_400)
+        defaults.set(until, forKey: CloudNotesService.allowanceUntilKey)
+        let server = Server([])
+        let service = service(server)
+        service.now = { Self.ended.addingTimeInterval(60) }
+
+        await service.redoNow()
+
+        let asked = await server.asked
+        XCTAssertEqual(asked, 0)
+        let waiting = try XCTUnwrap(writer(in: folder))
+        XCTAssertEqual(waiting.noNotesYet, .allowanceUsed)
+        XCTAssertEqual(waiting.notBefore, until)
+        XCTAssertEqual(waiting.onlineTries, 0)
+        XCTAssertTrue(notes(in: folder).contains(try XCTUnwrap(MeetingFiles.waitingLine(for: waiting))))
+        XCTAssertFalse(notes(in: folder).contains(MeetingFiles.noNotesOfflineLine))
+    }
+
+    /// Tried after an hour, six hours and a day; three tries without notes
+    /// and it stops waiting. The page keeps the transcript and says why
+    /// there are none, and stops promising.
+    func testACallWithNoNotesStopsAfterThreeTries() async throws {
+        let folder = try savedWithoutNotes(.failed)
+        let server = Server([.unavailable, .unavailable, .unavailable])
+        let service = service(server)
+        var clock = Self.ended
+        for (index, wait) in CloudNotesRedo.retryWaits.enumerated() {
+            clock = clock.addingTimeInterval(wait + 1)
+            let now = clock
+            service.now = { now }
+            await service.redoNow()
+            let asked = await server.asked
+            XCTAssertEqual(asked, index + 1)
+            if index + 1 < CloudNotesRedo.retryWaits.count {
+                XCTAssertEqual(writer(in: folder)?.notBefore,
+                               now.addingTimeInterval(CloudNotesRedo.retryWaits[index + 1]))
+                XCTAssertTrue(notes(in: folder).contains(MeetingFiles.noNotesFailedLine))
+            }
+        }
+        let tryAgain = clock.addingTimeInterval(30 * 86_400)
+        service.now = { tryAgain }
+        await service.redoNow()
+
+        let asked = await server.asked
+        XCTAssertEqual(asked, 3, "never sent a fourth time")
+        let stopped = try XCTUnwrap(writer(in: folder))
+        XCTAssertFalse(stopped.waitsForOnline)
+        XCTAssertNil(stopped.noNotesYet)
+        XCTAssertNil(stopped.notBefore)
+        let page = notes(in: folder)
+        XCTAssertFalse(page.contains(MeetingFiles.noNotesYet))
+        XCTAssertTrue(page.contains("No summary this time: Made up."))
+    }
+
+    /// The Mac's own notes, sent again and refused for the month: as before,
+    /// never sent again and no day on the page.
+    func testTheMacsNotesStillStopAtARefusal() async throws {
+        let folder = try savedOffline()
+        let server = Server([.allowanceUsed(resetsAt: Self.ended.addingTimeInterval(86_400))])
+        let service = service(server)
+        service.now = { Self.ended.addingTimeInterval(60) }
+
+        await service.redoNow()
+
+        let asked = await server.asked
+        XCTAssertEqual(asked, 1)
+        XCTAssertEqual(writer(in: folder)?.waitsForOnline, false)
+        XCTAssertNil(writer(in: folder)?.notBefore)
+        XCTAssertFalse(notes(in: folder).contains(MeetingFiles.offlineLine))
+        XCTAssertTrue(notes(in: folder).contains("Made up."))
     }
 }

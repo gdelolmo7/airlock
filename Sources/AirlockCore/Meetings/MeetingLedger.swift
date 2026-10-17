@@ -363,9 +363,13 @@ public struct MeetingLedger: Sendable {
         let due = MeetingText.line(todo.due)
         let dueSaid = Self.isSaid(due, in: context)
         guard dueSaid || !tellsTheMeeting(task, in: context) else { return nil }
-        if dueSaid, !MeetingText.key(task).contains(MeetingText.key(due)) {
+        // A due in parts ("today; before the first of November") adds only
+        // the parts the task doesn't already say.
+        let missing = due.split(separator: ";").map { MeetingText.line(String($0)) }
+            .filter { !$0.isEmpty && !MeetingText.key(task).contains(MeetingText.key($0)) }
+        if dueSaid, !missing.isEmpty {
             while task.last == "." { task.removeLast() }
-            task += " " + due
+            task += " " + missing.joined(separator: "; ")
         }
         let owner = people.owner(todo.owner).flatMap { people.isHeard($0, in: context) ? $0 : nil }
         return MeetingNotes.Item(text: task, owner: owner, sources: sources)

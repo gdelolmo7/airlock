@@ -24,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${AIRLOCK_VERSION:-1.0.22}"
+VERSION="${AIRLOCK_VERSION:-1.0.23}"
 BUILD_NUM="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 BUNDLE_ID="${AIRLOCK_BUNDLE_ID:-com.airlock.app}"
 
@@ -212,7 +212,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Airlock shows your next meetings in the notch with one-click join links.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>No analytics. Crash reports are sent only if you say yes, with nothing personal in them. Airlock looks at your screen only when you ask, and keeps no copy of what it saw.</string>
+	<string>Usage counts and crash reports are sent only if you say yes, and never carry what you type, say, copy or see. Airlock looks at your screen only when you ask, and keeps no copy of what it saw.</string>
 </dict>
 </plist>
 PLIST

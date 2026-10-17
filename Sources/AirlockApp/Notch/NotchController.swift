@@ -55,6 +55,9 @@ final class NotchUIState {
     /// A button on the crash-reports question: true is "Send reports".
     /// Set by the controller.
     @ObservationIgnored var answerCrashQuestion: (Bool) -> Void = { _ in }
+    /// A button on the usage-counts question: true is "Share counts". Set by
+    /// the controller.
+    @ObservationIgnored var answerUsageQuestion: (Bool) -> Void = { _ in }
 
     /// The panel is being rearranged rather than used.
     ///
@@ -99,6 +102,13 @@ final class NotchUIState {
     /// The question just answered, kept drawn while the panel shrinks away
     /// from it, for the reason `whatsNewLeaving` gives.
     var crashQuestionLeaving = false
+    /// The one question to a copy that finished setup before usage counts
+    /// existed: may they be shared (`UsageCounts`). Takes the panel the same
+    /// way, set and cleared only by `NotchController.showUsageQuestion` /
+    /// `endUsageQuestion`.
+    var usageQuestion = false
+    /// The question just answered, kept drawn while the panel shrinks away.
+    var usageQuestionLeaving = false
     /// The running guide's compact state, copied from `GuideController` on
     /// every change it reports. Here rather than read from the controller so
     /// the island's one input keeps coming from one place.
@@ -422,8 +432,9 @@ final class NotchController {
         }
         let uiState = self.uiState
         uiState.takeKeyboardForAnswer = { [weak self] in self?.takeKeyboardForAnswer() }
-        uiState.dismissWhatsNew = { [weak self] in self?.endWhatsNew() }
+        uiState.dismissWhatsNew = { [weak self] in self?.whatsNewGotIt() }
         uiState.answerCrashQuestion = { [weak self] send in self?.endCrashQuestion(send: send) }
+        uiState.answerUsageQuestion = { [weak self] share in self?.endUsageQuestion(share: share) }
         uiState.tabChanged = { [weak self] in
             guard let self, let applied = self.applied else { return }
             let context = "tab \(self.uiState.selectedTab)"
@@ -1259,6 +1270,7 @@ final class NotchController {
     /// to be safe to arrive here twice for the same wizard.
     func endOnboarding() {
         guard let onboarding = uiState.onboarding else { return }
+        onboarding.closed()
         // Still drawn through the collapse this causes. See `onboardingLeaving`.
         uiState.onboardingLeaving = onboarding
         uiState.onboarding = nil
@@ -1318,6 +1330,47 @@ final class NotchController {
         apply()
     }
 
+    /// "Got it" on the new version's card. When the usage question is
+    /// waiting it takes the panel straight away, without a collapse between
+    /// the two: the version that brings counts is also the one that shows
+    /// the card, so otherwise the question would wait a whole launch. Closing
+    /// the panel on the card (`collapseExplicitly`) does not chain: that is
+    /// somebody done with the panel.
+    private func whatsNewGotIt() {
+        guard let card = uiState.whatsNew, UsageCounts.shared.hasQuestionWaiting else {
+            return endWhatsNew()
+        }
+        if whatsNewRemembers { WhatsNewLaunch.markSeen(card.version) }
+        uiState.whatsNew = nil
+        showUsageQuestion(remember: whatsNewRemembers)
+    }
+
+    /// Open the panel on the usage-counts question, for a copy that finished
+    /// setup before counts existed. Held until a button or an explicit
+    /// collapse, like the crash question.
+    ///
+    /// - Parameter remember: count the question as asked. False for
+    ///   `--usage-question`, so looking at it on purpose does not use up the
+    ///   real one.
+    func showUsageQuestion(remember: Bool) {
+        if remember { UsageCounts.shared.questionAsked() }
+        uiState.usageQuestionLeaving = false
+        uiState.usageQuestion = true
+        apply()
+    }
+
+    /// Take the question off the panel. Idempotent: `collapseExplicitly`
+    /// calls it unconditionally, with no answer, which leaves counts off.
+    /// "Not now" is no answer either, rather than a saved no: the switch in
+    /// Settings starts off the same way.
+    func endUsageQuestion(share: Bool) {
+        guard uiState.usageQuestion else { return }
+        uiState.usageQuestionLeaving = true
+        uiState.usageQuestion = false
+        if share { UsageCounts.shared.choose(true, from: .question) }
+        apply()
+    }
+
     /// What the clipboard hotkey does. Pressing it lands you on the clipboard
     /// tab from anywhere, including from hidden; pressing it again while you are
     /// already there closes up, so one key is both the way in and the way out.
@@ -1334,6 +1387,7 @@ final class NotchController {
         // and only the second has a transition to hand the keyboard to.
         let wasExpanded = applied == .expanded
         uiState.selectedTab = .clipboard
+        UsageCounts.shared.record(.used(.clipboardOpened))
         hoverSuppressed = false
         hotkeyExpand = true
         hoveredSinceHotkey = false
@@ -1835,6 +1889,8 @@ final class NotchController {
         endWhatsNew()
         // And for the crash-reports question: closing it is "not now".
         endCrashQuestion(send: false)
+        // And for the usage-counts question: closing it is "not now".
+        endUsageQuestion(share: false)
         hoverSuppressed = true // don't re-peek until the pointer leaves once
         gateHoldsKeyboard = false
         releaseKeyboard()
@@ -2088,6 +2144,7 @@ final class NotchController {
         if uiState.whatsNew != nil { holds.insert(.notes) }
         // The crash-reports question opens the panel the same way.
         if uiState.crashQuestion { holds.insert(.notes) }
+        if uiState.usageQuestion { holds.insert(.notes) }
         // The guide's first look, its card (layout B), or why it stopped.
         #if AIRLOCK_GUIDE
         if guide.panel != nil { holds.insert(.guiding) }
@@ -2326,6 +2383,7 @@ final class NotchController {
             uiState.holdDictationThroughCollapse = false
             uiState.whatsNewLeaving = nil
             uiState.crashQuestionLeaving = false
+            uiState.usageQuestionLeaving = false
             uiState.onboardingLeaving = nil
             return
         }
@@ -2685,6 +2743,7 @@ final class NotchController {
             self?.uiState.holdDictationThroughCollapse = false
             self?.uiState.whatsNewLeaving = nil
             self?.uiState.crashQuestionLeaving = false
+            self?.uiState.usageQuestionLeaving = false
             self?.uiState.onboardingLeaving = nil
         }
     }

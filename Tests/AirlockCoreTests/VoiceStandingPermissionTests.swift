@@ -43,7 +43,7 @@ final class VoiceStandingPermissionTests: XCTestCase {
 
     private func outcome(for request: PermissionRequest) -> VoiceActionOutcome {
         let verdict = PolicyEngine.evaluate(request, policy: store.load(projectRoot: nil).policy)
-        return VoiceActionOutcome.resolve(verdict: verdict, for: request, isEntitled: true)
+        return VoiceActionOutcome.resolve(verdict: verdict, for: request)
     }
 
     func testAlwaysWritesARuleThatThenPerformsWithoutACard() throws {
@@ -113,17 +113,16 @@ final class VoiceStandingPermissionTests: XCTestCase {
         XCTAssertEqual(outcome(for: request), .refused(rule: "Voice.AudioOutput(*)"))
     }
 
-    /// An expired trial outranks a rule the user wrote themselves. Answering
-    /// carries on; performing does not.
-    func testAFinishedTrialOutranksAnAllowRule() throws {
+    /// A rule the user wrote is obeyed on every plan: nothing about the licence
+    /// stands between it and the action.
+    func testAnAllowRulePerformsOnEveryPlan() throws {
         let (_, request) = try spoken("put the sound on the airpods")
         try store.appendAllowRule("Voice.AudioOutput(AirPods Pro)", projectRoot: nil)
 
         let verdict = PolicyEngine.evaluate(request, policy: store.load(projectRoot: nil).policy)
         XCTAssertEqual(verdict, .allow(rule: "Voice.AudioOutput(AirPods Pro)"))
-        XCTAssertEqual(
-            VoiceActionOutcome.resolve(verdict: verdict, for: request, isEntitled: false),
-            .blocked)
+        XCTAssertEqual(VoiceActionOutcome.resolve(verdict: verdict, for: request),
+                       .perform(rule: "Voice.AudioOutput(AirPods Pro)"))
     }
 
     /// What the gate log records, which is what Settings later turns into

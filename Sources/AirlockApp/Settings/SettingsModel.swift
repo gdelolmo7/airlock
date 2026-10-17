@@ -151,11 +151,64 @@ final class SettingsModel {
     /// Normalised on write, so a deep link to a folded pane selects the row it
     /// actually lands on. Without this the sidebar would highlight nothing while
     /// the detail showed Widgets — see `SettingsPane.resolved`.
+    ///
+    /// Setting it is always a way into Settings, so it leaves the Calls page
+    /// (`showsCalls`): a search result, a "See plans" or a link on another
+    /// page never lands behind the calls.
     var pane: SettingsPane = .general {
         didSet {
             let resolved = pane.resolved
-            if resolved != pane { pane = resolved }
+            // The second set runs all of this for the resolved page.
+            if resolved != pane { pane = resolved; return }
+            showsCalls = false
+            remember()
+            // A page someone went to, for usage counts: not the restore at
+            // launch, which runs before anything is remembered.
+            if remembers != nil { UsageCounts.shared.record(.settingsOpened(pane.rawValue)) }
         }
+    }
+
+    /// The Airlock window shows the calls rather than `pane`: Calls at the
+    /// top of its left column is chosen. `pane` stays what it was, so
+    /// "Settings…" goes back to the page that was open.
+    var showsCalls = false {
+        didSet {
+            guard showsCalls != oldValue else { return }
+            remember()
+        }
+    }
+
+    static let paneKey = "window.pane"
+    static let callsKey = "window.showsCalls"
+
+    /// Puts the window back where it was left on the last run. Called once,
+    /// by the window's owner, before it is first shown; until then nothing
+    /// is written, so a page set while restoring is not remembered as a move.
+    func restorePlace(guideOn: Bool = SettingsPane.guideIsOn, defaults: UserDefaults = .standard) {
+        let place = Self.place(pane: defaults.string(forKey: Self.paneKey),
+                               showsCalls: defaults.bool(forKey: Self.callsKey), guideOn: guideOn)
+        pane = place.pane
+        showsCalls = place.showsCalls
+        remembers = defaults
+    }
+
+    /// Where a remembered place puts the window: the page if the column
+    /// still has it (a guide page is gone from a build without the guide),
+    /// else General.
+    static func place(pane stored: String?, showsCalls: Bool,
+                      guideOn: Bool) -> (pane: SettingsPane, showsCalls: Bool) {
+        guard let pane = stored.flatMap(SettingsPane.init(rawValue:))?.resolved,
+              SettingsPane.sidebar(guideOn: guideOn).contains(pane) else { return (.general, showsCalls) }
+        return (pane, showsCalls)
+    }
+
+    /// Where `remember` writes; nil until `restorePlace`, so a preview,
+    /// which is never restored, writes nothing.
+    @ObservationIgnored private var remembers: UserDefaults?
+
+    private func remember() {
+        remembers?.set(pane.rawValue, forKey: Self.paneKey)
+        remembers?.set(showsCalls, forKey: Self.callsKey)
     }
 
     /// A row somebody asked to land on — from search, a notice or another
@@ -185,9 +238,9 @@ final class SettingsModel {
     /// funnels through. `AgentsWidgetModel` derives its default from exactly
     /// that, so installing hooks turns the agent surfaces on without a relaunch.
     @ObservationIgnored var onHookStatusChange: (() -> Void)?
-    /// "Open past calls" on the Voice page: the call notes window, on the
-    /// newest call. The window belongs to the call notes model, which
-    /// Settings does not hold.
+    /// "Open past calls" on the Voice page: the Calls page, on the newest
+    /// call. The calls belong to the call notes model, which Settings does
+    /// not hold.
     @ObservationIgnored var onOpenPastCalls: (() -> Void)?
 
     @ObservationIgnored private let registry = AgentRegistry.shared
@@ -277,19 +330,22 @@ final class SettingsModel {
 
     // MARK: - Agent actions
 
-    func toggle(_ row: AgentRow) {
+    /// Connect or disconnect. `inSetup` when setup asked, for the counts.
+    func toggle(_ row: AgentRow, inSetup: Bool = false) {
         clearError(row.kind)
         do {
             let installer = integration(for: row.kind).installer
             switch row.status {
             case .installed:
                 try installer.uninstall()
+                UsageCounts.shared.record(.agentConnection(row.kind, connected: false, inSetup: inSetup))
             case .notInstalled:
                 guard let source = HookBinaryStager.locateSourceHook(near: Bundle.main.executableURL) else {
                     throw SettingsError.hookBinaryMissing
                 }
                 let staged = try HookBinaryStager.stage(from: source)
                 try installer.install(hookBinaryPath: staged.path)
+                UsageCounts.shared.record(.agentConnection(row.kind, connected: true, inSetup: inSetup))
             case .conflict:
                 return // the person edits the file; the page offers no toggle for it
             }

@@ -349,13 +349,19 @@ extension MeetingFiles {
     /// the notes were written from another listening than the transcript's.
     ///
     /// `writer` is who wrote them, while notes online are switched on
-    /// (`MeetingNotesWriter`): notes written online say so at the foot, and
-    /// notes the Mac wrote while offline say under the date that they will
-    /// be written online (`offlineLine`).
+    /// (`MeetingNotesWriter`): notes written online say so at the foot, with
+    /// whose model wrote them, and notes still to be written online say so
+    /// under the date (`waitingLine`). Notes the Mac wrote say it was the
+    /// basic model, and why when it was meant to be the online one.
+    ///
+    /// `noModel` is why the Mac had no model to write them with, for a page
+    /// without notes: it says what to do about it (`noModelLines`).
     public static func notesPage(for record: MeetingRecord, notes: MeetingNotes?,
                                  unavailableReason: String? = nil,
                                  writtenFrom: String? = nil,
                                  writer: MeetingNotesWriter? = nil,
+                                 noModel: ModelAvailability? = nil,
+                                 locale: Locale = .current,
                                  timeZone: TimeZone = .current) -> String {
         // Named by these notes when they name it, before the record is.
         var record = record
@@ -366,10 +372,17 @@ extension MeetingFiles {
         // reads as one after "Notes:".
         let heading = titleIsAName(record) ? title : title.lowercasedFirst
         var lines = ["# Notes: \(heading)", "", header(of: record, timeZone: timeZone), ""]
-        if writer?.waitsForOnline == true { lines += ["_\(offlineLine)_", ""] }
+        let notes = notes.flatMap { $0.isEmpty ? nil : $0 }
+        if let waiting = waitingLine(for: writer, locale: locale, timeZone: timeZone) {
+            lines += ["_\(waiting)_", ""]
+        } else if notes != nil, let writer, writer.place == .mac, writer.why == .allowanceUsed {
+            lines += ["_\(allowanceUsedMacLine(backOn: writer.backOn, plan: writer.plan, locale: locale, timeZone: timeZone))_", ""]
+        }
+        if let listened = record.stoppedAtLimit {
+            lines += ["_\(coverLine(listened, of: record.endedAt?.timeIntervalSince(record.startedAt)))_", ""]
+        }
         if let writtenFrom { lines += ["_\(writtenFrom)_", ""] }
         let words = NumberedTranscript(record).wordCount
-        let notes = notes.flatMap { $0.isEmpty ? nil : $0 }
 
         if let notes, !notes.summary.isEmpty {
             lines += ["## \(summaryHeading)", "", notes.summary, ""]
@@ -378,9 +391,11 @@ extension MeetingFiles {
                 lines += ["Nothing was heard on this call, so there is nothing to summarise.", ""]
             } else if words < MeetingNotes.minimumWords {
                 lines += [MeetingNotes.tooLittle, ""]
+            } else if let said = noModelLines(noModel, writer: writer) {
+                lines += [said.headline, said.detail + " " + transcriptLine, ""]
             } else {
                 lines += ["No summary this time\(unavailableReason.map { ": \($0)" } ?? ".")",
-                          "The full transcript is in \(transcriptName).", ""]
+                          transcriptLine, ""]
             }
         }
         // Right under the summary, which was written without those minutes
@@ -398,9 +413,17 @@ extension MeetingFiles {
             lines += section(questionsHeading, notes.questions)
             lines += section(keyPointsHeading, notes.keyPoints)
         }
-        let by = writer?.place == .online
-            ? "Written online by Airlock, with Google's Gemini, from \(transcriptName). "
-            : "Written on this Mac by Airlock from \(transcriptName). "
+        let by: String
+        if writer?.place == .online {
+            by = "Written online by Airlock, "
+                + (CloudNotes.maker(ofModel: writer?.model).map { "with \($0), " } ?? "")
+                + "from \(transcriptName). "
+        } else if notes != nil {
+            by = (writer?.why == .serviceDown ? serviceDownFooter : basicModelFooter)
+                + ", from \(transcriptName). "
+        } else {
+            by = "Written on this Mac by Airlock from \(transcriptName). "
+        }
         lines += ["---", "",
                   "_" + by
                   + "No audio was kept. The summary is made by a model and can be wrong; "
@@ -408,15 +431,156 @@ extension MeetingFiles {
         return lines.joined(separator: "\n") + "\n"
     }
 
+    /// Whether a notes page has notes on it: any of the headings the notes
+    /// are written under. "Your notes" alone is the person's, not notes.
+    public static func hasNotes(_ page: String) -> Bool {
+        let headings = [summaryHeading, todosHeading, decisionsHeading, questionsHeading, keyPointsHeading]
+        return MeetingPage.blocks(of: page).contains { block in
+            if case .heading(let text, level: 2) = block { return headings.contains(text) }
+            return false
+        }
+    }
+
+    /// "The full transcript is in Transcript.md.", on a page without notes.
+    public static let transcriptLine = "The full transcript is in \(transcriptName)."
+
+    /// The foot of notes the Mac wrote: its own model is the basic one, and
+    /// the window offers a better one beside it (`CallNotesOffers`).
+    public static let basicModelFooter = "Written on your Mac with the basic model"
+
+    /// The same, when the online notes service was asked and didn't answer:
+    /// said on every plan, so a paid plan's Mac-written notes are explained.
+    public static let serviceDownFooter =
+        "The online notes service didn't answer, so these were written on your Mac with the basic model"
+
+    /// Under the date of notes a plan's limit stopped
+    /// (`MeetingRecord.stoppedAtLimit`): "These notes cover the first 30
+    /// minutes of a 42-minute call." The call's length only when it is known
+    /// and a whole minute longer.
+    public static func coverLine(_ listened: TimeInterval, of call: TimeInterval? = nil) -> String {
+        let minutes = max(1, Int((listened / 60).rounded()))
+        let first = minutes == 1 ? "minute" : "\(minutes) minutes"
+        guard let call, Int((call / 60).rounded()) > minutes else { return coverLead + first + "." }
+        return coverLead + first + " of a \(Int((call / 60).rounded()))-minute call."
+    }
+
+    /// How `coverLine` begins, which the window looks for.
+    public static let coverLead = "These notes cover the first "
+
+    /// Said after the day online notes come back, on Plus: the bigger plan
+    /// has more of them.
+    public static let proHasMore = "Pro has twice as many."
+
+    /// Under the date of notes the Mac wrote because this month's online
+    /// notes were used up: when they come back, and on Plus, that Pro has
+    /// more.
+    public static func allowanceUsedMacLine(backOn: Date?, plan: PlanSnapshot?, locale: Locale = .current,
+                                            timeZone: TimeZone = .current) -> String {
+        allowanceUsedMacLead + ", so these were written on your Mac."
+            + (backOn.map { " Online notes are back on \(CloudNotesAllowance.day($0, locale: locale, timeZone: timeZone))." }
+               ?? "")
+            + (plan?.plan == .plus ? " " + proHasMore : "")
+    }
+
+    /// How `allowanceUsedMacLine` begins.
+    public static let allowanceUsedMacLead = "This month's online notes are used up"
+
+    /// The first line of a page without notes on a Mac with Apple
+    /// Intelligence switched off.
+    public static let turnOnAppleIntelligence = "Turn on Apple Intelligence to get notes and to-dos."
+
+    /// The first line of a page without notes on a Mac that can't run
+    /// Apple's model, on a plan that doesn't write notes online.
+    public static let macCantWriteNotes = "This Mac can't write notes itself. Plus writes them online, on any Mac."
+
+    /// What a page without notes says when the Mac had no model to write
+    /// them with, or nil to say it the usual way. Apple Intelligence
+    /// switched off: turn it on, unless the notes are on their way online
+    /// anyway. A Mac that can't run it: Plus can write them, unless this
+    /// plan already does, or online notes are off altogether (no writer).
+    public static func noModelLines(_ availability: ModelAvailability?, writer: MeetingNotesWriter?)
+        -> (headline: String, detail: String)? {
+        switch availability {
+        case .needsAppleIntelligence where writer?.waitsForOnline != true:
+            return (turnOnAppleIntelligence,
+                    "Airlock writes call notes with your Mac's own model, and Apple Intelligence is switched off.")
+        case .deviceNotEligible:
+            guard let plan = writer?.plan, !plan.limits.writesNotesOnline, writer?.waitsForOnline != true else {
+                return nil
+            }
+            return (macCantWriteNotes, "Your transcripts are always kept, on every plan.")
+        default:
+            return nil
+        }
+    }
+
     /// Under the date, on notes the Mac wrote while offline that will be
     /// written online once it is back (`CloudNotesRedo`).
     public static let offlineLine =
         "Written on this Mac while offline. They'll be improved once you're back online."
 
-    /// `page` without `offlineLine`: for notes that will not be written
+    /// How every line under the date of a page with no notes yet begins, on
+    /// a Mac that can't write them (`MeetingNotesWriter.noNotesYet`).
+    public static let noNotesYet = "No notes yet."
+
+    /// Offline when the call ended.
+    public static let noNotesOfflineLine = noNotesYet + " They'll be written online once you're back online."
+
+    /// Writing them online didn't work; tried again (`CloudNotesRedo.retryWaits`).
+    public static let noNotesFailedLine = noNotesYet
+        + " The online notes service didn't answer, so Airlock will try again later."
+
+    /// How `noNotesAllowanceLine` begins.
+    public static let noNotesAllowanceLead = noNotesYet + " You've used this month's online notes"
+
+    /// This month's online notes are used: "… these will be written on 1
+    /// November." On Plus, that Pro has more.
+    public static func noNotesAllowanceLine(until: Date?, plan: PlanSnapshot? = nil, locale: Locale = .current,
+                                            timeZone: TimeZone = .current) -> String {
+        noNotesAllowanceLead + ", so these will be written "
+            + (until.map { "on \(CloudNotesAllowance.day($0, locale: locale, timeZone: timeZone))." }
+               ?? "once they're back.")
+            + (plan?.plan == .plus ? " " + proHasMore : "")
+    }
+
+    /// The line under the date of a page whose notes are still to be written
+    /// online, or nil when nothing waits.
+    public static func waitingLine(for writer: MeetingNotesWriter?, locale: Locale = .current,
+                                   timeZone: TimeZone = .current) -> String? {
+        guard let writer, writer.waitsForOnline else { return nil }
+        switch writer.noNotesYet {
+        case nil: return offlineLine
+        case .offline: return noNotesOfflineLine
+        case .failed: return noNotesFailedLine
+        case .allowanceUsed:
+            return noNotesAllowanceLine(until: writer.notBefore, plan: writer.plan, locale: locale, timeZone: timeZone)
+        }
+    }
+
+    /// `page` with its waiting line (`waitingLine`) put right for `writer`:
+    /// changed when the wait has changed, gone when nothing waits any more.
+    /// A page without one is left as it is.
+    public static func withWaitingLine(_ page: String, for writer: MeetingNotesWriter?,
+                                       locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        guard let range = waitingLineRange(in: page) else { return page }
+        var page = page
+        page.replaceSubrange(range, with: waitingLine(for: writer, locale: locale, timeZone: timeZone)
+                                .map { "_\($0)_\n\n" } ?? "")
+        return page
+    }
+
+    /// `page` without its waiting line: for notes that will not be written
     /// online after all, which must stop promising it.
-    public static func withoutOfflineLine(_ page: String) -> String {
-        page.replacingOccurrences(of: "_\(offlineLine)_\n\n", with: "")
+    public static func withoutWaitingLine(_ page: String) -> String {
+        withWaitingLine(page, for: nil)
+    }
+
+    /// Where the waiting line is, with the blank line after it.
+    private static func waitingLineRange(in page: String) -> Range<String.Index>? {
+        if let range = page.range(of: "_\(offlineLine)_\n\n") { return range }
+        guard let start = page.range(of: "_\(noNotesYet) "),
+              let end = page.range(of: "_\n\n", range: start.upperBound..<page.endIndex) else { return nil }
+        return start.lowerBound..<end.upperBound
     }
 
     /// The name an earlier notes page is kept under when the notes are

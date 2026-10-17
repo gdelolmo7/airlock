@@ -57,6 +57,7 @@ final class OnboardingModel {
         let plan = OnboardingPlan(resumingAt: stored)
         self.plan = plan
         isResuming = plan.step != .welcome
+        recheckAppleIntelligence()
     }
 
     // MARK: - Presentation decision
@@ -106,14 +107,16 @@ final class OnboardingModel {
     // MARK: - Navigation
 
     func advance() {
-        guard !plan.isLast else { return finish() }
+        guard !plan.isLast else { return end(.done) }
+        let from = plan.step
         plan.advance()
-        moved()
+        moved(from: from)
     }
 
     func retreat() {
+        let from = plan.step
         plan.retreat()
-        moved()
+        moved(from: from)
     }
 
     /// Writes nothing: the state gallery draws every step through here, and
@@ -124,18 +127,75 @@ final class OnboardingModel {
         plan.jump(to: step)
         didFinish = false
         isResuming = resumed
+        firstRun = nil
         settings.refresh()
     }
 
-    private func moved() {
+    private func moved(from previous: OnboardingPlan.Step) {
         isResuming = false
         Self.remember(plan.step)
+        left(previous)
+        guard let run = firstRun else { return }
+        let now = Date()
+        UsageCounts.shared.record(.setupStep(plan.step, position: plan.position,
+                                             secondsBefore: Int(now.timeIntervalSince(run.stepShown))))
+        firstRun = (run.began, now)
     }
 
-    func finish() {
+    /// "Skip setup".
+    func finish() { end(.skipped) }
+
+    private func end(_ how: UsageEvent.SetupEnd) {
+        counted(end: how)
         Self.hasCompletedSetup = true
         didFinish = true
         onClose?()
+    }
+
+    /// Setup closed from outside itself: the panel collapsed, the window's
+    /// close button. Counted as skipped, once; after `finish` it is a no-op.
+    func closed() { counted(end: .skipped) }
+
+    // MARK: - Usage counts
+
+    /// The first screen asks whether usage counts may be shared, in a build
+    /// that could send them (`UsageCounts.isAvailable`). Settable so the
+    /// state gallery can show the row from a build without one.
+    var offersUsageCounts = UsageCounts.shared.isAvailable
+
+    /// The answer, straight to the counter: off until switched on.
+    var sharesUsageCounts: Bool {
+        get { UsageCounts.shared.isEnabled }
+        set { UsageCounts.shared.choose(newValue, from: .setup) }
+    }
+
+    /// The setup a new copy opened with at launch, while it lasts: when it
+    /// began and when the step on screen came up. nil for a run from the
+    /// menu bar and for the state gallery, which are not first runs.
+    @ObservationIgnored private var firstRun: (began: Date, stepShown: Date)?
+
+    /// Setup opened at launch on a copy that has not finished it. Its steps
+    /// are counted from here, which for somebody who says yes on the first
+    /// screen means every step after it, and nothing for anybody else.
+    func beganFirstRun() {
+        let now = Date()
+        firstRun = (now, now)
+        UsageCounts.shared.record(.setupStep(plan.step, position: plan.position, secondsBefore: nil))
+    }
+
+    private func counted(end how: UsageEvent.SetupEnd) {
+        left(plan.step)
+        guard let run = firstRun else { return }
+        firstRun = nil
+        UsageCounts.shared.record(.setupEnded(how, at: plan.step,
+                                              seconds: Int(Date().timeIntervalSince(run.began))))
+    }
+
+    /// Leaving the first screen, by any route, puts the question about
+    /// usage counts, answered or not: the notch does not ask it again.
+    private func left(_ step: OnboardingPlan.Step) {
+        guard step == .welcome, offersUsageCounts else { return }
+        UsageCounts.shared.questionAsked()
     }
 
     // MARK: - Steps
@@ -156,14 +216,14 @@ final class OnboardingModel {
 
     func install(_ row: SettingsModel.AgentRow) {
         guard row.status == .notInstalled else { return }
-        settings.toggle(row)
+        settings.toggle(row, inSetup: true)
     }
 
     /// The whole point of the step, in one button. Skips agents that are already
     /// installed or in conflict, so it stays safe to press twice.
     func installAll() {
         for row in settings.agents where row.status == .notInstalled {
-            settings.toggle(row)
+            settings.toggle(row, inSetup: true)
         }
     }
 
@@ -180,6 +240,7 @@ final class OnboardingModel {
     /// hooks later never quietly overrides it.
     func declineAgents() {
         agentsWidget.choose(false)
+        UsageCounts.shared.record(.agentsDeclined)
         advance()
     }
 
@@ -286,6 +347,23 @@ final class OnboardingModel {
         case .openSystemSettings: PermissionPage.permission(.calendar).open()
         case .nothing: break
         }
+    }
+
+    /// The Apple Intelligence row. It writes call notes on this Mac, and on
+    /// Free that is the only way they get written, so setup is where to find
+    /// out it is off. Stored rather than computed: macOS posts nothing when it
+    /// is switched on or finishes downloading, so the step re-reads it
+    /// (`recheckAppleIntelligence`) while it is on screen.
+    private(set) var appleIntelligence: AppleIntelligenceSetup = .row(.unknown(""))
+
+    func recheckAppleIntelligence() {
+        let row = AppleIntelligenceSetup.row(assistant.availability)
+        if row != appleIntelligence { appleIntelligence = row }
+    }
+
+    func performAppleIntelligenceButton() {
+        guard let url = appleIntelligence.button?.url else { return }
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: - Finish

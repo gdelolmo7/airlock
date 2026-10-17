@@ -93,13 +93,13 @@ final class DiagnosticsReportTests: XCTestCase {
     func testEveryEntitlementHasAWordAndNoneOfThemIsBlank() {
         let license = License(id: "lic_1", email: "a@b.com", product: "airlock",
                               period: .monthly, issued: Date(), renewsAt: Date(),
-                              checkBy: Date())
+                              checkBy: Date(), plan: .pro)
         let cases: [(Entitlement, DiagnosticsReport.LicenseState)] = [
+            (.free, .free),
             (.trialing(daysRemaining: 3), .trial(daysRemaining: 3)),
-            (.trialExpired, .trialExpired),
-            (.licensed(license), .subscribed),
-            (.grace(license), .grace),
-            (.overdue(license), .overdue),
+            (.licensed(license), .subscribed(.pro)),
+            (.grace(license), .grace(.pro)),
+            (.overdue(license), .overdue(.pro)),
         ]
         for (entitlement, expected) in cases {
             let state = DiagnosticsReport.LicenseState(entitlement)

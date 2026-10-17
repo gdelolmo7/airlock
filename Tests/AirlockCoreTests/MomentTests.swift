@@ -7,10 +7,11 @@ final class MomentTests: XCTestCase {
     // MARK: - Rows
 
     /// Every row of the inventory's moments table has a moment, so a log line
-    /// can always be looked up there.
+    /// can always be looked up there. M24 (the licence lock) is retired, and
+    /// its number is not reused.
     func testEveryInventoryRowIsCovered() {
         let rows = Set(Moment.allCases.map(\.row))
-        XCTAssertEqual(rows, Set((1...25).map { "M\($0)" }))
+        XCTAssertEqual(rows, Set((1...25).filter { $0 != 24 }.map { "M\($0)" }))
     }
 
     // MARK: - Dedupe

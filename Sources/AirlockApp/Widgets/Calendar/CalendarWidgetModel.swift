@@ -483,6 +483,7 @@ final class CalendarWidgetModel {
     /// `MeetingLinks.appURL(for:)` for which providers have one and why.
     func join(_ event: CalendarEvent) {
         guard let meeting = event.meeting else { return }
+        UsageCounts.shared.record(.used(.meetingJoined))
         if let appURL = meeting.appURL, NSWorkspace.shared.open(appURL) {
             onNavigateAway?()
             return

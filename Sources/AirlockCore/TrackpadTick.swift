@@ -36,7 +36,7 @@ extension Moment {
              .fileOver, .dropRefused,
              .permissionNeeded, .permissionFixed,
              .keepAwakeOn, .keepAwakeStopped,
-             .usageLimitClose, .outputSwitched, .licenceBlocked:
+             .usageLimitClose, .outputSwitched:
             nil
         }
     }

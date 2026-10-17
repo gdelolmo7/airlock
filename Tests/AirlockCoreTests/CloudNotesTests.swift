@@ -273,7 +273,7 @@ final class CloudNotesRouteTests: XCTestCase {
     }
 
     private func everythingHolds() -> CloudNotesConditions {
-        CloudNotesConditions(hiddenSwitch: true, setting: true, entitlement: subscriber, hasToken: true,
+        CloudNotesConditions(hiddenSwitch: true, setting: true, plan: subscriber.snapshot, hasToken: true,
                              hasServer: true, online: true, words: 200, promptSize: 5_000, now: now)
     }
 
@@ -291,13 +291,15 @@ final class CloudNotesRouteTests: XCTestCase {
         let later = now.addingTimeInterval(3_600), earlier = now.addingTimeInterval(-3_600)
         XCTAssertEqual(route { $0.hiddenSwitch = false }, .mac(.hiddenSwitchOff))
         XCTAssertEqual(route { $0.setting = false }, .mac(.settingOff))
-        XCTAssertEqual(route { $0.entitlement = .trialing(daysRemaining: 9) }, .mac(.notSubscribed))
-        XCTAssertEqual(route { $0.entitlement = .free }, .mac(.notSubscribed))
-        XCTAssertEqual(route { $0.entitlement = .trialExpired }, .mac(.notSubscribed))
+        XCTAssertEqual(route { $0.plan = Entitlement.trialing(daysRemaining: 9).snapshot }, .mac(.notSubscribed))
+        XCTAssertEqual(route { $0.plan = .free }, .mac(.notSubscribed))
         if case let .licensed(license) = subscriber {
-            XCTAssertEqual(route { $0.entitlement = .overdue(license) }, .mac(.notSubscribed), "run out")
-            XCTAssertEqual(route { $0.entitlement = .grace(license) }, .online, "grace is still paid")
+            XCTAssertEqual(route { $0.plan = Entitlement.overdue(license).snapshot }, .mac(.notSubscribed),
+                           "run out")
+            XCTAssertEqual(route { $0.plan = Entitlement.grace(license).snapshot }, .online,
+                           "grace is still paid")
         }
+        XCTAssertEqual(route { $0.plan = PlanSnapshot(plan: .pro, isPaid: true) }, .online)
         XCTAssertEqual(route { $0.hasToken = false }, .mac(.noToken))
         XCTAssertEqual(route { $0.hasServer = false }, .mac(.noServer))
         XCTAssertEqual(route { $0.words = MeetingNotes.minimumWords - 1 }, .mac(.tooShort))
@@ -313,7 +315,7 @@ final class CloudNotesRouteTests: XCTestCase {
     /// The hidden switch first: off, nothing else is even looked at, and
     /// today's notes are written exactly as they were.
     func testTheFirstReasonThatHoldsIsTheOneGiven() {
-        let nothing = CloudNotesConditions(hiddenSwitch: false, setting: false, entitlement: .trialExpired,
+        let nothing = CloudNotesConditions(hiddenSwitch: false, setting: false, plan: .free,
                                            hasToken: false, hasServer: false, online: false, words: 0,
                                            promptSize: .max, allowanceUntil: .distantFuture,
                                            notEligibleUntil: .distantFuture, now: now)
@@ -323,7 +325,7 @@ final class CloudNotesRouteTests: XCTestCase {
         XCTAssertEqual(CloudNotesRoute.decide(conditions), .mac(.settingOff))
         conditions.setting = true
         XCTAssertEqual(CloudNotesRoute.decide(conditions), .mac(.notSubscribed))
-        conditions.entitlement = subscriber
+        conditions.plan = subscriber.snapshot
         XCTAssertEqual(CloudNotesRoute.decide(conditions), .mac(.noToken))
         conditions.hasToken = true
         XCTAssertEqual(CloudNotesRoute.decide(conditions), .mac(.noServer))
@@ -400,6 +402,17 @@ final class CloudNotesSettingTests: XCTestCase {
                        "When a meeting ends, its transcript goes through Airlock's server to Google's Gemini to "
                        + "write better notes. Neither Airlock nor Google keeps it, and it isn't used to train AI. "
                        + "Off, or without internet, notes are written on this Mac.")
+        XCTAssertEqual(CloudNotesSetting.subtitle(for: .plus), CloudNotesSetting.subtitle)
+        XCTAssertEqual(CloudNotesSetting.subtitle(for: nil), CloudNotesSetting.subtitle, "unknown reads as Plus")
+    }
+
+    /// Pro's notes go to another company's model, by another company's
+    /// computers: the switch names both, and that neither keeps it.
+    func testProSaysItsNotesGoToOpenAIRunByMicrosoft() {
+        XCTAssertEqual(CloudNotesSetting.subtitle(for: .pro),
+                       "When a meeting ends, its transcript goes through Airlock's server to OpenAI's GPT, run by "
+                       + "Microsoft Azure, to write better notes. Neither Airlock, OpenAI nor Microsoft keeps it, "
+                       + "and it isn't used to train AI. Off, or without internet, notes are written on this Mac.")
     }
 }
 
@@ -447,6 +460,14 @@ final class CloudNotesAllowanceTests: XCTestCase {
                        "You've used this month's online notes. Notes are written on your Mac until 1 November.")
         XCTAssertEqual(CloudNotesAllowance.day(until, locale: Locale(identifier: "en_US"), timeZone: Fixture.utc),
                        "November 1")
+    }
+
+    /// A Mac that can't write notes says when this call's will be.
+    func testOnAMacThatCantWriteNotesItSaysTheDayThisCallsAreWritten() {
+        let until = Fixture.date("2026-11-01T00:00:00Z")
+        XCTAssertEqual(CloudNotesAllowance.message(until: until, macWrites: false, locale: britain,
+                                                   timeZone: Fixture.utc),
+                       "You've used this month's online notes, so this call's notes will be written on 1 November.")
     }
 
     /// No higher plan exists yet, so nothing offers one.
@@ -564,6 +585,123 @@ final class CloudNotesRedoTests: XCTestCase {
         XCTAssertEqual(CloudNotesRedo.waiting([call(startedAfter: 1, writer: answered)]).count, 0)
         XCTAssertEqual(CloudNotesRedo.waiting([call(startedAfter: 1, writer: neverLeft)]).count, 1)
     }
+
+    // A Mac that can't write notes (no Apple Intelligence)
+
+    private let ended = Fixture.date("2026-10-14T10:00:00Z")
+
+    /// Every miss that will pass keeps the call waiting, with the day it
+    /// is due; one that won't (switched off, not a subscriber, too long)
+    /// leaves the page as it was, saying why there are no notes.
+    func testAMacThatCantWriteNotesKeepsTheCallWaiting() {
+        let until = Fixture.date("2026-11-01T00:00:00Z")
+        let failed = CloudNotesRedo.withoutNotes(.failed, now: ended)
+        XCTAssertEqual(failed?.noNotesYet, .failed)
+        XCTAssertEqual(failed?.notBefore, ended.addingTimeInterval(3_600), "tried again an hour after the call")
+        XCTAssertEqual(failed?.waitsForOnline, true)
+        XCTAssertEqual(failed?.place, .mac)
+        XCTAssertNil(failed?.model)
+
+        let offline = CloudNotesRedo.withoutNotes(.mac(.offline), now: ended)
+        XCTAssertEqual(offline?.noNotesYet, .offline)
+        XCTAssertNil(offline?.notBefore, "it waits for the network, not a date")
+
+        let used = CloudNotesRedo.withoutNotes(.mac(.allowanceUsed(until: until)), now: ended)
+        XCTAssertEqual(used?.noNotesYet, .allowanceUsed)
+        XCTAssertEqual(used?.notBefore, until)
+
+        for reason: CloudNotesRoute.Reason in [.settingOff, .hiddenSwitchOff, .tooShort, .tooLong] {
+            XCTAssertNil(CloudNotesRedo.withoutNotes(.mac(reason), now: ended), "\(reason)")
+        }
+    }
+
+    /// Not sent before its day, then sent; the Mac's own notes keep being
+    /// sent at once, as before.
+    func testACallWithNoNotesIsSentOnlyFromItsDay() throws {
+        let writer = try XCTUnwrap(CloudNotesRedo.withoutNotes(.failed, now: ended))
+        let calls = [call(startedAfter: 1, writer: writer)]
+        XCTAssertFalse(CloudNotesRedo.isDue(writer, now: ended.addingTimeInterval(3_599)))
+        XCTAssertTrue(CloudNotesRedo.isDue(writer, now: ended.addingTimeInterval(3_600)))
+        XCTAssertEqual(CloudNotesRedo.waiting(calls, now: ended.addingTimeInterval(60)).count, 0)
+        XCTAssertEqual(CloudNotesRedo.waiting(calls, now: ended.addingTimeInterval(3_600)).count, 1)
+        XCTAssertTrue(CloudNotesRedo.isDue(.mac(at: ended, waitsForOnline: true), now: ended))
+    }
+
+    /// After a try that didn't work: an hour, six, a day, then it stops
+    /// waiting, where the Mac's notes are sent once and never again.
+    func testAFailedTryIsTriedAgainAfterLongerWaitsThenStops() throws {
+        var writer = try XCTUnwrap(CloudNotesRedo.withoutNotes(.failed, now: ended))
+        var now = ended
+        var waits: [TimeInterval] = []
+        for _ in 0..<10 {
+            guard let due = writer.notBefore, writer.waitsForOnline else { break }
+            now = due
+            XCTAssertTrue(CloudNotesRedo.isDue(writer, now: now))
+            writer.onlineTries += 1          // counted before it is sent
+            writer = CloudNotesRedo.afterFailedTry(writer, neverLeft: false, now: now)
+            if let next = writer.notBefore { waits.append(next.timeIntervalSince(now)) }
+        }
+        XCTAssertEqual(waits, [6 * 3_600, 86_400], "after the first wait (an hour): six hours, then a day")
+        XCTAssertEqual(writer.onlineTries, 3)
+        XCTAssertFalse(writer.waitsForOnline, "three tries after the call's own, then no more")
+        XCTAssertNil(writer.noNotesYet)
+        XCTAssertNil(writer.notBefore)
+        XCTAssertNil(CloudNotesRedo.nextLook([call(startedAfter: 1, writer: writer)], now: now))
+        XCTAssertEqual(CloudNotesRedo.maxTries(for: .mac(at: ended, waitsForOnline: true)), 1)
+    }
+
+    /// A request that never left gives its try back, and keeps its day.
+    func testATryThatNeverLeftCostsNothingHereEither() throws {
+        var writer = try XCTUnwrap(CloudNotesRedo.withoutNotes(.failed, now: ended))
+        writer.onlineTries = 1
+        let back = CloudNotesRedo.afterFailedTry(writer, neverLeft: true, now: ended)
+        XCTAssertEqual(back.onlineTries, 0)
+        XCTAssertEqual(back.notBefore, writer.notBefore)
+        XCTAssertEqual(back.noNotesYet, .failed)
+    }
+
+    /// This month's notes used: it waits for the day they come back, and the
+    /// refusal costs no try. The Mac's own notes stop at it, as before.
+    func testAUsedMonthMakesItWaitForTheDayAndCostsNoTry() throws {
+        let until = Fixture.date("2026-11-01T00:00:00Z")
+        var writer = try XCTUnwrap(CloudNotesRedo.withoutNotes(.mac(.offline), now: ended))
+        XCTAssertEqual(CloudNotesRedo.step(for: .mac(.allowanceUsed(until: until)), writer: writer),
+                       .waitUntil(until))
+        XCTAssertEqual(CloudNotesRedo.step(for: .mac(.allowanceUsed(until: until)),
+                                           writer: .mac(at: ended, waitsForOnline: true)), .stop)
+        XCTAssertEqual(CloudNotesRedo.step(for: .mac(.offline), writer: writer), .stop)
+        XCTAssertEqual(CloudNotesRedo.step(for: .online, writer: writer), .send)
+
+        writer.onlineTries = 1
+        let refused = CloudNotesRedo.afterAllowanceUsed(writer, until: until, triedNow: true)
+        XCTAssertEqual(refused.onlineTries, 0)
+        XCTAssertEqual(refused.noNotesYet, .allowanceUsed)
+        XCTAssertEqual(refused.notBefore, until)
+        XCTAssertTrue(refused.waitsForOnline)
+        let told = CloudNotesRedo.afterAllowanceUsed(writer, until: until, triedNow: false)
+        XCTAssertEqual(told.onlineTries, 1, "not sent, so nothing to give back")
+    }
+
+    /// The service looks again on the earliest day a call waits for; one
+    /// already due but not sent is looked at again in an hour, not every
+    /// minute; calls waiting only for the network don't plan a look.
+    func testTheNextLookIsTheEarliestDay() throws {
+        let now = ended.addingTimeInterval(60)
+        let soon = try XCTUnwrap(CloudNotesRedo.withoutNotes(.failed, now: ended))
+        let later = try XCTUnwrap(CloudNotesRedo.withoutNotes(
+            .mac(.allowanceUsed(until: Fixture.date("2026-11-01T00:00:00Z"))), now: ended))
+        let network = try XCTUnwrap(CloudNotesRedo.withoutNotes(.mac(.offline), now: ended))
+        XCTAssertEqual(CloudNotesRedo.nextLook([call(startedAfter: 1, writer: later),
+                                                call(startedAfter: 2, writer: soon),
+                                                call(startedAfter: 3, writer: network)], now: now),
+                       ended.addingTimeInterval(3_600))
+        XCTAssertEqual(CloudNotesRedo.nextLook([call(startedAfter: 1, writer: soon)],
+                                               now: ended.addingTimeInterval(7_200)),
+                       ended.addingTimeInterval(7_200 + CloudNotesRedo.lookAgainAfter))
+        XCTAssertNil(CloudNotesRedo.nextLook([call(startedAfter: 3, writer: network),
+                                              call(startedAfter: 4, writer: .mac(at: ended, waitsForOnline: true)),
+                                              call(startedAfter: 5, writer: soon, ended: false)], now: now))
+    }
 }
 
 // MARK: - The record, the page and the files
@@ -598,8 +736,69 @@ final class CloudNotesFilesTests: XCTestCase {
         let waiting = page(.mac(at: Fixture.start, waitsForOnline: true))
         XCTAssertTrue(waiting.contains(
             "\n\n_Written on this Mac while offline. They'll be improved once you're back online._\n\n## "))
-        XCTAssertEqual(MeetingFiles.withoutOfflineLine(waiting), page(nil))
+        XCTAssertEqual(MeetingFiles.withoutWaitingLine(waiting), page(nil))
         XCTAssertEqual(page(.mac(at: Fixture.start)), page(nil), "the Mac's notes, online or not, read as today")
+    }
+
+    private func emptyPage(_ writer: MeetingNotesWriter?) -> String {
+        MeetingFiles.notesPage(for: Fixture.record(), notes: nil, unavailableReason: "Made up.",
+                               writer: writer, timeZone: Fixture.utc)
+    }
+
+    /// A page with no notes yet says why, and when they will come.
+    func testAPageWithNoNotesYetSaysWhenTheyWillCome() throws {
+        let ended = Fixture.date("2026-10-14T10:00:00Z")
+        let until = Fixture.date("2026-11-01T00:00:00Z")
+        let offline = try XCTUnwrap(CloudNotesRedo.withoutNotes(.mac(.offline), now: ended))
+        let failed = try XCTUnwrap(CloudNotesRedo.withoutNotes(.failed, now: ended))
+        let used = try XCTUnwrap(CloudNotesRedo.withoutNotes(.mac(.allowanceUsed(until: until)), now: ended))
+        XCTAssertTrue(emptyPage(offline).contains(
+            "\n\n_No notes yet. They'll be written online once you're back online._\n\n"))
+        XCTAssertTrue(emptyPage(failed).contains(
+            "\n\n_No notes yet. The online notes service didn't answer, so Airlock will try again later._\n\n"))
+        XCTAssertEqual(MeetingFiles.waitingLine(for: used, locale: Locale(identifier: "en_GB"), timeZone: Fixture.utc),
+                       "No notes yet. You've used this month's online notes, so these will be written on 1 November.")
+        XCTAssertTrue(emptyPage(offline).contains("No summary this time: Made up."), "and still why the Mac wrote none")
+        XCTAssertNil(MeetingFiles.waitingLine(for: CloudNotesRedo.stopped(failed)))
+        XCTAssertNil(MeetingFiles.waitingLine(for: nil))
+    }
+
+    /// The line follows the wait: changed in place when the reason or the
+    /// day changes, gone once it stops waiting; nothing else moves.
+    func testTheWaitingLineIsPutRightInPlace() throws {
+        let ended = Fixture.date("2026-10-14T10:00:00Z")
+        let until = Fixture.date("2026-11-01T00:00:00Z")
+        let offline = try XCTUnwrap(CloudNotesRedo.withoutNotes(.mac(.offline), now: ended))
+        let used = CloudNotesRedo.afterAllowanceUsed(offline, until: until, triedNow: false)
+        XCTAssertEqual(MeetingFiles.withWaitingLine(emptyPage(offline), for: used, timeZone: Fixture.utc),
+                       emptyPage(used))
+        XCTAssertEqual(MeetingFiles.withWaitingLine(emptyPage(used), for: offline, timeZone: Fixture.utc),
+                       emptyPage(offline))
+        XCTAssertEqual(MeetingFiles.withWaitingLine(emptyPage(used), for: CloudNotesRedo.stopped(used)),
+                       emptyPage(nil))
+        XCTAssertEqual(MeetingFiles.withoutWaitingLine(emptyPage(offline)), emptyPage(nil))
+        XCTAssertEqual(MeetingFiles.withWaitingLine(emptyPage(nil), for: used), emptyPage(nil),
+                       "a page without one is left as it is")
+        XCTAssertEqual(MeetingFiles.withWaitingLine(page(.mac(at: ended, waitsForOnline: true)), for: nil),
+                       page(nil), "the Mac's offline line too")
+    }
+
+    /// Older records have neither field; new ones read back whole.
+    func testANoNotesWriterReadsBack() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let writer = MeetingNotesWriter.noNotes(.allowanceUsed, at: Fixture.date("2026-10-14T10:00:00Z"),
+                                                notBefore: Fixture.date("2026-11-01T00:00:00Z"))
+        XCTAssertEqual(try decoder.decode(MeetingNotesWriter.self, from: encoder.encode(writer)), writer)
+        let old = #"{"place": "mac", "writtenAt": "2026-10-14T10:00:00Z", "waitsForOnline": true}"#
+        let read = try decoder.decode(MeetingNotesWriter.self, from: Data(old.utf8))
+        XCTAssertNil(read.noNotesYet)
+        XCTAssertNil(read.notBefore)
+        let future = #"{"place": "mac", "writtenAt": "2026-10-14T10:00:00Z", "noNotesYet": "somethingNew"}"#
+        XCTAssertNil(try decoder.decode(MeetingNotesWriter.self, from: Data(future.utf8)).noNotesYet,
+                     "a reason this build doesn't know is read as none")
     }
 
     func testNotesWrittenOnlineSaySoAtTheFoot() {
@@ -607,7 +806,40 @@ final class CloudNotesFilesTests: XCTestCase {
         XCTAssertTrue(online.contains("_Written online by Airlock, with Google's Gemini, from "
                                       + "\(MeetingFiles.transcriptName). No audio was kept."))
         XCTAssertFalse(online.contains("Written on this Mac"))
-        XCTAssertTrue(page(nil).contains("_Written on this Mac by Airlock from \(MeetingFiles.transcriptName)."))
+        XCTAssertFalse(online.contains("basic model"))
+        XCTAssertTrue(page(nil).contains("_Written on your Mac with the basic model, from \(MeetingFiles.transcriptName)."))
+    }
+
+    /// Notes the Mac wrote say it was the basic model, on every plan; when
+    /// the online service was meant to write them, the foot says it didn't
+    /// answer instead.
+    func testTheMacsNotesSayTheyCameFromTheBasicModel() {
+        for plan in AirlockPlan.allCases {
+            let snapshot = PlanSnapshot(plan: plan, isPaid: plan != .free)
+            XCTAssertTrue(page(.mac(at: Fixture.start, why: .plan, plan: snapshot))
+                .contains("\n_Written on your Mac with the basic model, from \(MeetingFiles.transcriptName). "),
+                          plan.label)
+            let down = page(.mac(at: Fixture.start, why: .serviceDown, plan: snapshot))
+            XCTAssertTrue(down.contains("\n_The online notes service didn't answer, so these were written on your "
+                                        + "Mac with the basic model, from \(MeetingFiles.transcriptName). "), plan.label)
+        }
+        XCTAssertTrue(emptyPage(nil).contains("_Written on this Mac by Airlock from"),
+                      "a page without notes names no model")
+    }
+
+    /// The foot names whose model wrote them, from the model the server
+    /// says it used; one it doesn't know is left unnamed rather than guessed.
+    func testTheFootNamesWhoseModelWroteThem() {
+        XCTAssertTrue(page(.online(model: "openai/gpt-6.1-sol", at: Fixture.start))
+            .contains("_Written online by Airlock, with OpenAI's GPT, from \(MeetingFiles.transcriptName)."))
+        XCTAssertTrue(page(.online(model: "google/gemini-3.8-flash", at: Fixture.start))
+            .contains("with Google's Gemini, from"))
+        XCTAssertTrue(page(.online(model: "somebody/else-1", at: Fixture.start))
+            .contains("_Written online by Airlock, from \(MeetingFiles.transcriptName)."))
+        XCTAssertEqual(CloudNotes.maker(ofModel: nil), "Google's Gemini", "notes from before the model was kept")
+        XCTAssertEqual(CloudNotes.maker(ofModel: "gpt-6.1-sol"), "OpenAI's GPT")
+        XCTAssertEqual(CloudNotes.maker(ofModel: "gemini-x"), "Google's Gemini")
+        XCTAssertNil(CloudNotes.maker(ofModel: "anthropic/claude"))
     }
 
     func testAnEarlierPageIsNeverWrittenOver() {
@@ -644,14 +876,14 @@ final class CloudNotesFilesTests: XCTestCase {
         XCTAssertEqual(store.loadRecord(in: folder)?.notesWriter, waiting, "naming a voice keeps who wrote them")
     }
 
-    func testTheOfflineLineGoesFromBothPages() throws {
+    func testTheWaitingLineGoesFromBothPages() throws {
         let scratch = TestScratch("cn")
         let store = MeetingStore(root: scratch.root)
         let record = Fixture.record()
         let folder = try store.makeFolder(for: record, timeZone: Fixture.utc)
         try store.saveTranscript(record, in: folder)
         try store.saveNotes(page(.mac(at: Fixture.start, waitsForOnline: true)), in: folder)
-        try store.dropOfflineLine(in: folder)
+        try store.dropWaitingLine(in: folder)
         XCTAssertEqual(store.notesPage(in: folder), page(nil))
         XCTAssertEqual(try String(contentsOf: folder.appendingPathComponent(MeetingStore.notesAsWrittenName),
                                   encoding: .utf8), page(nil))

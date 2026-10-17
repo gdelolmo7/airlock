@@ -34,12 +34,20 @@ import Foundation
 ///   `silenceLimit` of nothing heard. No call comes and goes under it, so
 ///   the call detector's starts and ends pass it by, and it is always kept,
 ///   however short: somebody asked for it.
+/// - **On a plan that caps them, notes stop listening at the cap** (Free:
+///   the first 30 minutes, `PlanLimits.notesListenFor`), the call itself
+///   untouched, and what was heard is written. Stopping and starting again
+///   carries on the same count (`NotesListening`), so no restart, dropped
+///   call or "Take notes" in the room buys more; a call whose notes are used
+///   up is not offered notes at all.
 ///
 /// **No clock in here, and none that pauses.** Every time arrives as a date
 /// from the model, and the waits are compared on its ticks. A date keeps
 /// counting while the Mac sleeps; a duration timer (`DispatchTime`, a
 /// suspending clock) does not, and would wake up believing a minute had
-/// passed when an hour had.
+/// passed when an hour had. The one exception is the cap, which counts the
+/// Mac's running time (`RunningTime`), handed in with every event, because a
+/// date can be set back.
 public struct MeetingNotesFlow: Equatable, Sendable {
     public enum Phase: Equatable, Sendable {
         case idle
@@ -183,11 +191,13 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             switch phase {
             case .recording:
                 endedBySleep = false
+                stoppedAtLimit = false
                 return
             case .writing, .ready:
                 break
             default:
                 endedBySleep = false
+                stoppedAtLimit = false
             }
             // A pause belongs to the notes it paused: whatever ends them, the
             // next notes start unpaused.
@@ -201,6 +211,13 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     /// room, say. The ready line says so, or the notes would seem to have
     /// stopped by themselves.
     public private(set) var endedBySleep = false
+    /// The notes being written, or ready, stopped because they had listened
+    /// as long as the plan lets them.
+    public private(set) var stoppedAtLimit = false
+    /// How long notes have listened, on a plan that caps it; kept between
+    /// notes, so a restart carries on the count. Nil until notes first start
+    /// with a running time handed in.
+    public private(set) var listening: NotesListening?
     /// When the notes were paused; nil while they are written down.
     public private(set) var pausedSince: Date?
     /// When notes on this call FIRST started: `since` for notes started
@@ -247,7 +264,8 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     /// nothing has been asked, no call has ended, and nothing follows from
     /// it until an event arrives. `pausedSince` counts only while recording,
     /// the one phase that can be paused.
-    public init(previewing phase: Phase, pausedSince: Date? = nil, endedBySleep: Bool = false) {
+    public init(previewing phase: Phase, pausedSince: Date? = nil, endedBySleep: Bool = false,
+                listening: NotesListening? = nil, stoppedAtLimit: Bool = false) {
         keepsFrom = Self.shortestKept
         self.phase = phase
         if case let .recording(_, since) = phase {
@@ -255,6 +273,8 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             firstStarted = since
         }
         self.endedBySleep = endedBySleep
+        self.listening = listening
+        self.stoppedAtLimit = stoppedAtLimit
     }
 
     /// The call seems over and the notes are waiting to be sure. The model
@@ -262,8 +282,75 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     /// sooner than the detector can say a call is back.
     public var isWaitingForCallBack: Bool { ending != nil }
 
-    /// `enabled` is the hidden switch; `autoStart` is "Always".
-    public mutating func apply(_ event: Event, enabled: Bool, autoStart: Bool) -> [Effect] {
+    /// The count kept from before a quit, taken back at launch. Ignored once
+    /// notes have started here. Its call is taken as over when it was kept:
+    /// the detector starts afresh and would never say it ended, so notes
+    /// carry the count on only within `NotesListening.carriesOnFor` of the
+    /// quit, never into a call in the same app days later.
+    public mutating func restore(_ kept: NotesListening) {
+        guard listening == nil else { return }
+        var count = kept
+        count.callIsOver(at: kept.lastSeen)
+        listening = count
+    }
+
+    /// What the cap is counted with: the Mac's running time (`RunningTime`)
+    /// and the plan, as they are at this event.
+    private struct Reading {
+        let running: TimeInterval
+        let plan: PlanSnapshot
+    }
+
+    /// `enabled` is the hidden switch; `autoStart` is "Always". `running` is
+    /// the Mac's running time now and `plan` the plan now; without both,
+    /// nothing is counted and notes listen for as long as the call lasts.
+    public mutating func apply(_ event: Event, enabled: Bool, autoStart: Bool,
+                               running: TimeInterval? = nil, plan: PlanSnapshot? = nil) -> [Effect] {
+        let reading = running.flatMap { running in plan.map { Reading(running: running, plan: $0) } }
+        let wasListening = isListening
+        let effects = step(event, enabled: enabled, autoStart: autoStart, reading: reading)
+        if let reading {
+            if wasListening, !isListening { listening?.close(at: reading.running) }
+            if !wasListening, isListening { listening?.open(at: reading.running) }
+        }
+        return effects
+    }
+
+    /// Notes on a call (not in the room) are being taken.
+    private var isRecordingACall: Bool {
+        if case let .recording(call, _) = phase { return !call.isInPerson }
+        return false
+    }
+
+    /// Recording and not paused: what the cap counts.
+    private var isListening: Bool {
+        guard case .recording = phase else { return false }
+        return pausedSince == nil
+    }
+
+    /// Whether notes on `call` may start now, and if so, the count they add
+    /// to: the one before if they carry it on, a new one otherwise.
+    private mutating func mayListen(to call: OngoingCall, _ reading: Reading?) -> Bool {
+        guard let reading else { return true }
+        if var count = listening, count.carriesOn(into: call, at: reading.running) {
+            guard !count.isSpent(at: reading.running, plan: reading.plan) else { return false }
+            count.close(at: reading.running)
+            count.carryOn(into: call, at: reading.running)
+            listening = count
+        } else {
+            listening = NotesListening(startedOn: reading.plan, call: call, at: reading.running)
+        }
+        return true
+    }
+
+    /// Whether notes on `call` would carry on a count that is used up.
+    private func isSpent(for call: OngoingCall, _ reading: Reading?) -> Bool {
+        guard let reading, let count = listening else { return false }
+        return count.carriesOn(into: call, at: reading.running)
+            && count.isSpent(at: reading.running, plan: reading.plan)
+    }
+
+    private mutating func step(_ event: Event, enabled: Bool, autoStart: Bool, reading: Reading?) -> [Effect] {
         switch event {
         case let .callStarted(call, at):
             guard enabled else { return [] }
@@ -279,10 +366,19 @@ public struct MeetingNotesFlow: Equatable, Sendable {
                 }
                 // The detector follows one call at a time, so another app's
                 // call means this one is over.
-                finished = finishAutomatically(current, endedAt: ending?.micLetGo ?? at)
+                finished = finishAutomatically(current, endedAt: ending?.micLetGo ?? at, reading)
+            }
+            // Its notes are used up: no offer, and nothing starts.
+            if isSpent(for: call, reading) {
+                switch phase {
+                case .offering, .startingSoon: phase = .idle
+                default: break
+                }
+                return finished
             }
             if let last = lastNotes, last.bundleID == call.bundleID,
-               at.timeIntervalSince(last.endedAt) <= Self.sameMeetingWindow {
+               at.timeIntervalSince(last.endedAt) <= Self.sameMeetingWindow,
+               mayListen(to: call, reading) {
                 phase = .recording(call, since: at)
                 firstStarted = last.firstStarted ?? at
                 return finished + [.startNotes(call, continuing: true)]
@@ -300,6 +396,9 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             return finished
 
         case let .callEnded(at):
+            // The count's call is over. Notes on it wait for the looks to
+            // confirm the end first (`finishAutomatically`).
+            if let reading, !isRecordingACall { listening?.callIsOver(at: reading.running) }
             switch phase {
             case .offering, .startingSoon:
                 phase = .idle
@@ -323,6 +422,10 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             }()
             switch phase {
             case let .offering(call), let .startingSoon(call, _):
+                guard mayListen(to: call, reading) else {
+                    phase = .idle
+                    return always
+                }
                 phase = .recording(call, since: at)
                 firstStarted = at
                 return always + [.startNotes(call, continuing: false)]
@@ -349,6 +452,7 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             switch phase {
             case .idle, .ready, .failed:
                 let room = OngoingCall.inPerson(at: at)
+                guard mayListen(to: room, reading) else { return [] }
                 // A new meeting: whatever call came before is not carried on.
                 lastNotes = nil
                 ending = nil
@@ -426,18 +530,19 @@ public struct MeetingNotesFlow: Equatable, Sendable {
                 return []
             }
             guard case let .recording(call, _) = phase else { return [] }
-            let effects = finishAutomatically(call, endedAt: at)
+            let effects = finishAutomatically(call, endedAt: at, reading)
             if case .writing = phase { endedBySleep = true }
             return effects
 
         case let .tick(tick):
             guard case let .recording(call, since) = phase else { return [] }
-            return look(tick, call: call, since: since)
+            return look(tick, call: call, since: since, reading)
         }
     }
 
-    /// One look while recording: is the call back, over, or gone quiet?
-    private mutating func look(_ tick: Tick, call: OngoingCall, since: Date) -> [Effect] {
+    /// One look while recording: is the call back, over, gone quiet, or has
+    /// it been listened to for as long as the plan lets it?
+    private mutating func look(_ tick: Tick, call: OngoingCall, since: Date, _ reading: Reading?) -> [Effect] {
         let now = tick.now
         if var waiting = ending, let onMic = tick.callOnMic {
             if onMic {
@@ -461,15 +566,26 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             } ?? false
             let talkingMayHold = now.timeIntervalSince(letGo) < Self.talkingLimit
             if now >= stopAt, !(theyAreTalking && talkingMayHold) {
-                return finishAutomatically(call, endedAt: letGo)
+                return finishAutomatically(call, endedAt: letGo, reading)
             }
+        }
+
+        // Listened as long as the plan lets it: the listening stops and what
+        // was heard is written. The call goes on, so it stays the count's
+        // call, and nothing carries these notes on by itself.
+        if let reading, let count = listening, count.isSpent(at: reading.running, plan: reading.plan) {
+            ending = nil
+            lastNotes = nil
+            phase = .writing(call)
+            stoppedAtLimit = true
+            return [.finishNotes]
         }
 
         // Paused, nothing is meant to be heard, so quiet proves nothing.
         guard pausedSince == nil else { return [] }
         let lastHeard = max(since, resumedAt ?? since, tick.lastSpeech ?? since)
         if now.timeIntervalSince(lastHeard) >= Self.silenceLimit {
-            return finishAutomatically(call, endedAt: now)
+            return finishAutomatically(call, endedAt: now, reading)
         }
         return []
     }
@@ -480,7 +596,8 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     ///
     /// Notes in person are the exception on both counts: they were asked for,
     /// so they are kept however short, and no call can carry them on.
-    private mutating func finishAutomatically(_ call: OngoingCall, endedAt: Date) -> [Effect] {
+    private mutating func finishAutomatically(_ call: OngoingCall, endedAt: Date, _ reading: Reading?) -> [Effect] {
+        if let reading, !call.isInPerson { listening?.callIsOver(at: reading.running) }
         if call.isInPerson {
             ending = nil
             phase = .writing(call)
@@ -536,6 +653,51 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         case .idle, .writing, .ready, .failed:
             return .none
         }
+    }
+
+    /// What the call pill and the notes card say about the plan's limit, if
+    /// anything: a heads-up in the last `LimitWord.headsUp` before the notes
+    /// stop, then that they stopped, for as long as those notes are on show.
+    /// Nil on a plan with no limit, so only Free ever sees either.
+    public func limitWord(running: TimeInterval, plan: PlanSnapshot) -> LimitWord? {
+        if stoppedAtLimit { return .stopped }
+        guard case .recording = phase, let left = listening?.left(at: running, plan: plan) else { return nil }
+        return left > 0 && left <= LimitWord.headsUp ? .stopsSoon : nil
+    }
+
+    /// Free's notes stop at `PlanLimits.freeNotesListen`; the call goes on.
+    public enum LimitWord: Equatable, Sendable {
+        /// Within `headsUp` of the limit.
+        case stopsSoon
+        /// The limit stopped them.
+        case stopped
+
+        /// How long before the limit the heads-up starts.
+        public static let headsUp: TimeInterval = 5 * 60
+        /// How long the closed notch says it. The open card says it for as
+        /// long as it is true; the closed notch sits over the menu bar, so a
+        /// wider pill is allowed for this long only (`CompactSlot`'s ladder).
+        public static let pillFor: TimeInterval = 30
+
+        /// In the call pill, in place of the call's timer.
+        public var pillWord: String {
+            switch self {
+            case .stopsSoon: "Notes stop at \(Self.minutes) min"
+            case .stopped: "Notes stopped"
+            }
+        }
+
+        /// On the notes card in the open notch.
+        public var line: String {
+            switch self {
+            case .stopsSoon:
+                "Notes stop at \(Self.minutes) minutes on Free. The call itself goes on."
+            case .stopped:
+                "The first \(Self.minutes) minutes are saved. Plus takes notes of the whole call."
+            }
+        }
+
+        static var minutes: Int { Int(PlanLimits.freeNotesListen / 60) }
     }
 
     public enum PillMark: Equatable, Sendable {

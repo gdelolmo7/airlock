@@ -3,8 +3,8 @@ import Foundation
 /// What the notch does with a proposal once the policy engine has spoken.
 ///
 /// Pure, so the interesting combinations — an allow rule under the risk floor,
-/// an expired trial holding a perfectly legal action — are decided somewhere a
-/// test can reach rather than inside a view that needs a microphone to enter.
+/// a typed command that may not write a standing rule — are decided somewhere
+/// a test can reach rather than inside a view that needs a microphone to enter.
 public enum VoiceActionOutcome: Sendable, Equatable {
     /// Do it now, no card. The rule is carried for the gate log.
     case perform(rule: String)
@@ -16,8 +16,6 @@ public enum VoiceActionOutcome: Sendable, Equatable {
     /// A deny rule refused it. The card says which, and there is nothing to
     /// click: a denial the user can override with a button is not a denial.
     case refused(rule: String)
-    /// A finished trial. Answering questions carries on; performing does not.
-    case blocked
 
     public var performsImmediately: Bool {
         if case .perform = self { return true }
@@ -40,14 +38,7 @@ public enum VoiceActionOutcome: Sendable, Equatable {
     /// named one, and only the name is at stake here.
     public static func resolve(verdict: PolicyVerdict,
                                for request: PermissionRequest,
-                               isEntitled: Bool,
                                offersStandingPermission: Bool = true) -> VoiceActionOutcome {
-        // FIRST, and above even a deny rule, because it is not about this
-        // action: an unentitled app performs nothing, and saying so plainly
-        // beats a card whose buttons do nothing. `.trialExpired` is the only
-        // state that reaches here — every other licence state allows use.
-        guard isEntitled else { return .blocked }
-
         switch verdict {
         case .deny(let rule):
             return .refused(rule: rule)

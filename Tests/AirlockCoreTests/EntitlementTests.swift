@@ -12,48 +12,66 @@ final class EntitlementTests: XCTestCase {
     private func day(_ n: Double) -> Date { now.addingTimeInterval(n * 86_400) }
 
     private func license(renewsIn days: Double, grace: Double = 14,
-                         period: License.Period = .monthly) -> License {
+                         period: License.Period = .monthly, plan: License.Plan = .plus) -> License {
         License(id: "lic_1", email: "a@b.com", product: "airlock", period: period,
-                issued: now, renewsAt: day(days), checkBy: day(days + grace))
+                issued: now, renewsAt: day(days), checkBy: day(days + grace), plan: plan)
     }
 
-    private func resolve(_ verdict: LicenseVerdict?, trialStarted: Date? = nil) -> Entitlement {
-        Entitlement.resolve(verdict: verdict, trialStarted: trialStarted ?? now,
-                            now: now, calendar: calendar)
+    /// Nil `trialStarted` is a Mac where no trial ever began: every new
+    /// install, now that none starts.
+    private func resolve(_ verdict: LicenseVerdict?, trialStarted: Date? = nil,
+                         subscriptionEnded: Bool = false) -> Entitlement {
+        Entitlement.resolve(verdict: verdict, trialStarted: trialStarted,
+                            now: now, calendar: calendar, subscriptionEnded: subscriptionEnded)
     }
 
-    // MARK: - The trial
+    // MARK: - A new install
 
-    func testAFreshInstallIsOnTrialWithEverythingWorking() {
+    /// No trial, no card, no countdown: Free, from the first launch.
+    func testAFreshInstallIsOnFree() {
         let entitlement = resolve(nil)
-        XCTAssertEqual(entitlement, .trialing(daysRemaining: 14))
-        XCTAssertTrue(entitlement.allowsUse)
-        XCTAssertFalse(entitlement.isNagging, "a countdown, not a demand")
+        XCTAssertEqual(entitlement, .free)
+        XCTAssertEqual(entitlement.plan, .free)
         XCTAssertFalse(entitlement.isPaid)
+        XCTAssertFalse(entitlement.limits.writesNotesOnline)
+        XCTAssertNil(entitlement.license)
+        XCTAssertEqual(entitlement.snapshot, .free)
     }
 
-    func testTheTrialCountsDown() {
-        XCTAssertEqual(resolve(nil, trialStarted: day(-10)), .trialing(daysRemaining: 4))
+    // MARK: - A trial from before plans
+
+    /// Honoured to its end, with everything Plus has. A trial has no token to
+    /// ask the licence server with, so its notes are written on the Mac.
+    func testAnOldTrialCountsDownOnPlus() {
+        let entitlement = resolve(nil, trialStarted: day(-10))
+        XCTAssertEqual(entitlement, .trialing(daysRemaining: 4))
+        XCTAssertEqual(entitlement.plan, .plus)
+        XCTAssertFalse(entitlement.isPaid)
+        XCTAssertFalse(entitlement.limits.writesNotesOnline)
     }
 
-    /// The one and only state that stops the app working. Every other state
-    /// belongs to somebody who has paid.
-    func testAnExpiredTrialIsTheOnlyThingThatGates() {
-        let entitlement = resolve(nil, trialStarted: day(-14))
-        XCTAssertEqual(entitlement, .trialExpired)
-        XCTAssertFalse(entitlement.allowsUse)
-        XCTAssertTrue(entitlement.isNagging)
+    /// Run out, it is Free. Nothing locks.
+    func testAnExpiredTrialIsFree() {
+        XCTAssertEqual(resolve(nil, trialStarted: day(-14)), .free)
+        XCTAssertEqual(resolve(nil, trialStarted: day(-400)), .free)
     }
 
     // MARK: - Paid and in date
 
-    func testALicenceInsideItsTermIsSimplyLicensed() {
-        let paid = license(renewsIn: 20)
+    func testALicenceInsideItsTermIsLicensedOnItsPlan() {
+        let paid = license(renewsIn: 20, plan: .pro)
         let entitlement = resolve(.valid(paid))
         XCTAssertEqual(entitlement, .licensed(paid))
-        XCTAssertTrue(entitlement.allowsUse)
+        XCTAssertEqual(entitlement.plan, .pro)
         XCTAssertTrue(entitlement.isPaid)
-        XCTAssertFalse(entitlement.isNagging)
+        XCTAssertTrue(entitlement.limits.writesNotesOnline)
+        XCTAssertEqual(entitlement.snapshot, PlanSnapshot(plan: .pro, isPaid: true))
+    }
+
+    func testAKeyFromBeforePlansIsPlus() {
+        let old = License(id: "lic_1", email: "a@b.com", product: "airlock", period: .monthly,
+                          issued: now, renewsAt: day(20), checkBy: day(34))
+        XCTAssertEqual(resolve(.valid(old)).plan, .plus)
     }
 
     /// A licence outlives the trial: activating on day 30 works, and the trial
@@ -66,14 +84,16 @@ final class EntitlementTests: XCTestCase {
     // MARK: - Grace
 
     /// The point of the grace window: past the billing date, nothing refreshed,
-    /// and the person using it cannot tell. No badge, no banner, no nag.
+    /// and the person using it cannot tell. Same plan, still paid.
     func testGraceIsIndistinguishableFromBeingLicensed() {
-        let unrefreshed = license(renewsIn: -3)
+        let unrefreshed = license(renewsIn: -3, plan: .pro)
         let entitlement = resolve(.valid(unrefreshed))
         XCTAssertEqual(entitlement, .grace(unrefreshed))
-        XCTAssertTrue(entitlement.allowsUse)
+        XCTAssertEqual(entitlement.plan, .pro)
         XCTAssertTrue(entitlement.isPaid, "as far as this Mac can prove, they are paid up")
-        XCTAssertFalse(entitlement.isNagging, "THE point — a bad network is not their problem")
+        XCTAssertTrue(entitlement.limits.writesNotesOnline)
+        XCTAssertEqual(LicenseNotice.forIsland(entitlement), .none,
+                       "THE point: a bad network is not their problem")
     }
 
     func testGraceBeginsTheMomentTheBillingDatePasses() {
@@ -85,22 +105,23 @@ final class EntitlementTests: XCTestCase {
                              period: .monthly, issued: now,
                              renewsAt: day(-14), checkBy: now.addingTimeInterval(1))
         XCTAssertEqual(resolve(.valid(almost)), .grace(almost))
-        XCTAssertFalse(resolve(.valid(almost)).isNagging)
     }
 
     // MARK: - Overdue
 
-    /// Past the cutoff it asks — but it still runs. A failed card must never
-    /// become an outage in the middle of somebody's work.
-    func testOverdueAsksWithoutLockingAnybodyOut() {
-        let stale = license(renewsIn: -40)
+    /// Past the cutoff it asks, and keeps its plan: a payment problem is never
+    /// a downgrade until the server says the subscription ended. Online notes
+    /// pause, because the server refuses an overdue key anyway.
+    func testOverdueKeepsItsPlanAndAsks() {
+        let stale = license(renewsIn: -40, plan: .pro)
         let entitlement = resolve(.valid(stale))
         XCTAssertEqual(entitlement, .overdue(stale))
-        XCTAssertTrue(entitlement.allowsUse, "still their app; this is a request")
-        XCTAssertTrue(entitlement.isNagging)
+        XCTAssertEqual(entitlement.plan, .pro)
         XCTAssertFalse(entitlement.isPaid)
+        XCTAssertFalse(entitlement.limits.writesNotesOnline)
+        XCTAssertEqual(LicenseNotice.forIsland(entitlement), .overdue)
         XCTAssertEqual(entitlement.license?.email, "a@b.com",
-                       "say whose it is — that is the support question")
+                       "say whose it is: that is the support question")
     }
 
     func testTheCutoffIsTheBoundaryBetweenSilenceAndAsking() {
@@ -117,76 +138,62 @@ final class EntitlementTests: XCTestCase {
         XCTAssertEqual(resolve(.valid(yearly)), .grace(yearly))
     }
 
+    // MARK: - A subscription that ended
+
+    /// The server said no (cancelled, refunded, unpaid): Free, once the paid
+    /// period is over, and never before it.
+    func testAnEndedSubscriptionIsFreeOnlyAfterItsPaidPeriod() {
+        XCTAssertEqual(resolve(.valid(license(renewsIn: 10)), subscriptionEnded: true),
+                       .licensed(license(renewsIn: 10)), "a refusal never cuts a paid period short")
+        XCTAssertEqual(resolve(.valid(license(renewsIn: -1)), subscriptionEnded: true), .free)
+        XCTAssertEqual(resolve(.valid(license(renewsIn: -40)), subscriptionEnded: true), .free,
+                       "not overdue: they stopped paying, so it does not keep asking")
+    }
+
+    /// Ended with a trial from before plans still running: the trial was the
+    /// thing ending anyway, and Free is where both land.
+    func testAnEndedSubscriptionIgnoresAnOldTrial() {
+        XCTAssertEqual(resolve(.valid(license(renewsIn: -1)), trialStarted: day(-3),
+                               subscriptionEnded: true), .free)
+    }
+
     // MARK: - Rubbish keys
 
-    /// A forged key is not a lapse and does not earn a grace window. It falls
-    /// back to the trial — so pasting nonsense on day three leaves eleven days,
-    /// and pasting nonsense on day thirty does not produce a working app.
-    func testAnInvalidKeyFallsBackToTheTrialRatherThanLapsing() {
+    /// A forged key is not a lapse and earns no grace. It counts as no key:
+    /// an old trial with days left keeps them, and otherwise it is Free.
+    func testAnInvalidKeyCountsAsNoKey() {
         XCTAssertEqual(resolve(.invalid(.signature), trialStarted: day(-3)),
                        .trialing(daysRemaining: 11))
-        XCTAssertEqual(resolve(.invalid(.signature), trialStarted: day(-30)), .trialExpired)
-        XCTAssertEqual(resolve(.invalid(.wrongProduct), trialStarted: day(-30)), .trialExpired)
+        XCTAssertEqual(resolve(.invalid(.signature), trialStarted: day(-30)), .free)
+        XCTAssertEqual(resolve(.invalid(.wrongProduct)), .free)
+        XCTAssertEqual(resolve(.invalid(.otherMachine)), .free)
     }
 
     // MARK: - The whole life of a subscription, in order
 
     /// Read top to bottom, this is the contract: one month paid, a fortnight of
-    /// silence, then asking — and never, at any point, an app that stops.
-    func testASubscriptionDegradesInThatOrderAndNeverStops() {
+    /// silence, then asking, and never, at any point, Free unless the server
+    /// said the subscription ended.
+    func testASubscriptionKeepsItsPlanUntilTheServerEndsIt() {
         let renews = day(30)
         let subscription = License(id: "lic_1", email: "a@b.com", product: "airlock",
-                                   period: .monthly, issued: now,
-                                   renewsAt: renews,
-                                   checkBy: renews.addingTimeInterval(14 * 86_400))
-        let timeline: [(Double, Bool, Bool)] = [
-            // days from now, allowsUse, isNagging
-            (0,  true, false),
-            (29, true, false),
-            (31, true, false),   // grace: billing date passed, still silent
-            (43, true, false),   // last day of grace
-            (45, true, true),    // overdue: asks
-            (400, true, true),   // and keeps asking, forever, still working
+                                   period: .monthly, issued: now, renewsAt: renews,
+                                   checkBy: renews.addingTimeInterval(14 * 86_400), plan: .pro)
+        let timeline: [(Double, Bool, LicenseNotice)] = [
+            // days from now, isPaid, what the island says
+            (0,  true, .none),
+            (29, true, .none),
+            (31, true, .none),       // grace: billing date passed, still silent
+            (43, true, .none),       // last day of grace
+            (45, false, .overdue),   // overdue: asks
+            (400, false, .overdue),  // and keeps asking, still on Pro
         ]
-        for (offset, allows, nags) in timeline {
-            let entitlement = Entitlement.resolve(verdict: .valid(subscription),
-                                                  trialStarted: now, now: day(offset),
-                                                  calendar: calendar)
-            XCTAssertEqual(entitlement.allowsUse, allows, "day \(offset)")
-            XCTAssertEqual(entitlement.isNagging, nags, "day \(offset)")
+        for (offset, paid, notice) in timeline {
+            let entitlement = Entitlement.resolve(verdict: .valid(subscription), trialStarted: nil,
+                                                  now: day(offset), calendar: calendar)
+            XCTAssertEqual(entitlement.plan, .pro, "day \(offset)")
+            XCTAssertEqual(entitlement.isPaid, paid, "day \(offset)")
+            XCTAssertEqual(LicenseNotice.forIsland(entitlement), notice, "day \(offset)")
         }
-    }
-
-    // MARK: - Free (since 1.0.15)
-
-    /// Free outranks everything: an expired trial, a lapsed subscription that
-    /// was ended, and a live licence all read as free, and free is never
-    /// blocked, never paid and never asks.
-    func testFreeOutranksEveryOtherStateAndNeverStops() {
-        let expiredTrial = Entitlement.resolve(verdict: nil, trialStarted: day(-60), now: now,
-                                               calendar: calendar, free: true)
-        let ended = Entitlement.resolve(verdict: .valid(license(renewsIn: -3)), trialStarted: day(-60),
-                                        now: now, calendar: calendar, subscriptionEnded: true, free: true)
-        let live = Entitlement.resolve(verdict: .valid(license(renewsIn: 20)), trialStarted: now,
-                                       now: now, calendar: calendar, free: true)
-        for entitlement in [expiredTrial, ended, live] {
-            XCTAssertEqual(entitlement, .free)
-            XCTAssertTrue(entitlement.allowsUse)
-            XCTAssertFalse(entitlement.isPaid)
-            XCTAssertFalse(entitlement.isNagging)
-            XCTAssertNil(entitlement.license)
-            XCTAssertEqual(LicenseNotice.forIsland(entitlement), .none)
-        }
-    }
-
-    /// The paid rules are switched off, not deleted: without `free` they are
-    /// exactly what they were.
-    func testThePaidRulesStillHoldWhenNotFree() {
-        XCTAssertEqual(Entitlement.resolve(verdict: nil, trialStarted: day(-60), now: now,
-                                           calendar: calendar), .trialExpired)
-    }
-
-    func testAirlockIsSold() {
-        XCTAssertFalse(Pricing.isFree, "sold again from 1.0.17, the owner's call 2026-10-06; true makes every copy free")
     }
 }

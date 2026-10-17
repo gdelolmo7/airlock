@@ -111,6 +111,9 @@ public enum CallNotesGlance: Equatable, Sendable {
     /// Saved, but too little was said for notes (`CallNotesPanel.Ready`).
     /// Shown for as long as `ready`.
     case tooLittleSaid
+    /// Saved, its notes written online later (`CallNotesPanel.Ready.later`).
+    /// Shown for as long as `ready`.
+    case later
 }
 
 public extension CompactSlot {
@@ -245,6 +248,8 @@ public extension CompactSlot {
                 return todos == 1 ? "Call notes ready, 1 to-do" : "Call notes ready, \(todos) to-dos"
             case .tooLittleSaid:
                 return CallNotesPanel.tooLittleSaid
+            case .later:
+                return CallNotesPanel.notesLater
             }
         }
     }

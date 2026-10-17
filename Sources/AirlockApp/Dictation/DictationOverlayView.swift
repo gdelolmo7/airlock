@@ -114,17 +114,14 @@ struct HoldNoticeCard: View {
                     face: Self.face(for: notice))
     }
 
-    /// The cloud stands in for the icon in two places. Where it was listening
-    /// and came away with nothing: the same cloud that was just listening,
-    /// puzzled. And where the trial has ended: the same smiling cloud as the
-    /// trial-ended panel, so a hold that is turned away reads as that
-    /// invitation in small rather than as a clock running out. Every other
-    /// notice is about the Mac, a permission or where the words went, and a
-    /// face on those would be the app being cute about a setting.
+    /// The cloud stands in for the icon in one place: where it was listening
+    /// and came away with nothing, the same cloud that was just listening,
+    /// puzzled. Every other notice is about the Mac, a permission or where the
+    /// words went, and a face on those would be the app being cute about a
+    /// setting.
     static func face(for notice: DictationHoldNotice) -> BloubExpression? {
         switch notice {
         case .nothingCaught: return .confused
-        case .noSubscription: return LicenseBlockedView.face
         default: return nil
         }
     }

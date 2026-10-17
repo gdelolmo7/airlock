@@ -2,18 +2,24 @@ import AppKit
 import AirlockCore
 import SwiftUI
 
-/// The window "Show" opens after a call: every call's notes and transcript,
-/// newest first, read from the files in `~/Airlock/Meetings/`. The menu bar's
-/// "Call Notes…" and Settings open it too, on the newest call.
+/// The Calls page of the Airlock window: every call's notes and transcript,
+/// newest first, read from the files in `~/Airlock/Meetings/`. "Show" after a
+/// call opens it, and so do the menu bar's "Call Notes…" and Settings, on
+/// the newest call.
 ///
 /// The files stay the record. This only reads them, so an edit made in a
 /// text editor shows here on the next look, and nothing here can lose one.
-/// Same black ground and see-through title bar as Settings.
+///
+/// It was a window of its own until the owner asked for one Airlock window
+/// (2026-10-16). It holds no window now: it chooses the call, then asks the
+/// Airlock window to show the calls (`open`, set by `AirlockWindowController`).
 @MainActor
-final class CallNotesWindowController {
-    private let library: CallNotesLibrary
-    private var window: NSWindow?
-    private var focusObserver: (any NSObjectProtocol)?
+final class CallsPage {
+    let library: CallNotesLibrary
+    /// Shows the Airlock window on the calls.
+    var open: (@MainActor () -> Void)?
+    /// Whether the calls are on screen right now.
+    var isShowing: (@MainActor () -> Bool)?
 
     init(store: MeetingStore) {
         library = CallNotesLibrary(store: store)
@@ -68,56 +74,25 @@ final class CallNotesWindowController {
         library.saveNames = save
     }
 
+    /// What the notes offer by plan, and where their buttons go.
+    func offering(_ offering: CallNotesLibrary.Offering) {
+        library.offering = offering
+    }
+
     /// "Add a recording" at the foot of the list, files dropped on the
     /// window, and the page of a recording being read.
     func recordings(_ recordings: CallNotesLibrary.Recordings) {
         library.recordings = recordings
     }
 
-    /// Notes finished while the window is up: they appear without a click.
+    /// Notes finished while the calls are up: they appear without a click.
     func refreshIfOpen() {
-        guard window?.isVisible == true else { return }
+        guard isShowing?() == true else { return }
         library.reload(selecting: nil)
     }
 
-    /// The window `present` shows, sized and laid out, not yet on screen.
-    static func makeWindow(_ library: CallNotesLibrary) -> NSWindow {
-        let hosting = NSHostingController(rootView: CallNotesView().environment(library))
-        // The window may be made smaller than the content's ideal size.
-        hosting.sizingOptions = [.minSize]
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Call notes"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.backgroundColor = NSColor(SettingsLook.ground)
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.isReleasedWhenClosed = false
-        // Sized and laid out before centring, for the reason Settings
-        // gives (`SettingsWindowController.present`).
-        window.setContentSize(NSSize(width: 780, height: 580))
-        hosting.view.layoutSubtreeIfNeeded()
-        return window
-    }
-
     private func present() {
-        if window == nil {
-            let window = Self.makeWindow(library)
-            window.centerOnNotchScreen()
-            window.setFrameAutosaveName("airlock.callNotes")
-            // Back from a text editor with the notes changed: read them again.
-            focusObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
-            ) { [weak library] _ in
-                MainActor.assumeIsolated { library?.reload(selecting: nil) }
-            }
-            self.window = window
-        }
-        // In the Dock and in ⌘Tab while it is open, and a stage of its own
-        // under Stage Manager, rather than a window stuck over another app.
-        if let window { DockPresenceController.shared.willShow(window) }
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        open?()
     }
 }
 
@@ -181,6 +156,8 @@ final class CallNotesLibrary {
     private(set) var spotlight: Spotlight?
     /// What the search field above the list says. Empty lists every call.
     var search = ""
+    /// Bumped by ⌘F while the calls show; the search field takes the cursor.
+    var searchRequest = 0
     /// Nil draws no button.
     @ObservationIgnored var takeNotes: TakeNotes?
     /// The call whose voices "Who's who" is naming; nil while it is closed.
@@ -202,6 +179,105 @@ final class CallNotesLibrary {
     /// The call notes are being taken of. Nil draws every call from disk
     /// alone, with no "Live" and no "Open in a window".
     @ObservationIgnored var live: Live?
+
+    /// What the notes offer by plan (`CallNotesOffers`), and where their
+    /// buttons go. Nil offers nothing but what the page itself says.
+    @ObservationIgnored var offering: Offering?
+
+    struct Offering {
+        /// What to offer beside a call's notes, asked as the page is drawn.
+        let offers: @MainActor (Call) -> CallNotesOffers
+        /// The plans, on the website.
+        let showPlans: @MainActor () -> Void
+        /// "What each plan writes".
+        let showComparison: @MainActor () -> Void
+        /// A call's notes written again online.
+        let redo: @MainActor (Call) async -> CloudNotesService.Redo
+        /// The plan now, for what a redo that wasn't sent says.
+        let plan: @MainActor () -> PlanSnapshot
+    }
+
+    /// The call whose notes are being written again now.
+    private(set) var redoing: String?
+    /// What came of the last redo that has something to say, under its
+    /// button, for that call only.
+    private(set) var redone: Redone?
+
+    struct Redone: Equatable {
+        let call: String
+        let said: String
+    }
+
+    /// What to offer beside `call`'s notes. With no offering, only what the
+    /// page needs to be drawn: which card stands in for notes there are none of.
+    func offers(_ call: Call) -> CallNotesOffers {
+        offering?.offers(call) ?? CallNotesOffers.of(call.record, page: call.page, plan: .free, online: .none)
+    }
+
+    /// "Redo with the better model": the plans, on a plan that doesn't write
+    /// notes online; otherwise the notes written again online, the page
+    /// read again once they are.
+    func redo(_ call: Call) {
+        guard let offering, redoing == nil else { return }
+        switch offers(call).redo {
+        case .opensPlans?:
+            offering.showPlans()
+        case .rewritesOnline?:
+            rewrite(call, with: offering)
+        case nil:
+            break
+        }
+    }
+
+    /// "Try again", on notes still waiting for the online notes service:
+    /// asked now, not at the next try the wait has planned.
+    func tryAgain(_ call: Call) {
+        guard let offering, redoing == nil else { return }
+        rewrite(call, with: offering)
+    }
+
+    private func rewrite(_ call: Call, with offering: Offering) {
+        redoing = call.id
+        redone = nil
+        Task { @MainActor [weak self] in
+            let result = await offering.redo(call)
+            guard let self else { return }
+            redoing = nil
+            if let said = Self.said(result, plan: offering.plan()) {
+                redone = Redone(call: call.id, said: said)
+            }
+            if result == .written { reload(selecting: nil) }
+        }
+    }
+
+    /// What a redo says under its button, or nil once the new notes are on
+    /// the page, which says it for itself.
+    static func said(_ redo: CloudNotesService.Redo, plan: PlanSnapshot, locale: Locale = .current,
+                     timeZone: TimeZone = .current) -> String? {
+        func usedUp(_ until: Date) -> String {
+            "This month's online notes are used up. They're back on "
+                + "\(CloudNotesAllowance.day(until, locale: locale, timeZone: timeZone))."
+                + (plan.plan == .plus ? " " + MeetingFiles.proHasMore : "")
+        }
+        let offline = "This Mac is offline. Try again once it's back online."
+        switch redo {
+        case .written: return nil
+        case .allowanceUsed(let until): return usedUp(until)
+        case .offline: return offline
+        case .failed: return "The online notes service didn't answer. Try again in a while."
+        case .notSent(let reason):
+            switch reason {
+            case .allowanceUsed(let until): return usedUp(until)
+            case .offline: return offline
+            case .settingOff: return "Writing notes online is switched off in Settings."
+            case .tooShort: return "Too little was said on this call for notes."
+            case .tooLong: return "This call is too long to send for notes online."
+            case .notSubscribed: return "Your plan writes notes on your Mac."
+            case .hiddenSwitchOff, .noToken, .noServer, .notEligible:
+                return "Online notes aren't available on this Mac right now."
+            }
+        }
+    }
 
     /// The notes model's call as it is written, and what the window can do
     /// with it.
@@ -287,7 +363,9 @@ final class CallNotesLibrary {
         self.store = store
     }
 
-    /// For the state gallery: these calls, read from no disk. `spotlightAt`
+    /// For the state gallery: these calls, read from no disk. `offers` is
+    /// what every call's notes offer, as on a plan; `redone`, what the first
+    /// call's last redo said. `spotlightAt`
     /// draws the first call as if the line of notes said then had just been
     /// tapped, its turn lit at full strength and left that way.
     /// `naming` opens "Who's who" on the first call; `renamingAt` opens the
@@ -299,8 +377,14 @@ final class CallNotesLibrary {
          search: String = "", hand: MeetingNotesFlow.HandButton = .takeNotes,
          naming: Bool = false, renamingAt entry: Int? = nil,
          reading: RecordingImporter.Reading? = nil, dropping: Dropping? = nil, copied: Bool = false,
-         live: Bool = false, hearing: [CallLive.Hearing] = []) {
+         live: Bool = false, hearing: [CallLive.Hearing] = [], offers: CallNotesOffers? = nil,
+         redone: String? = nil) {
         store = MeetingStore(root: URL(fileURLWithPath: "/var/empty"))
+        if let offers {
+            offering = Offering(offers: { _ in offers }, showPlans: {}, showComparison: {},
+                                redo: { _ in .written }, plan: { .free })
+        }
+        if let redone, let call = calls.first { self.redone = Redone(call: call.id, said: redone) }
         self.calls = calls
         self.tab = tab
         self.search = search
@@ -593,9 +677,11 @@ private struct CallNotesSidebar: View {
     var body: some View {
         @Bindable var library = library
         VStack(spacing: 0) {
-            CallNotesSearchField(text: $library.search)
+            CallNotesSearchField(text: $library.search, focusRequest: library.searchRequest)
                 .padding(.horizontal, 10)
-                .padding(.top, 8)
+                // Its middle level with the Settings search to its left
+                // (`LookSidebar`: 10 above a 26-point field).
+                .padding(.top, 9)
                 .padding(.bottom, 4)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -646,6 +732,9 @@ private struct CallNotesSidebar: View {
 /// "Search calls": finds a call by its name, its notes or what was said.
 private struct CallNotesSearchField: View {
     @Binding var text: String
+    /// Changes when ⌘F is pressed; the field takes the cursor.
+    var focusRequest = 0
+    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 7) {
@@ -657,6 +746,8 @@ private struct CallNotesSearchField: View {
                 .textFieldStyle(.plain)
                 .font(Theme.chrome(12))
                 .foregroundStyle(Theme.textPrimary)
+                .focused($focused)
+                .onExitCommand { text = ""; focused = false }
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -671,6 +762,7 @@ private struct CallNotesSearchField: View {
         .padding(.horizontal, 9)
         .frame(height: 28)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.06)))
+        .onChange(of: focusRequest) { focused = true }
     }
 }
 
@@ -1216,19 +1308,31 @@ private struct CallNotesTabs: View {
 /// under, so the two never read as one voice. A line that says when it was
 /// said can be tapped to see that moment in the transcript.
 private struct CallNotesPage: View {
+    @Environment(CallNotesLibrary.self) private var library
     let call: CallNotesLibrary.Call
 
     var body: some View {
         if let page = call.page {
             let placed = MeetingPage.placed(MeetingPage.body(of: page, header: MeetingFiles.header(of: call.record)))
             let page = MeetingPage.sections(placed)
+            // The lines under the date that say how the notes came to be
+            // are drawn as notices, not as text.
+            let split = CallNotesNotice.split(page.sections)
+            let offers = library.offers(call)
             let people = CallPeople.people(of: call.record)
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(page.sections.enumerated()), id: \.offset) { _, section in
+                ForEach(Array(split.notices.enumerated()), id: \.offset) { _, notice in
+                    CallNotesNoticeBanner(call: call, notice: notice, offers: offers)
+                }
+                if let empty = offers.empty {
+                    CallNotesNoModel(call: call, empty: empty, offers: offers)
+                }
+                ForEach(Array(split.sections.enumerated()), id: \.offset) { _, section in
                     CallNotesCard(call: call, section: section, people: people)
                 }
-                if !page.closing.isEmpty {
-                    CallNotesClosing(lines: page.closing)
+                // A page the Mac had no model for says it all in its card.
+                if offers.empty == nil, !page.closing.isEmpty {
+                    CallNotesClosing(call: call, lines: page.closing, offers: offers)
                 }
             }
         } else if call.record.endedAt == nil, call.record.recording == nil {
@@ -1524,9 +1628,10 @@ private struct CallNotesCardLook {
 }
 
 /// One section of the notes as a card: its heading with icon and count,
-/// then its lines, a hairline between list lines.
-private struct CallNotesCard: View {
-    let call: CallNotesLibrary.Call
+/// then its lines, a hairline between list lines. Without a call (the
+/// example in "What each plan writes") the lines say no time and go nowhere.
+struct CallNotesCard: View {
+    let call: CallNotesLibrary.Call?
     let section: MeetingPage.Section
     let people: [CallPeople.Person]
 
@@ -1609,16 +1714,22 @@ private struct CallNotesCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, look.kind == .summary ? 0 : 4)
         case .item(let text, let checked, let owner, let at):
-            let item = CallNotesItem(text: text, checked: checked, owner: owner, at: at,
+            let item = CallNotesItem(text: text, checked: checked, owner: owner, at: call == nil ? nil : at,
                                      look: look, yours: line.isYours, people: people)
-            if let at {
+            if let at, let call {
                 CallNotesJump(call: call, at: at) { item }
             } else {
                 item
             }
         case .unwritten(let from, let to):
-            CallNotesJump(call: call, at: from) {
-                CallNotesUnwritten(stretch: MeetingNotes.Stretch(start: from, end: to))
+            Group {
+                if let call {
+                    CallNotesJump(call: call, at: from) {
+                        CallNotesUnwritten(stretch: MeetingNotes.Stretch(start: from, end: to))
+                    }
+                } else {
+                    CallNotesUnwritten(stretch: MeetingNotes.Stretch(start: from, end: to))
+                }
             }
             .padding(.top, look.kind == .summary ? 10 : 4)
         case .heading(let text, _):
@@ -1647,29 +1758,388 @@ private struct CallNotesCard: View {
     }
 }
 
-/// The closing line under the cards: how the notes were made, under a lock.
+/// The closing line under the cards: how the notes were made, under a lock,
+/// or a chip for notes the Mac's own model wrote. Beside those, on a plan
+/// that doesn't write notes online, "See what Plus writes"; under them,
+/// "Redo with the better model" (`CallNotesOffers`).
 private struct CallNotesClosing: View {
+    @Environment(CallNotesLibrary.self) private var library
+    let call: CallNotesLibrary.Call
     let lines: [MeetingPage.Placed]
+    let offers: CallNotesOffers
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    if case .paragraph(let text) = line.block {
-                        Text(CallNotesItem.inline(text))
+        VStack(alignment: .trailing, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: Self.byTheMac(lines) ? "cpu" : "lock.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        if case .paragraph(let text) = line.block {
+                            Group {
+                                if index == 0, offers.seePlus {
+                                    Text(CallNotesItem.inline(text)) + Text("  ") + seePlus
+                                } else {
+                                    Text(CallNotesItem.inline(text))
+                                }
+                            }
                             .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }
+            .font(Theme.chrome(11.5))
+            .foregroundStyle(Theme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .environment(\.openURL, OpenURLAction { url in
+                guard url == Self.seePlusLink else { return .systemAction }
+                library.offering?.showComparison()
+                return .handled
+            })
+            if offers.redo != nil {
+                CallNotesRedoButton(call: call, offers: offers)
+            }
         }
-        .font(Theme.chrome(11.5))
-        .foregroundStyle(Theme.textTertiary)
         .padding(.horizontal, 2)
         .padding(.vertical, 4)
+    }
+
+    /// "See what Plus writes ›", a link inside the line so it wraps with it.
+    private var seePlus: Text {
+        var link = AttributedString("See what Plus writes ›")
+        link.link = Self.seePlusLink
+        link.foregroundColor = PlanTag.plusText
+        link.font = Theme.chrome(11.5, .semibold)
+        return Text(link)
+    }
+
+    private static let seePlusLink = URL(string: "airlock-notes://see-what-plus-writes")!
+
+    /// Whether the foot says the Mac's own model wrote them.
+    static func byTheMac(_ lines: [MeetingPage.Placed]) -> Bool {
+        lines.contains { line in
+            guard case .paragraph(let text) = line.block else { return false }
+            let plain = CallNotesNotice.plain(text)
+            return plain.hasPrefix(MeetingFiles.basicModelFooter) || plain.hasPrefix(MeetingFiles.serviceDownFooter)
+        }
+    }
+}
+
+/// "Redo with the better model": a Plus tag where it opens the plans, the
+/// words "Writing them again…" while it is asked, and what came of it below.
+private struct CallNotesRedoButton: View {
+    @Environment(CallNotesLibrary.self) private var library
+    let call: CallNotesLibrary.Call
+    let offers: CallNotesOffers
+    var title = "Redo with the better model"
+
+    var body: some View {
+        let busy = library.redoing == call.id
+        VStack(alignment: .trailing, spacing: 6) {
+            Button {
+                library.redo(call)
+            } label: {
+                HStack(spacing: 7) {
+                    if busy {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .accessibilityHidden(true)
+                    }
+                    Text(busy ? "Writing them again…" : title)
+                        .font(Theme.chrome(12, .medium))
+                    if offers.redoTagged { PlanTag(.plus) }
+                }
+                .foregroundStyle(CallsLook.quietText)
+                .padding(.leading, 11)
+                .padding(.trailing, offers.redoTagged ? 6 : 11)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color.white.opacity(0.04)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(library.redoing != nil)
+            .help(offers.redoTagged ? "Plus writes call notes online with a better model."
+                                    : "Writes these notes again online. Counts toward this month's online notes.")
+            if let redone = library.redone, redone.call == call.id {
+                Text(redone.said)
+                    .font(Theme.chrome(11))
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// A line under the date that says how the notes came to be, as a notice:
+/// how much of the call they cover, why the Mac wrote them, why there are
+/// none yet, with what can be done about it.
+private struct CallNotesNoticeBanner: View {
+    @Environment(CallNotesLibrary.self) private var library
+    let call: CallNotesLibrary.Call
+    let notice: CallNotesNotice
+    let offers: CallNotesOffers
+
+    var body: some View {
+        if let look {
+            let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: look.symbol)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(look.warning ? Theme.needs : Theme.textSecondary)
+                    .frame(width: 16)
+                    .accessibilityHidden(true)
+                Text(look.text)
+                    .font(Theme.chrome(12.5))
+                    .foregroundStyle(look.warning ? CallsLook.todoText : Theme.textSecondary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                actions
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 10)
+            .background(shape.fill(look.warning ? Theme.needs.opacity(0.07) : Color.white.opacity(0.025)))
+            .overlay(shape.strokeBorder(look.warning ? Theme.needs.opacity(0.3) : Color.white.opacity(0.08),
+                                        lineWidth: 1))
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private struct Look {
+        let symbol: String
+        let text: AttributedString
+        var warning = false
+    }
+
+    private var look: Look? {
+        switch notice {
+        case .cover(let text):
+            return Look(symbol: "clock", text: Self.bold(text, from: "first ", to: [" of a", "."]))
+        case .allowanceUsed(let text):
+            return Look(symbol: "cloud", text: Self.bold(text, from: "back on ", to: ["."]))
+        case .waitingForAllowance(let text):
+            return Look(symbol: "clock.badge.exclamationmark",
+                        text: Self.bold(text, from: "written on ", to: ["."]), warning: true)
+        case .waitingForService(let text), .waitingForNetwork(let text), .improvedOnline(let text):
+            return Look(symbol: "wifi.slash", text: AttributedString(text))
+        case .noModel:
+            return nil
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        switch notice {
+        case .allowanceUsed:
+            if offers.seePro { seePro }
+        case .waitingForAllowance:
+            HStack(spacing: 10) {
+                if offers.seePro { seePro }
+                CallNotesOfferButton("Read the transcript") { library.tab = .transcript }
+            }
+        case .waitingForService:
+            if library.offering != nil {
+                if library.redoing == call.id {
+                    ProgressView().controlSize(.small)
+                } else {
+                    CallNotesOfferButton("Try again") { library.tryAgain(call) }
+                        .disabled(library.redoing != nil)
+                }
+            }
+        case .cover, .waitingForNetwork, .improvedOnline, .noModel:
+            EmptyView()
+        }
+    }
+
+    private var seePro: some View {
+        Button {
+            library.offering?.showPlans()
+        } label: {
+            HStack(spacing: 3) {
+                Text("See Pro")
+                Image(systemName: "chevron.right").font(.system(size: 9.5, weight: .bold))
+            }
+            .font(Theme.chrome(12.5, .semibold))
+            .foregroundStyle(PlanTag.plusText)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+    }
+
+    /// `text` with the words from `from` up to the first of `to` in bold and
+    /// in the brighter grey: the minutes, the day.
+    static func bold(_ text: String, from start: String, to ends: [String]) -> AttributedString {
+        var said = AttributedString(text)
+        guard let opening = said.range(of: start) else { return said }
+        let rest = said[opening.upperBound...]
+        guard let closing = ends.compactMap({ rest.range(of: $0) }).min(by: { $0.lowerBound < $1.lowerBound })
+        else { return said }
+        let from = start == "first " ? opening.lowerBound : opening.upperBound
+        said[from..<closing.lowerBound].font = Theme.chrome(12.5, .semibold)
+        said[from..<closing.lowerBound].foregroundColor = Theme.textPrimary
+        return said
+    }
+}
+
+/// The card that stands in for notes the Mac had no model to write: turn
+/// Apple Intelligence on, or, on a Mac that can't run it, what Plus does.
+private struct CallNotesNoModel: View {
+    @Environment(CallNotesLibrary.self) private var library
+    let call: CallNotesLibrary.Call
+    let empty: CallNotesOffers.Empty
+    let offers: CallNotesOffers
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "apple.intelligence")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundStyle(empty == .turnOnAppleIntelligence ? CallsLook.saidText : Theme.textSecondary)
+                .frame(width: 52, height: 52)
+                .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(empty == .turnOnAppleIntelligence ? Theme.assistant.opacity(0.14) : Color.white.opacity(0.06)))
+                .padding(.bottom, 20)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(Theme.chrome(16, .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 8)
+            Text(detail)
+                .font(Theme.chrome(12.5))
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 440)
+                .padding(.bottom, 18)
+            buttons
+            if empty == .cantWriteNotes, offers.seePlus {
+                Text("Your transcripts are always kept, on every plan.")
+                    .font(Theme.chrome(11))
+                    .foregroundStyle(Theme.textTertiary)
+                    .padding(.top, 14)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 50)
+        .padding(.bottom, 24)
+        .padding(.horizontal, 24)
+    }
+
+    private var title: String {
+        switch empty {
+        case .turnOnAppleIntelligence: "Turn on Apple Intelligence to get notes and to-dos"
+        case .cantWriteNotes: "This Mac can't write notes itself"
+        }
+    }
+
+    private var detail: String {
+        switch empty {
+        case .turnOnAppleIntelligence:
+            "Airlock writes call notes with your Mac's own model, and it's switched off. "
+                + "The transcript of this call is ready."
+        case .cantWriteNotes where offers.seePlus:
+            "Apple Intelligence isn't available on this Mac, for example because of its region or language. "
+                + "Plus writes notes online, on any Mac. The transcript is ready."
+        case .cantWriteNotes:
+            "Apple Intelligence isn't available on this Mac, for example because of its region or language. "
+                + "The transcript is ready."
+        }
+    }
+
+    @ViewBuilder
+    private var buttons: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                switch empty {
+                case .turnOnAppleIntelligence:
+                    CallNotesOfferButton("Open System Settings", tone: .light) {
+                        if let url = AppleIntelligenceSetup.Button.openSystemSettings.url {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    CallNotesOfferButton("Read the transcript") { library.tab = .transcript }
+                case .cantWriteNotes:
+                    if offers.seePlus, let offering = library.offering {
+                        CallNotesOfferButton("See what Plus writes") { offering.showComparison() }
+                        CallNotesOfferButton("See Plus", tone: .plus) { offering.showPlans() }
+                    } else {
+                        CallNotesOfferButton("Read the transcript") { library.tab = .transcript }
+                    }
+                }
+            }
+            // A plan that writes notes online can have this call's now.
+            if offers.redo == .rewritesOnline {
+                CallNotesRedoButton(call: call, offers: offers, title: "Write the notes online")
+            }
+        }
+    }
+}
+
+/// A button on the notes window's notices and cards: an outline, a light
+/// fill for the one thing to do, or Plus's blue.
+struct CallNotesOfferButton: View {
+    enum Tone { case outline, light, plus, pro }
+
+    let title: String
+    let tone: Tone
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    init(_ title: String, tone: Tone = .outline, action: @escaping () -> Void) {
+        self.title = title
+        self.tone = tone
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Theme.chrome(12.5, .medium))
+                .foregroundStyle(ink)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(fill))
+                .overlay(Capsule().strokeBorder(stroke, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .onHover { hovered = $0 }
+    }
+
+    private var ink: Color {
+        switch tone {
+        case .outline: CallsLook.quietText
+        case .light: Color.black.opacity(0.85)
+        case .plus: .white
+        case .pro: PlanTag.pro
+        }
+    }
+
+    private var fill: Color {
+        switch tone {
+        case .outline: Color.white.opacity(hovered ? 0.08 : 0.03)
+        case .light: Color.white.opacity(hovered ? 1 : 0.92)
+        case .plus: PlanTag.plus.opacity(hovered ? 1 : 0.9)
+        case .pro: PlanTag.pro.opacity(hovered ? 0.14 : 0.06)
+        }
+    }
+
+    private var stroke: Color {
+        switch tone {
+        case .outline: Color.white.opacity(0.14)
+        case .pro: PlanTag.pro.opacity(0.5)
+        case .light, .plus: .clear
+        }
     }
 }
 

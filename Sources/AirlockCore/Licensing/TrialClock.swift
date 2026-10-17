@@ -2,7 +2,12 @@ import Foundation
 
 /// The free trial, as arithmetic on two dates.
 ///
-/// **No card, everything unlocked, fourteen days.** Asking for a card first
+/// **No trial starts any more** (the owner's call, 2026-10-15): a new install is
+/// on Free. This is kept only to honour trials that began before that, to the
+/// day they were promised, with everything Plus has.
+///
+/// What follows is why the trial was built the way it was. **No card,
+/// everything unlocked, fourteen days.** Asking for a card first
 /// roughly triples the share of trials that convert and costs far more than that
 /// in trials ever started — and for an app whose pitch is that it holds your
 /// keys to the agent, demanding payment details from a stranger before it has

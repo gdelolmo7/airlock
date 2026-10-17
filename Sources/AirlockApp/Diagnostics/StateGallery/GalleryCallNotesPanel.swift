@@ -85,17 +85,36 @@ enum GalleryCallNotesPanel {
                               record: record(of: call, event: weekly, said: opening), notes: weeklyNotes,
                               allowanceUntil: until)
             },
+            // Free's notes listen for 30 minutes: a purple line in the last
+            // five, then a quiet one once they stopped. The call goes on.
+            GalleryState("K91", area, "Panel: Free, 26 min in, notes stop at 30 min") {
+                let call = faceTime(since: 26 * 60)
+                return banner(.recording(call, since: call.startedAt),
+                              record: record(of: call, event: withAna, said: launchTalk,
+                                             jots: ["Pricing copy by Thursday"]),
+                              listening: NotesListening(startedOn: PlanSnapshot(plan: .free, isPaid: false),
+                                                        call: call, at: RunningTime.now() - 26 * 60))
+            },
+            GalleryState("K92", area, "Panel: Free, notes stopped at 30 min, writing") {
+                banner(.writing(faceTime(since: 31 * 60)), stoppedAtLimit: true, event: withAna)
+            },
+            GalleryState("K93", area, "Panel: Free, notes ready after stopping at 30 min") {
+                let call = meet(since: 41 * 60)
+                return banner(.ready(folder: "/var/empty/weekly", call: call), stoppedAtLimit: true,
+                              record: record(of: call, event: weekly, said: opening), notes: weeklyNotes)
+            },
         ]
     }
 
     // MARK: - Drawing
 
     private static func banner(_ phase: MeetingNotesFlow.Phase, pausedSince: Date? = nil,
-                               endedBySleep: Bool = false,
+                               endedBySleep: Bool = false, stoppedAtLimit: Bool = false,
                                record: MeetingRecord? = nil, notes: MeetingNotes? = nil,
                                event: MeetingEvent? = nil,
-                               allowanceUntil: Date? = nil) -> some View {
-        let flow = MeetingNotesFlow(previewing: phase, pausedSince: pausedSince, endedBySleep: endedBySleep)
+                               allowanceUntil: Date? = nil, listening: NotesListening? = nil) -> some View {
+        let flow = MeetingNotesFlow(previewing: phase, pausedSince: pausedSince, endedBySleep: endedBySleep,
+                                    listening: listening, stoppedAtLimit: stoppedAtLimit)
         let model = MeetingNotesModel(previewing: flow, record: record, notes: notes, event: event,
                                       allowanceUntil: allowanceUntil)
         return MeetingNotesBanner(meetings: model)

@@ -78,7 +78,7 @@ struct DictationPane: View {
                 if callNotesOn {
                     callLanguageRow
                     pastCallsRow
-                    if offersNotesOnline { notesOnlineRow }
+                    if offersNotesOnline { notesOnlineRow } else if showsNotesOnlineTag { notesOnlineTagRow }
                     KnownWordsRow(words: knownWords)
                         .settingsAnchor(.knownWords)
                     if CallVoiceModel.isInstalled { callVoicesRow }
@@ -270,7 +270,7 @@ struct DictationPane: View {
     }
 
     /// A subscriber's: "Write notes online" shows.
-    private var offersNotesOnline: Bool { cloudNotesOn && license?.entitlement.isPaid == true }
+    private var offersNotesOnline: Bool { cloudNotesOn && license?.entitlement.limits.writesNotesOnline == true }
 
     /// Where the notes are written, for the line under "Call notes".
     private var writesNotesOnline: Bool { offersNotesOnline && CloudNotesSetting.isOn(notesOnline) }
@@ -284,12 +284,30 @@ struct DictationPane: View {
         .settingsAnchor(.pastCalls)
     }
 
+    /// On a plan that writes notes on the Mac only: the row is there with
+    /// a Plus tag instead of a switch, so what Plus adds is seen where it
+    /// would be set, not only on the Plans page.
+    private var showsNotesOnlineTag: Bool {
+        guard cloudNotesOn, let license else { return false }
+        return !license.entitlement.limits.writesNotesOnline
+    }
+
+    private var notesOnlineTagRow: some View {
+        let minutes = Int(PlanLimits.freeNotesListen / 60)
+        return LookRow(CloudNotesSetting.title,
+                       subtitle: "The whole call, with notes written online by a better model. On Free: "
+                           + "words, transcript and notes for the first \(minutes) minutes, on your Mac.") {
+            PlanTagButton(.plus) { settings?.reveal(.plans) }
+        }
+        .settingsAnchor(.notesOnline)
+    }
+
     /// Where a meeting's notes are written (`CloudNotesService`). Says where
     /// the transcript goes, and what off means. On until switched off: off
     /// keeps every meeting's transcript on this Mac.
     private var notesOnlineRow: some View {
         LookToggleRow(CloudNotesSetting.title,
-                      subtitle: CloudNotesSetting.subtitle,
+                      subtitle: CloudNotesSetting.subtitle(for: license?.entitlement.license?.plan),
                       isOn: Binding(get: { CloudNotesSetting.isOn(notesOnline) },
                                     set: { CloudNotesService.setSwitch($0) }))
             .settingsAnchor(.notesOnline)
@@ -309,7 +327,20 @@ struct DictationPane: View {
                       subtitle: "Removes \u{201C}um\u{201D}s and fixes punctuation, on your Mac",
                       isOn: Bindable(dictation).cleansTranscript)
             .settingsAnchor(.cleanup)
-        if dictation.cleansTranscript, let message = dictation.cleanupAvailability.message(feature: "cleanup") {
+        if let line = TranscriptCleanup.noModelLine(dictation.cleanupAvailability) {
+            // Said whether the switch is on or not, and not as a problem:
+            // dictation works, only the tidy-up is out of reach. Switched
+            // off, the way back is one button away.
+            LookRow("Needs Apple Intelligence", subtitle: line) {
+                if dictation.cleanupAvailability == .needsAppleIntelligence,
+                   let url = AppleIntelligenceSetup.Button.openSystemSettings.url {
+                    LookButton(AppleIntelligenceSetup.Button.openSystemSettings.title) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+        } else if dictation.cleansTranscript,
+                  let message = dictation.cleanupAvailability.message(feature: "cleanup") {
             ProblemCard(sentence: message)
         }
     }

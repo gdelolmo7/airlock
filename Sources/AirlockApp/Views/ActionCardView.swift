@@ -58,8 +58,6 @@ struct ActionCardView: View {
                 buttons
             case .refused(let rule):
                 refusal("A rule in your policy refuses this.", rule: rule)
-            case .blocked:
-                blockedRefusal
             case .perform:
                 // Never drawn: `propose` performs and clears in one step, so a
                 // card in this state would be one nobody needs to answer.
@@ -165,39 +163,6 @@ struct ActionCardView: View {
             Spacer(minLength: 0)
         }
         .foregroundStyle(Theme.textTertiary)
-    }
-
-    /// A dead end deserves the way out.
-    ///
-    /// `.blocked` printed one line and stopped, which is the correct amount of
-    /// drama and the wrong amount of help: the only thing that clears it is a
-    /// licence, and the card knew that while making the user go and find it.
-    ///
-    /// It used to add that typed questions still get answers. They don't: a
-    /// finished trial takes the typing bar and the ask hold as well, so the
-    /// line promised the one thing they could no longer try.
-    ///
-    /// Amber, not the red raised hand a rule's refusal gets: nothing went
-    /// wrong and nobody refused anything — the trial ran out, and the button
-    /// is the way back.
-    private var blockedRefusal: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Label("Your trial has ended, so this wasn't done.", systemImage: "clock.badge.xmark")
-                .font(Theme.chrome(11, .semibold))
-                .foregroundStyle(Theme.needs)
-
-            HStack(spacing: 6) {
-                action("Subscribe", shortcut: nil,
-                       fg: Color(red: 0.02, green: 0.13, blue: 0.18), bg: Theme.running) {
-                    assistant.showLicence()
-                }
-                action("Not now", shortcut: nil, fg: Theme.textSecondary,
-                       bg: .clear, bordered: true) {
-                    assistant.dismiss()
-                }
-                Spacer(minLength: 0)
-            }
-        }
     }
 
     private func refusal(_ message: String, rule: String?) -> some View {

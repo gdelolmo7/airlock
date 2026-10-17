@@ -35,6 +35,22 @@ public enum TranscriptCleanup {
     nothing needs fixing, return the transcript unchanged.
     """
 
+    /// Settings' line under "Tidy up what I said" on a Mac with no model to
+    /// tidy with, or nil when there is one (or one on its way). Dictation
+    /// itself never needs it: the words still type, as they were said.
+    public static func noModelLine(_ availability: ModelAvailability) -> String? {
+        switch availability {
+        case .needsAppleIntelligence:
+            "Tidying up needs Apple Intelligence, which is switched off on this Mac. "
+                + "Until it's on, dictation types your words as you said them."
+        case .deviceNotEligible:
+            "Tidying up needs Apple Intelligence, which this Mac can't run. "
+                + "Dictation still types your words as you said them."
+        case .ready, .modelNotReady, .unknown:
+            nil
+        }
+    }
+
     /// The transcript, wrapped so the model treats it as cargo rather than as
     /// speech addressed to it.
     ///

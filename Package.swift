@@ -151,6 +151,17 @@ let package = Package(
             dependencies: ["AirlockCore"]
         ),
 
+        // Looks through a finished app for anything shaped like a secret key;
+        // release.sh runs it before notarizing, so a bundle carrying one never
+        // leaves the Mac. Its own target so the tests reach the rules without
+        // the app, and never in the bundle: its prefixes would be in the very
+        // binary it scans.
+        .target(name: "SecretScan"),
+        .executableTarget(
+            name: "SecretScanTool",
+            dependencies: ["SecretScan"]
+        ),
+
         // Installer CLI: wires an agent's config to call the hook binary.
         .executableTarget(
             name: "NotchSetup",
@@ -189,6 +200,11 @@ let package = Package(
         .testTarget(
             name: "AirlockEchoTests",
             dependencies: ["AirlockEcho"]
+        ),
+
+        .testTarget(
+            name: "SecretScanTests",
+            dependencies: ["SecretScan", "AirlockTestSupport"]
         ),
 
         .testTarget(

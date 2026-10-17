@@ -25,6 +25,8 @@ public enum CallLive {
         case ready(todos: Int)
         /// Over, and too little was said for notes.
         case tooLittleSaid
+        /// Over and saved, its notes written online later.
+        case later
         /// Over too soon to keep: the folder goes unless the call comes back.
         case tooShort
         /// The notes stopped, and why.
@@ -44,6 +46,7 @@ public enum CallLive {
         switch outcome {
         case nil, .failed: return .writing
         case .saved(.tooLittleSaid, _): return .tooLittleSaid
+        case .saved(.later, _): return .later
         case .saved(.notes, let todos): return .ready(todos: todos)
         }
     }

@@ -46,7 +46,8 @@ enum GalleryDictation {
             notice("T14", "Nothing to type into", .copiedNowhereToType),
             notice("T15", "Microphone denied", .microphoneDenied),
             notice("T16", "No speech model", .noSpeechModel(locale: "en_US")),
-            notice("T17", "No subscription", .noSubscription),
+            .notYet("T17", area, "No subscription",
+                    why: "Retired: nothing locks any more, so a hold is never turned away for the licence."),
             notice("T18", "Microphone failed to start", .microphoneFailedToStart),
             notice("T19", "Two-minute limit", .reachedLimit),
             notice("T20", "Clean-up failed / unavailable", .tidyingFailed),
@@ -56,6 +57,7 @@ enum GalleryDictation {
                     listeningStrip(words: "", route: .type, asking: false, listening: true)
                 }
             },
+            notice("T22", "A key or click while talking (words copied, not typed)", .copiedAfterKeyOrClick),
         ]
     }
 

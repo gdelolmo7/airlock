@@ -11,12 +11,54 @@ public struct ClipboardHistory: Equatable, Sendable, Codable {
     /// the list is rendered far more often than it is written.
     public private(set) var items: [ClipboardItem]
 
+    /// Copies a smaller plan does not show, newest first. Put away when the
+    /// plan dropped, never deleted for it: they come back on a plan that shows
+    /// them, and are let go `outOfSightDays` after the first were put away.
+    /// Nothing reads them but `fit`, so they are in no list and no search.
+    public private(set) var outOfSight: [ClipboardItem]
+    /// When everything out of sight is let go.
+    public private(set) var outOfSightUntil: Date?
+    /// The most the plan showed when this was last fitted; nil had no limit.
+    /// A plan that shows fewer than this is a plan that dropped, and only a
+    /// drop puts copies out of sight. Free's own copies past its limit go,
+    /// as they do on every plan at its limit.
+    public private(set) var planShowed: Int?
+
     public static let defaultCapacity = 200
     public static let capacityRange: ClosedRange<Int> = 20...1000
+    public static let outOfSightDays = 30
+    public static let outOfSightFor = TimeInterval(outOfSightDays) * 86_400
 
     public init(items: [ClipboardItem] = []) {
         self.items = items
+        self.outOfSight = []
         sort()
+    }
+
+    // MARK: - Saved
+
+    private enum CodingKeys: String, CodingKey {
+        case items, outOfSight, outOfSightUntil, planShowed
+    }
+
+    /// A history saved before plans had only `items`.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decode([ClipboardItem].self, forKey: .items)
+        outOfSight = try container.decodeIfPresent([ClipboardItem].self, forKey: .outOfSight) ?? []
+        outOfSightUntil = try container.decodeIfPresent(Date.self, forKey: .outOfSightUntil)
+        planShowed = try container.decodeIfPresent(Int.self, forKey: .planShowed)
+        sort()
+    }
+
+    /// The same history without the rows `drop` picks, out of sight or not.
+    /// For a row that can no longer work, such as an image whose file is gone.
+    public func dropping(where drop: (ClipboardItem) -> Bool) -> ClipboardHistory {
+        var kept = self
+        kept.items.removeAll(where: drop)
+        kept.outOfSight.removeAll(where: drop)
+        if kept.outOfSight.isEmpty { kept.outOfSightUntil = nil }
+        return kept
     }
 
     // MARK: - Mutation
@@ -48,6 +90,21 @@ public struct ClipboardHistory: Equatable, Sendable, Codable {
             }
             promote(id: id, at: item.copiedAt)
             return .merged(id)
+        }
+        // Copied again while out of sight: it is wanted, so it comes back,
+        // with its own id and its copies counted.
+        if let index = outOfSight.firstIndex(where: { $0.fingerprint == item.fingerprint }) {
+            var back = outOfSight.remove(at: index)
+            if back.text != nil, item.text != nil {
+                back.payload = item.payload
+                back.sourceBundleID = item.sourceBundleID
+                back.sourceAppName = item.sourceAppName
+            }
+            if outOfSight.isEmpty { outOfSightUntil = nil }
+            items.append(back)
+            promote(id: back.id, at: item.copiedAt)
+            trim(to: capacity)
+            return .merged(back.id)
         }
         items.append(item)
         sort()
@@ -104,15 +161,22 @@ public struct ClipboardHistory: Equatable, Sendable, Codable {
 
     public mutating func remove(id: UUID) {
         items.removeAll { $0.id == id }
+        outOfSight.removeAll { $0.id == id }
+        if outOfSight.isEmpty { outOfSightUntil = nil }
     }
 
-    /// Pins are the whole point of pinning: a clear must not take them.
+    /// Pins are the whole point of pinning: a clear must not take them. What
+    /// is out of sight goes too: a clear is asked of the whole history.
     public mutating func clearUnpinned() {
         items.removeAll { !$0.pinned }
+        outOfSight = []
+        outOfSightUntil = nil
     }
 
     public mutating func clearAll() {
         items.removeAll()
+        outOfSight = []
+        outOfSightUntil = nil
     }
 
     /// Applied when the setting changes, not only on insert — lowering the cap
@@ -125,6 +189,60 @@ public struct ClipboardHistory: Equatable, Sendable, Codable {
             kept += 1
             return kept > capacity
         }
+    }
+
+    /// Fits the history to the plan, asked every time it changes and every
+    /// time anything is copied: `planShows` is `PlanLimits.clipboardShows`
+    /// now, `capacity` the person's own setting.
+    ///
+    /// **A plan change never deletes a copy.** A plan that shows fewer than
+    /// the last one puts the oldest past its limit out of sight, for
+    /// `outOfSightDays`; a plan with no limit brings them back. Pinned copies
+    /// stay where they are on every plan, as they never count against a limit.
+    /// Only the person's own setting deletes, as it always has.
+    ///
+    /// Returns how many copies Free's limit let go just now: past the plan's
+    /// limit and inside the person's own setting, so the same copies would
+    /// still be here on a plan without one. Copies put out of sight are not
+    /// counted; they are not gone.
+    @discardableResult
+    public mutating func fit(planShows: Int?, capacity: Int, now: Date) -> Int {
+        let showed = planShowed
+        planShowed = planShows
+
+        if let until = outOfSightUntil, now >= until {
+            outOfSight = []
+            outOfSightUntil = nil
+        }
+        if planShows == nil, !outOfSight.isEmpty {
+            let shown = Set(items.map(\.fingerprint))
+            items += outOfSight.filter { !shown.contains($0.fingerprint) }
+            outOfSight = []
+            outOfSightUntil = nil
+            sort()
+        }
+        trim(to: capacity)
+        guard let shows = planShows else { return 0 }
+
+        var kept = 0
+        var past: [ClipboardItem] = []
+        items.removeAll { item in
+            if item.pinned { return false }
+            kept += 1
+            guard kept > shows else { return false }
+            past.append(item)
+            return true
+        }
+        let dropped = showed.map { shows < $0 } ?? true
+        guard !past.isEmpty else { return 0 }
+        guard dropped || outOfSightUntil != nil else { return past.count }
+        outOfSight = past + outOfSight
+        outOfSightUntil = outOfSightUntil ?? now.addingTimeInterval(Self.outOfSightFor)
+        // Never more kept than the person's own setting allows.
+        let room = max(0, capacity - items.filter { !$0.pinned }.count)
+        if outOfSight.count > room { outOfSight.removeLast(outOfSight.count - room) }
+        if outOfSight.isEmpty { outOfSightUntil = nil }
+        return 0
     }
 
     /// Sorting is a private invariant, never a caller's job.
@@ -158,7 +276,9 @@ public struct ClipboardHistory: Equatable, Sendable, Codable {
     /// Image files still pointed at by some row. Anything else in the images
     /// directory is orphaned — dropped rows leave bytes behind otherwise, and a
     /// screenshot history that only grows is a disk leak with a nice UI.
+    ///
+    /// Copies out of sight keep theirs, or they would come back blank.
     public var referencedImageFiles: Set<String> {
-        Set(items.compactMap(\.imageFile))
+        Set((items + outOfSight).compactMap(\.imageFile))
     }
 }

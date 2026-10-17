@@ -34,8 +34,7 @@ extension SessionStatus {
 /// first prompt is what names it.
 public enum SessionCardText {
     /// The row's line after a request was handed back to the agent's own
-    /// prompt — by the card's ×, by running out of time, or, once the trial
-    /// has ended, on arrival (`GateHolding`).
+    /// prompt — by the card's ×, or by running out of time.
     ///
     /// It used to keep the request's own words ("Run shell command", or the
     /// question itself), which read as the agent still being on it when it is
@@ -60,7 +59,7 @@ public enum SessionCardText {
     /// the handed-back line alone would turn the pill back to "Working" before
     /// anybody answered. Anything else the agent says next — the call running,
     /// a new prompt, the turn ending — replaces the line and ends it.
-    static func asksInItsTerminal(_ session: AgentSession) -> Bool {
+    public static func asksInItsTerminal(_ session: AgentSession) -> Bool {
         let line = session.lastSummary.trimmingCharacters(in: .whitespacesAndNewlines)
         return line == handedBack || line.hasPrefix(ClaudeStyleHookDecoder.permissionNoticePrefix)
     }

@@ -22,6 +22,22 @@ final class CallLiveTests: XCTestCase {
                        .tooLittleSaid)
         XCTAssertEqual(CallLive.stage(of: over, paused: false, outcome: .failed("Couldn't save the notes.")),
                        .failed("Couldn't save the notes."))
+        XCTAssertEqual(CallLive.stage(of: over, paused: false, outcome: .saved(.later, todos: 0)), .later)
+    }
+
+    /// A Mac that can't write notes, waiting to write them online, says the
+    /// call is saved and its notes come later, never that they are ready.
+    func testACallWhoseNotesComeLaterIsNotReady() {
+        let over = record(endedAfter: 13)
+        let waiting = MeetingNotesWriter.noNotes(.failed, at: start, notBefore: start.addingTimeInterval(3_600))
+        XCTAssertEqual(CallNotesPanel.ready(of: over, notes: nil, writer: waiting), .later)
+        XCTAssertEqual(CallNotesPanel.ready(of: over, notes: nil, writer: .mac(at: start, waitsForOnline: true)),
+                       CallNotesPanel.ready(of: over, notes: nil), "the Mac's own notes are ready as before")
+        XCTAssertEqual(CallNotesPanel.ready(of: over, notes: nil, writer: CloudNotesRedo.stopped(waiting)),
+                       CallNotesPanel.ready(of: over, notes: nil), "and so is a page that stopped waiting")
+        XCTAssertNil(CallNotesPanel.readyNotice(of: over, ready: .later, todos: 0),
+                     "no \"Call notes ready\" until they are")
+        XCTAssertEqual(CallNotesPanel.notesLater, "Call saved, notes later")
     }
 
     func testAnOutcomeNeverSpeaksForACallStillOn() {

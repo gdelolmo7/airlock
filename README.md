@@ -167,6 +167,8 @@ Airlock's source is published under the
 - **You may also** change it for your own personal, noncommercial use, and to
   prepare a contribution to this repository (forking it on GitHub for that is
   fine). This is the additional permission at the end of [LICENSE](LICENSE).
+- **You may not** remove or work around the licensing or the limits of the
+  plans (what Free, Plus and Pro each include) in a build of your own.
 - **You may not** share builds or changed copies, sell it, or use it for
   commercial purposes. Using Airlock at or for a business means a
   subscription from [useairlock.app](https://useairlock.app).

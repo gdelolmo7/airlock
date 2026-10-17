@@ -202,4 +202,36 @@ final class BloubFaceTests: XCTestCase {
         var noBattery = all; noBattery.batteryCritical = false
         XCTAssertEqual(resolve(.idle, noBattery).tint, .attention)
     }
+
+    /// THE BUG: with any agent session open the lamp took the face first, so a
+    /// Mac at 9% with the charger out showed a calm blue cloud beside a red
+    /// battery. Open and working agents yield; the Mac going dark ends them.
+    func testADyingBatteryOutranksAnOpenOrWorkingAgent() {
+        let dying = Face.Ambient(batteryCritical: true)
+        for working in [false, true] {
+            let face = resolve(.agentLamp(attention: false, working: working), dying)
+            XCTAssertEqual(face.expression, .scared, "working: \(working)")
+            XCTAssertEqual(face.tint, .error, "working: \(working)")
+        }
+    }
+
+    /// An agent waiting on an answer keeps the face: orange is the only place a
+    /// waiting gate shows on that side, and `scared` is never for the gate.
+    func testAWaitingAgentStillOutranksADyingBattery() {
+        let face = resolve(.agentLamp(attention: true, working: false), .init(batteryCritical: true))
+        XCTAssertEqual(face.tint, .attention)
+        XCTAssertNotEqual(face.expression, .scared)
+    }
+
+    /// The finish is two seconds long; yielding it would mean never seeing it.
+    func testTheFinishStillShowsOnADyingBattery() {
+        XCTAssertEqual(resolve(.completionTick, .init(batteryCritical: true)).tint, .done)
+    }
+
+    /// Only a CRITICAL battery takes the face. The meeting and the network stay
+    /// below the agents, as before.
+    func testOtherAmbientFactsStillYieldToAnOpenAgent() {
+        let quiet = Face.Ambient(meetingSoon: true, isOffline: true)
+        XCTAssertEqual(resolve(.agentLamp(attention: false, working: false), quiet).tint, .working)
+    }
 }

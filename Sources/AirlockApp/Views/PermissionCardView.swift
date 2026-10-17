@@ -9,9 +9,6 @@ struct PermissionCardView: View {
     let request: PermissionRequest
     @Environment(AppModel.self) private var model
     @Environment(NotchUIState.self) private var uiState
-    /// Whether answering from here is paid up. The gate is drawn either way —
-    /// only the buttons change.
-    @Environment(LicenseModel.self) private var license
 
     /// The ask, one question at a time, and the answers so far — see
     /// `QuestionWalk`. Rebuilt for every new request; see the `onChange` in
@@ -173,12 +170,7 @@ struct PermissionCardView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Group {
-                    // The same check the permission card makes. A question
-                    // answered from here is answering from here, and it used
-                    // to skip the ask the command card showed beside it.
-                    if !license.entitlement.allowsUse {
-                        subscriptionAsk
-                    } else if question.multiSelect {
+                    if question.multiSelect {
                         multiSelectOptions(question)
                     } else {
                         singleSelectOptions(question)
@@ -663,9 +655,6 @@ struct PermissionCardView: View {
                 riskLine(risk)
             }
 
-            if !license.entitlement.allowsUse {
-                subscriptionAsk
-            } else {
             HStack(spacing: 6) {
                 // A risky request turns the weights round: Deny is the filled
                 // button and Approve is outlined in the warning colour. The
@@ -693,13 +682,10 @@ struct PermissionCardView: View {
             }
             .opacity(settling ? 0.45 : 1)
 
-            }
-
             // What Always is about to write, spelled out. It is broader than
             // the one command in front of you, and a rule you did not read is
             // the wrong way to fix dead rules.
-            if let request = session.pendingPermission, request.offersAlways,
-               license.entitlement.allowsUse {
+            if let request = session.pendingPermission, request.offersAlways {
                 HStack(spacing: 5) {
                     Image(systemName: "text.badge.checkmark")
                         .font(.system(size: 9))
@@ -743,89 +729,6 @@ struct PermissionCardView: View {
         }
         .foregroundStyle(Theme.danger)
         .accessibilityElement(children: .combine)
-    }
-
-    /// The trial is over, an agent is waiting, and this is the moment the
-    /// subscription is worth what it costs.
-    ///
-    /// **The request above stays fully legible, command included.** What is
-    /// being sold is answering it FROM HERE, so hiding the thing being answered
-    /// would hide the argument.
-    ///
-    /// The free way out is stated and deliberately unstyled: closing the card
-    /// hands the request back, and the agent asks in its own terminal. Saying
-    /// so costs a sale that was never going to happen while keeping one that
-    /// might.
-    ///
-    /// **It used to say the request was "still waiting" there**, which was not
-    /// true while this card held it: Claude Code puts its own prompt up only
-    /// once the hook lets go. After the trial a gate is handed back on arrival
-    /// now (`GateHolding`), so this card is only ever the demo's, or one the
-    /// bridge has not let go of yet.
-    ///
-    /// **It used to promise what the app no longer does** — "Airlock still
-    /// watches", "media, sound, calendar, clipboard and the shelf keep working
-    /// for good" — beside a panel whose every other widget was locked, and its
-    /// "I have a key" opened the purchase window. It now says only what is
-    /// true, and the key goes where keys are entered.
-    private var subscriptionAsk: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(Self.trialEndedTitle)
-                .font(Theme.chrome(12, .semibold))
-                .foregroundStyle(Theme.textPrimary)
-            Text(Self.trialEndedLine(freeWayOut))
-                .font(Theme.chrome(11))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 6) {
-                Button { license.showPurchase() } label: {
-                    Text("Subscribe")
-                        .font(Theme.chrome(12, .semibold))
-                        .foregroundStyle(Color(red: 0.02, green: 0.15, blue: 0.06))
-                        .padding(.horizontal, 11)
-                        .frame(height: 27)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(Theme.done))
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .clickable()
-
-                Button { Notifications.openSettings?(.license, .licenceKey) } label: {
-                    Text("Enter a key")
-                        .font(Theme.chrome(12, .semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                        .padding(.horizontal, 11)
-                        .frame(height: 27)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .clickable()
-
-                Spacer(minLength: 4)
-
-                Text("\(License.Period.yearly.price), or \(License.Period.monthly.price)")
-                    .font(Theme.chrome(10.5))
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    static let trialEndedTitle = "Your trial has ended"
-    /// Where the request can still be answered for free, then the offer.
-    static func trialEndedLine(_ terminal: String) -> String {
-        "Close this card to answer it in \(terminal) instead. To answer from the notch, subscribe."
-    }
-
-    /// Names the terminal the agent asks in once the card is closed, because
-    /// "answer it elsewhere" only helps if you know where elsewhere is.
-    private var freeWayOut: String {
-        TerminalName.pretty(session.terminal?.app ?? session.jumpTarget?.terminalApp)
-            .map { "\($0)" } ?? "its terminal"
     }
 
     @ViewBuilder private var content: some View {

@@ -7,8 +7,7 @@ final class DictationHoldNoticeTests: XCTestCase {
     private static let every: [DictationHoldNotice] = [
         .microphoneDenied, .noSpeechModel(locale: "en_US"), .notBundled, .microphoneFailedToStart,
         .microphoneAllowed(key: "⌃ Control", asking: false), .nothingCaught, .copiedNowhereToType,
-        .reachedLimit, .tidyingFailed, .secureInput(holder: "1Password"), .secureInput(holder: nil),
-        .noSubscription,
+        .copiedAfterKeyOrClick, .reachedLimit, .tidyingFailed, .secureInput(holder: "1Password"), .secureInput(holder: nil),
     ]
 
     func testTheSentencesTheNotchShows() {
@@ -46,10 +45,7 @@ final class DictationHoldNoticeTests: XCTestCase {
         XCTAssertEqual(DictationHoldNotice.microphoneDenied.fix?.button, "Open System Settings")
         XCTAssertEqual(DictationHoldNotice.microphoneFailedToStart.fix, .chooseInput)
         XCTAssertEqual(DictationHoldNotice.microphoneFailedToStart.fix?.button, "Choose input…")
-        XCTAssertEqual(DictationHoldNotice.noSubscription.fix, .subscribe)
-        XCTAssertEqual(DictationHoldNotice.noSubscription.fix?.button, "Subscribe")
-        for notice in Self.every where notice != .microphoneDenied && notice != .microphoneFailedToStart
-            && notice != .noSubscription {
+        for notice in Self.every where notice != .microphoneDenied && notice != .microphoneFailedToStart {
             XCTAssertNil(notice.fix, "\(notice)")
         }
     }
@@ -58,7 +54,7 @@ final class DictationHoldNoticeTests: XCTestCase {
     func testOnlyWhatStopsDictationIsAProblem() {
         let problems = Self.every.filter { $0.tone == .problem }
         XCTAssertEqual(problems, [.microphoneDenied, .noSpeechModel(locale: "en_US"), .notBundled,
-                                  .microphoneFailedToStart, .noSubscription])
+                                  .microphoneFailedToStart])
     }
 
     /// Without a button it closes itself quickly; with one, later but still on
@@ -102,6 +98,21 @@ final class DictationHoldNoticeTests: XCTestCase {
                        .reachedLimit)
         XCTAssertEqual(DictationHoldNotice.afterDelivery(copied: false, reachedLimit: false, tidyingFailed: true),
                        .tidyingFailed)
+    }
+
+    /// Words copied because of a key or click say so, not "nowhere to type":
+    /// there was somewhere, and the person is looking at it.
+    func testWordsCopiedAfterAKeyOrClickSayWhy() {
+        XCTAssertEqual(DictationHoldNotice.afterDelivery(copied: true, afterKeyOrClick: true,
+                                                         reachedLimit: true, tidyingFailed: true),
+                       .copiedAfterKeyOrClick)
+        XCTAssertEqual(DictationHoldNotice.copiedAfterKeyOrClick.sentence,
+                       "You pressed a key or clicked while talking, so your words are on the clipboard.")
+        XCTAssertEqual(DictationHoldNotice.copiedAfterKeyOrClick.tone, .note)
+        XCTAssertNil(DictationHoldNotice.copiedAfterKeyOrClick.fix)
+        // Copying is the one thing the flag changes: nothing copied, nothing said about it.
+        XCTAssertNil(DictationHoldNotice.afterDelivery(copied: false, afterKeyOrClick: true,
+                                                       reachedLimit: false, tidyingFailed: false))
     }
 
     /// The reason is the framework's own enum case — it reads as code.

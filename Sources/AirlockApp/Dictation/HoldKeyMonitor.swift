@@ -77,9 +77,16 @@ final class HoldKeyMonitor {
     /// modifier is physically released — otherwise the eventual key-up would be
     /// delivered as a finished dictation.
     private var cancelled = false
+    /// Kinds of input this hold has already carried on through. A scroll is
+    /// dozens of events a second, and once one has been let through, the rest
+    /// of the same kind need not ask again: the answer cannot get worse,
+    /// because words heard stay heard (`HoldInterruption`).
+    private var carriedOn: Set<HoldInterruption> = []
     private var onDown: (() -> Void)?
     private var onUp: (() -> Void)?
-    private var onCancel: (() -> Void)?
+    /// Asked about every other input during a hold. True means it ended the
+    /// hold, and the release that follows must end silently.
+    private var onInterrupt: ((HoldInterruption) -> Bool)?
 
     var isRunning: Bool { tap != nil }
 
@@ -111,6 +118,12 @@ final class HoldKeyMonitor {
     /// Scroll is in for zoom specifically. It is the one high-frequency event
     /// here, and it costs nothing: the handler returns immediately unless a
     /// hold is actually open.
+    ///
+    /// **Seeing one is no longer the same as cancelling.** Every event here
+    /// used to end the hold and discard it, so a scroll or a click mid-sentence
+    /// lost everything said so far. The monitor now only reports the input;
+    /// whether it ends the hold is `HoldInterruption`'s call, made with what
+    /// has been heard.
     static let eventMask: UInt64 = (1 << CGEventType.flagsChanged.rawValue)
         | (1 << CGEventType.keyDown.rawValue)
         | (1 << CGEventType.leftMouseDown.rawValue)
@@ -133,12 +146,12 @@ final class HoldKeyMonitor {
     /// `health()` is what says whether events will arrive.
     @discardableResult
     func start(key: Key, onDown: @escaping () -> Void, onUp: @escaping () -> Void,
-               onCancel: @escaping () -> Void) -> Bool {
+               onInterrupt: @escaping (HoldInterruption) -> Bool) -> Bool {
         stop()
         self.key = key
         self.onDown = onDown
         self.onUp = onUp
-        self.onCancel = onCancel
+        self.onInterrupt = onInterrupt
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -170,10 +183,10 @@ final class HoldKeyMonitor {
         source = nil
         isDown = false
         cancelled = false
+        carriedOn = []
         onDown = nil
         onUp = nil
-        onCancel = nil
-        onCancelReason = nil
+        onInterrupt = nil
     }
 
     /// Called from the tap callback, already on the main run loop.
@@ -188,14 +201,9 @@ final class HoldKeyMonitor {
                 if cancelled { cancelled = false } else { onUp?() }
                 return
             }
-            // A second modifier joined: ⌥ became ⌘⌥. That is a shortcut, not
-            // speech.
-            if !cancelled, hasOtherModifier(flags) {
-                cancelled = true
-                onCancelReason?(String(format: "another modifier joined (flags=0x%llx)",
-                                       flags.rawValue))
-                onCancel?()
-            }
+            // A second modifier joined: ⌥ became ⌘⌥. A shortcut, if nothing
+            // has been said yet.
+            if hasOtherModifier(flags) { handleOtherInput(.modifier) }
             return
         }
 
@@ -204,21 +212,22 @@ final class HoldKeyMonitor {
         if held, !hasOtherModifier(flags) {
             isDown = true
             cancelled = false
+            carriedOn = []
             onDown?()
         }
     }
 
-    /// A key, click or scroll while the modifier is held means it was a chord.
-    fileprivate func handleOtherInput() {
-        guard isDown, !cancelled else { return }
-        cancelled = true
-        onCancelReason?("another input arrived")
-        onCancel?()
+    /// A key, click, scroll or second modifier while the hold key is down.
+    /// Whether that was a chord is the model's to say — it knows whether any
+    /// words have been heard.
+    fileprivate func handleOtherInput(_ input: HoldInterruption) {
+        guard isDown, !cancelled, !carriedOn.contains(input) else { return }
+        if onInterrupt?(input) ?? true {
+            cancelled = true
+        } else {
+            carriedOn.insert(input)
+        }
     }
-
-    /// Names the cause, because "cancelled" on its own is unfalsifiable — a
-    /// dictation that dies mid-sentence needs to say which check killed it.
-    var onCancelReason: ((String) -> Void)?
 
     /// The four modifiers people actually build shortcuts from.
     ///
@@ -253,11 +262,13 @@ private let holdKeyCallback: CGEventTapCallBack = { _, type, event, userInfo in
     case .flagsChanged:
         let flags = event.flags
         MainActor.assumeIsolated { monitor.handle(flags: flags) }
-    case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
+    case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
         // The TYPE only. Nothing about the event's content is read — not the
         // key code, not the character, not the click location, not the scroll
         // delta. All it needs to know is that something else happened.
-        MainActor.assumeIsolated { monitor.handleOtherInput() }
+        MainActor.assumeIsolated { monitor.handleOtherInput(.keyOrClick) }
+    case .scrollWheel:
+        MainActor.assumeIsolated { monitor.handleOtherInput(.scroll) }
     default:
         break
     }

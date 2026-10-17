@@ -7,7 +7,7 @@ import Foundation
 /// the second one here rather than in a view is what stops "should we nag"
 /// being decided slightly differently in the panel and in the compact island.
 ///
-/// **Almost always `.none`.** Four of the five entitlements say nothing at all,
+/// **Almost always `.none`.** Three of the five entitlements say nothing at all,
 /// including the whole grace window — the island is somewhere you glance at a
 /// build or a meeting, and turning it into a billing surface would poison the
 /// one thing it is for.
@@ -18,9 +18,6 @@ public enum LicenseNotice: Equatable, Sendable {
     case endingSoon(daysRemaining: Int)
     /// Past the cutoff. A banner above the widgets, which still work.
     case overdue
-    /// The trial is over and nothing was bought. The only notice that takes the
-    /// panel over, because it is the only state where there is nothing to show.
-    case blocked
 
     /// How near the end of a trial counts as near.
     ///
@@ -31,8 +28,6 @@ public enum LicenseNotice: Equatable, Sendable {
 
     public static func forIsland(_ entitlement: Entitlement) -> LicenseNotice {
         switch entitlement {
-        case .trialExpired:
-            return .blocked
         case .overdue:
             return .overdue
         case .trialing(let days) where days <= warningWindow:
@@ -47,23 +42,10 @@ public enum LicenseNotice: Equatable, Sendable {
     ///
     /// **One, not zero.** `Entitlement.resolve` only says `.trialing` while
     /// days remain, so a trial on its final day reads `daysRemaining: 1` and a
-    /// zero never arrives — the next state is `.trialExpired`. The card was
+    /// zero never arrives — the next state is `.free`. The card was
     /// gated on `<= 0` and could not appear at all.
     public var isLastDay: Bool {
         if case .endingSoon(let days) = self { return days <= 1 }
         return false
     }
-
-    /// Whether this notice takes the panel's place rather than sitting above
-    /// it — true only for a finished trial.
-    ///
-    /// The panel still opens, so the app reads as locked rather than crashed,
-    /// but everything in it is paid: the widgets give way to the subscribe
-    /// card, the typing bar is not drawn, and holds to dictate or ask are
-    /// refused. It used to say the widgets stayed and only agents and voice
-    /// went, which stopped being true when the widgets were gated again.
-    /// `LicenseNoticeTests` asserts this agrees with `Entitlement.allowsUse`,
-    /// because the two disagreeing is how you get a notice that says one
-    /// thing while the panel does another.
-    public var isBlocking: Bool { self == .blocked }
 }

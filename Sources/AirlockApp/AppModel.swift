@@ -23,6 +23,27 @@ final class AppModel {
 
     @ObservationIgnored let bridge: BridgeServer
 
+    /// Whether the notch answers one coding agent at a time (Free's
+    /// `PlanLimits.oneAgentAtATime`), set from the plan. The bridge hears it
+    /// before it starts and on every change; see `BridgeServer.answering`.
+    @ObservationIgnored var oneAgentAtATime = false {
+        didSet {
+            guard oneAgentAtATime != oldValue else { return }
+            Task { [bridge, oneAgentAtATime] in await bridge.setOneAgentAtATime(oneAgentAtATime) }
+        }
+    }
+
+    /// Sessions whose question went to their own terminal because another
+    /// had the notch (Free answers one agent at a time). Their row says so
+    /// while they ask there.
+    private(set) var passedOver: Set<String> = []
+    /// Told each time it happens, with the two projects' names, for Free's
+    /// reminders (`UpgradeReminders.agentAskedInTerminal`).
+    @ObservationIgnored var onPassedOver: ((_ asking: String, _ answering: String?) -> Void)?
+
+    /// The state gallery's: rows drawn as passed over, with no bridge.
+    func previewPassedOver(_ ids: Set<String>) { passedOver = ids }
+
     init(bridge: BridgeServer = BridgeServer()) {
         self.bridge = bridge
     }
@@ -55,8 +76,10 @@ final class AppModel {
             await bridge.setAutoDecisionHandler { [weak self] gate in
                 Task { @MainActor in self?.record(gate) }
             }
-            // Before it listens, for the same reason as the handler above.
-            await bridge.setGateHolding(gateHolding)
+            await bridge.setPassedOverHandler { [weak self] asking, answering in
+                Task { @MainActor in self?.passedOver(asking, by: answering) }
+            }
+            await bridge.setOneAgentAtATime(self.oneAgentAtATime)
             do {
                 try await bridge.start()
             } catch {
@@ -74,11 +97,16 @@ final class AppModel {
                 // A session superseded by a sibling in the same terminal loses
                 // its card and its queue here, and its hooks are still held on
                 // the other side. Nothing else can answer them now, so they go
-                // back to the agent — see `BridgeServer.releaseSession`.
+                // back to the agent — see `BridgeServer.releaseSession`. The
+                // terminal keeps its turn at the notch under its new session.
                 for superseded in self.state.apply(event) {
-                    await bridge.releaseSession(superseded)
+                    await bridge.sessionSuperseded(superseded, by: event.sessionID)
                 }
+                self.stopSayingPassedOver(event.sessionID)
                 self.stateDidMutate()
+                if case .sessionStarted = event.kind {
+                    UsageCounts.shared.record(.agentSession(event.agent))
+                }
             }
         }
 
@@ -183,6 +211,10 @@ final class AppModel {
     /// and prune long-done rows. A failed snapshot is "no information": skip.
     private func reconcileLiveness() async {
         var changed = false
+        // Ended here rather than by a hook, so the bridge hears it from us:
+        // on Free the notch answers one agent at a time, and a session that
+        // is gone must not keep everyone else asking in their terminals.
+        var ended: [String] = []
         let tracked = state.sessions.values.compactMap { session in
             session.jumpTarget?.agentPID.map { (session.id, session.agent, $0) }
         }
@@ -211,6 +243,7 @@ final class AppModel {
                     timestamp: Date(),
                     kind: .sessionEnded
                 ))
+                ended.append(sessionID)
                 changed = true
             }
         }
@@ -239,8 +272,10 @@ final class AppModel {
                 timestamp: Date(),
                 kind: .sessionEnded
             ))
+            ended.append(session.id)
             changed = true
         }
+        for sessionID in ended { await bridge.sessionEnded(sessionID) }
 
         if state.prune(now: Date(), olderThan: Self.doneRetention) > 0 { changed = true }
         if changed { stateDidMutate() }
@@ -294,6 +329,24 @@ final class AppModel {
     }
 
     var sessions: [AgentSession] { state.ordered }
+
+    /// `asking` was sent to its terminal while `answering` had the notch.
+    /// Sessions that are gone leave the set here, so it never outgrows the
+    /// list.
+    private func passedOver(_ asking: String, by answering: String) {
+        passedOver = passedOver.filter { state.sessions[$0] != nil }.union([asking])
+        let name = { (id: String) in self.state.sessions[id].map(SessionCardText.place(of:)) }
+        onPassedOver?(name(asking) ?? "An agent", name(answering))
+    }
+
+    /// Once the agent says anything else (it was answered there, or it moved
+    /// on), its row stops saying why it asked in its terminal. The hand-back
+    /// itself keeps it: that event and the bridge's word come in either order.
+    private func stopSayingPassedOver(_ sessionID: String) {
+        guard passedOver.contains(sessionID),
+              !(state.sessions[sessionID].map(SessionCardText.asksInItsTerminal) ?? false) else { return }
+        passedOver.remove(sessionID)
+    }
     var attentionCount: Int { state.attentionCount }
     /// The one card the keyboard answers — see `SessionState.focusedGate`.
     var focusedGate: SessionState.FocusedGate? { state.focusedGate }
@@ -435,7 +488,11 @@ final class AppModel {
     /// Restore focus to the terminal a session lives in.
     func jump(to session: AgentSession) {
         let service = jumpService
-        Task { await goToTerminal { await service.jump(to: session) } }
+        Task {
+            if await goToTerminal({ await service.jump(to: session) }) {
+                UsageCounts.shared.record(.used(.terminalJump))
+            }
+        }
     }
 
     /// One-click usage seeding: new terminal window, `claude` typed in.
@@ -455,6 +512,8 @@ final class AppModel {
         Task { [weak self, bridge] in
             let delivered = await bridge.answer(sessionID: live.id, requestID: request.id, choice: choice)
             if delivered || isDemo { self?.tally?.recordAnswer() }
+            // Not the practice card's: that one has nothing behind it.
+            if delivered, !isDemo { UsageCounts.shared.record(.questionAnswered(live.agent)) }
         }
         state.resolveGate(sessionID: live.id, requestID: request.id, decision: .allowOnce, at: Date())
         stateDidMutate()
@@ -509,7 +568,9 @@ final class AppModel {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let service = jumpService
-        return await goToTerminal { await service.openTerminalRunningClaude(prompt: trimmed) }
+        let opened = await goToTerminal { await service.openTerminalRunningClaude(prompt: trimmed) }
+        if opened { UsageCounts.shared.record(.used(.quickPrompt)) }
+        return opened
     }
 
     /// A fresh `claude` in a new terminal, with no prompt.
@@ -582,22 +643,6 @@ final class AppModel {
     }
     @ObservationIgnored private var gateSaveTask: Task<Void, Never>?
 
-    /// What the bridge does with a gate that asks — see `GateHolding`. Kept
-    /// here too so `start()` hands it over before the bridge listens: the
-    /// licence is read later in launch than the bridge is built, and launch is
-    /// when every agent already running sends its next hook.
-    @ObservationIgnored private var gateHolding: GateHolding = .holdForPerson
-
-    /// The licence changed. Once the trial has ended a gate is handed straight
-    /// back to the agent instead of waiting on a card that cannot be answered,
-    /// and anything already held goes back with it.
-    func entitlementChanged(_ entitlement: Entitlement) {
-        let holding = GateHolding(entitlement)
-        guard holding != gateHolding else { return }
-        gateHolding = holding
-        Task { [bridge] in await bridge.setGateHolding(holding) }
-    }
-
     /// Resolve a pending permission. Routes the decision to the waiting hook and
     /// optimistically updates local state so the card dismisses immediately.
     /// "Always" also persists an exact allow rule — project policy when the
@@ -661,6 +706,18 @@ final class AppModel {
             // Approvals only. A deny is work YOU did, and the trial card's
             // argument is about work done for you — see `UsageTally`.
             if decision == .allowOnce || decision == .alwaysAllow { self.tally?.recordApproval() }
+            // Which answer, and whether the risk floor marked it; never the
+            // command. Not the practice card's.
+            let counted: UsageEvent.Answer? = switch decision {
+            case .allowOnce: .allow
+            case .alwaysAllow: .always
+            case .deny: .deny
+            case .deferred: nil
+            }
+            if let counted, !isDemo {
+                UsageCounts.shared.record(.approval(session.agent, counted,
+                                                    risky: RiskAssessor.assess(request) != nil))
+            }
             self.record(GateRecord(request: request, outcome: GateOutcome(decision),
                                    agent: session.agent.rawValue, projectRoot: session.cwd,
                                    decidedAt: Date()))
@@ -719,9 +776,9 @@ final class AppModel {
     /// that wait is a day. See `BridgeServer.releaseSession`.
     func clearAllSessions() {
         demoGateExpiry?.cancel()
-        let waiting = state.sessions.values.filter { !$0.waitingPermissions.isEmpty }.map(\.id)
+        let cleared = Array(state.sessions.keys)
         Task { [bridge] in
-            for session in waiting { await bridge.releaseSession(session) }
+            for session in cleared { await bridge.sessionEnded(session) }
         }
         state = SessionState()
         liveness = LivenessTracker()

@@ -12,7 +12,7 @@ import SwiftUI
 /// to.
 enum SettingsAnchor: String, CaseIterable, Identifiable {
     // General
-    case launchAtLogin, displays, sounds, updates, crashReports, diagnostics
+    case launchAtLogin, displays, sounds, updates, crashReports, usageCounts, diagnostics
     // The notch
     case surface, panelWidth, textSize, usageLimits, batteryPercentage
     case widgets, reactiveWave, perAppVolume
@@ -29,8 +29,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     // Permissions
     case permissionCalendar, permissionMicrophone, permissionInputMonitoring
     case permissionAccessibility, permissionScreenRecording, permissionAutomation
-    // Licence
-    case licenceKey
+    // Plans
+    case plans, licenceKey, checkPlan
     // Guide and Privacy, while the guide is on
     case guideVoice, guideLayout, guideKeys, privacyPromise, neverLook
     // The guide's access key, on General while the guide is a prototype
@@ -40,7 +40,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
 
     var pane: SettingsPane {
         switch self {
-        case .launchAtLogin, .displays, .sounds, .updates, .crashReports, .diagnostics,
+        case .launchAtLogin, .displays, .sounds, .updates, .crashReports, .usageCounts, .diagnostics,
              .guideAccessKey: return .general
         case .surface, .panelWidth, .textSize, .usageLimits, .batteryPercentage,
              .widgets, .reactiveWave, .perAppVolume,
@@ -52,7 +52,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .developerMode, .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return .agents
         case .permissionCalendar, .permissionMicrophone, .permissionInputMonitoring,
              .permissionAccessibility, .permissionScreenRecording, .permissionAutomation: return .permissions
-        case .licenceKey: return .license
+        case .plans, .licenceKey, .checkPlan: return .license
         case .guideVoice, .guideLayout, .guideKeys: return .guide
         case .privacyPromise, .neverLook: return .privacy
         }
@@ -65,6 +65,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .displays: return "Show on the main display"
         case .updates: return "Check for updates automatically"
         case .crashReports: return "Send crash reports"
+        case .usageCounts: return "Share usage counts"
         case .diagnostics: return "Health and diagnostics"
         case .surface: return "Background"
         case .panelWidth: return "How wide the open notch is"
@@ -109,7 +110,9 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .permissionAccessibility: return "Accessibility"
         case .permissionScreenRecording: return "Screen Recording"
         case .permissionAutomation: return "Automation"
+        case .plans: return "Plans"
         case .licenceKey: return "Licence key"
+        case .checkPlan: return "Check my plan now"
         case .guideVoice: return "Speak replies"
         case .guideLayout: return "Where the step appears"
         case .guideKeys: return "Guide keys"
@@ -127,6 +130,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .displays: return ["display", "monitor", "screen", "external", "lid", "main"]
         case .updates: return ["update", "version", "new"]
         case .crashReports: return ["crash", "report", "sentry", "privacy", "bug", "quit"]
+        case .usageCounts: return ["usage", "counts", "analytics", "statistics", "stats", "tracking",
+                                   "privacy", "posthog", "share", "data"]
         case .diagnostics: return ["log", "report", "debug", "problem", "health"]
         case .surface: return ["background", "glass", "dark", "look", "colour", "color"]
         case .panelWidth: return ["width", "size", "wide", "narrow"]
@@ -174,7 +179,10 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .permissionAccessibility: return ["accessibility", "typing", "permission", "privacy"]
         case .permissionScreenRecording: return ["screen", "recording", "permission", "privacy", "see"]
         case .permissionAutomation: return ["automation", "apple events", "permission", "spotify", "music"]
+        case .plans: return ["plan", "plans", "plus", "pro", "free", "upgrade", "price", "pricing", "buy",
+                             "subscribe", "subscription", "monthly", "yearly"]
         case .licenceKey: return ["license", "licence", "key", "subscription", "purchase", "buy", "trial"]
+        case .checkPlan: return ["check", "plan", "paid", "refresh", "subscription", "another mac"]
         case .guideVoice: return ["voice", "speak", "read aloud", "guide"]
         case .guideLayout: return ["bubble", "card", "layout", "guide", "step"]
         case .guideKeys: return ["keys", "shortcut", "esc", "guide", "ask"]
@@ -199,9 +207,9 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .guideVoice, .guideLayout, .guideKeys, .privacyPromise, .neverLook,
              .developerMode, .permissionScreenRecording, .guideAccessKey: return guideOn
         case .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return !guideOn || agentsOn
-        case .licenceKey: return !Pricing.isFree
         // Only a build that could send one shows the switch.
         case .crashReports: return CrashReporter.bundleDSN != nil
+        case .usageCounts: return UsageCounts.bundleEndpoint != nil
         case .callLanguages, .pastCalls, .knownWords: return callNotesOn
         case .notesOnline: return callNotesOn && notesOnlineOn
         default: return true
@@ -216,7 +224,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     /// and for a subscriber: nobody else's notes go online.
     @MainActor
     static var notesOnlineShown: Bool {
-        CloudNotesService.shared.isOn && CloudNotesService.shared.entitlement().isPaid
+        CloudNotesService.shared.isOn && CloudNotesService.shared.plan().limits.writesNotesOnline
     }
 
     /// Matching settings for the search field, best first.

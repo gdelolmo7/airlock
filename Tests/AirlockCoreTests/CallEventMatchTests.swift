@@ -64,6 +64,14 @@ final class CallEventMatchTests: XCTestCase {
         XCTAssertNil(CallEventMatch.displayName(nil))
     }
 
+    /// A course code in the invite once took a whole class's voices.
+    func testACodeIsNotAName() {
+        XCTAssertNil(CallEventMatch.displayName("MKT0412ESP"))
+        XCTAssertNil(CallEventMatch.displayName("B-204"))
+        XCTAssertEqual(CallEventMatch.displayName("JOHN"), "JOHN")
+        XCTAssertEqual(CallEventMatch.displayName("Sala 2"), "Sala 2")
+    }
+
     func testDesktopCallAppsNameTheirService() {
         XCTAssertEqual(CallEventMatch.provider(ofApp: "us.zoom.xos"), .zoom)
         XCTAssertEqual(CallEventMatch.provider(ofApp: "com.microsoft.teams2"), .teams)

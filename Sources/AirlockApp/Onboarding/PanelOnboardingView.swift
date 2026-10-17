@@ -62,6 +62,14 @@ struct PanelOnboardingView: View {
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxHeight: maxContentHeight)
 
+            // Outside the scroll, so it is on screen however long the list
+            // of tabs above it: leaving this step counts as having been
+            // asked, so the question must not be below the fold.
+            if model.step == .welcome, model.offersUsageCounts {
+                UsageCountsSetupRow(isOn: Binding(get: { model.sharesUsageCounts },
+                                                  set: { model.sharesUsageCounts = $0 }))
+            }
+
             footer
         }
         .padding(.horizontal, 10)
@@ -313,6 +321,43 @@ struct WelcomePanelStep: View {
                 )
             }
         }
+    }
+}
+
+/// "Share usage counts?" on the first screen, off unless switched on. The
+/// crash reports row's shape, at panel density.
+struct UsageCountsSetupRow: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "chart.bar")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Share usage counts?")
+                    .font(Theme.chrome(12, .medium))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(UsageCountsSection.subtitle)
+                    .font(Theme.chrome(10))
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 6)
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .accessibilityLabel("Share usage counts")
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.rowFill))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Theme.rowStroke, lineWidth: 1)
+        )
     }
 }
 
@@ -657,14 +702,33 @@ private struct PermissionsPanelStep: View {
                  detail: OnboardingAgentText.automation,
                  granted: false,
                  action: nil)
+
+            // Not a permission, but asked about here for the same reason: it
+            // is a switch in System Settings that something here depends on.
+            // Call notes are written by it on Free, so a Mac with it off finds
+            // out now rather than after a call comes back with no notes.
+            let ai = model.appleIntelligence
+            card(symbol: "apple.intelligence", name: "Apple Intelligence", tag: ai.tag,
+                 detail: ai.detail, granted: ai.isOn,
+                 action: ai.button.map { button in (button.title, { model.performAppleIntelligenceButton() }) })
         }
         // A Calendar switch flipped in System Settings ticks here without a
         // click back into the panel.
         .watchingPermissions { _ in model.calendar.recheckAuthorization() }
+        // Apple Intelligence changes nothing `watchingPermissions` reads, and
+        // finishing a download is not a switch at all, so it is looked at
+        // again on its own, every two seconds while this step shows.
+        .task {
+            model.recheckAppleIntelligence()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                model.recheckAppleIntelligence()
+            }
+        }
     }
 
     @ViewBuilder
-    private func card(symbol: String, name: String, detail: String, granted: Bool,
+    private func card(symbol: String, name: String, tag: String? = nil, detail: String, granted: Bool,
                       action: (String, () -> Void)?) -> some View {
         HStack(spacing: 9) {
             Image(systemName: granted ? "checkmark.circle.fill" : symbol)
@@ -673,9 +737,16 @@ private struct PermissionsPanelStep: View {
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(name)
-                    .font(Theme.chrome(12, .medium))
-                    .foregroundStyle(Theme.textPrimary)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(name)
+                        .font(Theme.chrome(12, .medium))
+                        .foregroundStyle(Theme.textPrimary)
+                    if let tag {
+                        Text(tag)
+                            .font(Theme.chrome(10.5, .semibold))
+                            .foregroundStyle(Theme.needs)
+                    }
+                }
                 Text(detail)
                     .font(Theme.chrome(10))
                     .foregroundStyle(Theme.textTertiary)
@@ -706,7 +777,8 @@ private struct PermissionsPanelStep: View {
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.rowFill))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(granted ? Theme.done.opacity(0.32) : Theme.rowStroke, lineWidth: 1)
+                .strokeBorder(granted ? Theme.done.opacity(0.32)
+                                  : tag != nil ? Theme.needs.opacity(0.45) : Theme.rowStroke, lineWidth: 1)
         )
     }
 }
@@ -785,32 +857,28 @@ private struct FinishPanelStep: View {
                 )
             }
 
-            // The same disclosure the window's finish step makes, at panel
+            // The same words the window's finish step uses, at panel
             // density. It has to be in BOTH: first run goes through the panel,
             // and the window is only reached from the menu bar afterwards — so
-            // the panel is the one most people will actually read.
-            // Not said at all while Airlock is free: there is no trial.
-            if !Pricing.isFree {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Free for \(TrialClock.length) days")
-                        .font(Theme.chrome(12, .medium))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("The whole app, nothing held back. After that it needs "
-                         + "\(License.Period.yearly.price) or \(License.Period.monthly.price) — "
-                         + "and nothing you have saved goes anywhere.")
-                        .font(Theme.chrome(10))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.rowFill))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Theme.rowStroke, lineWidth: 1)
-                )
+            // the panel is the one most people will actually read. There is no
+            // trial to announce: a new copy starts on Free.
+            VStack(alignment: .leading, spacing: 3) {
+                Text(PlanSetupNote.title)
+                    .font(Theme.chrome(12, .medium))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(PlanSetupNote.detail)
+                    .font(Theme.chrome(10))
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.rowFill))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.rowStroke, lineWidth: 1)
+            )
         }
     }
 }

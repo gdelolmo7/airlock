@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Owns the (single) first-run window.
 ///
-/// Mirrors `SettingsWindowController` deliberately — same activation dance, same
+/// Mirrors `AirlockWindowController` deliberately — same activation dance, same
 /// reuse-one-window rule. It differs in two ways that matter: closing the window
 /// counts as finishing (a wizard you dismissed is a wizard you are done with),
 /// and there is no autosaved frame, because this should be centred every time
@@ -100,6 +100,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     /// alternative is an app that greets you with setup every single launch
     /// until you happen to press the right button.
     func windowWillClose(_ notification: Notification) {
+        model.closed()
         OnboardingModel.hasCompletedSetup = true
     }
 }

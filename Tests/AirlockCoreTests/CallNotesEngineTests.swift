@@ -261,6 +261,22 @@ final class MeetingLedgerTests: XCTestCase {
                        ["Send the budget by Friday", "Book the room", "Pay the venue tomorrow", "Check the venue"])
     }
 
+    /// A due in parts ("today; before the first of November") adds only the
+    /// parts the task doesn't already say, never the whole due again.
+    func testADueInPartsAddsOnlyWhatTheTaskLeavesOut() {
+        let cases = [
+            ("Send the budget on Thursday, by Friday at the latest", "on Thursday; by Friday",
+             "Send the budget on Thursday, by Friday at the latest"),
+            ("Send the budget by Friday.", "on Thursday; by Friday", "Send the budget by Friday on Thursday"),
+            ("Send the budget", "on Thursday; by Friday", "Send the budget on Thursday; by Friday"),
+        ]
+        for (task, due, kept) in cases {
+            var ledger = ledger()
+            ledger.add(MeetingDraft(todos: [Todo(task: task, due: due, sources: ["S1", "S2"])]), shown: all)
+            XCTAssertEqual(ledger.todos.map(\.text), [kept], task)
+        }
+    }
+
     func testADueDateMustNameATime() {
         let turns = [NumberedTranscript.Turn(
             id: 1, speaker: .them, label: "Person 1", start: 0, end: 5,

@@ -3,10 +3,10 @@ import XCTest
 
 /// The prices, and the sentences derived from them.
 ///
-/// `PurchaseView` does not just print these — it asserts things ABOUT them:
-/// "€3 a month instead of €3.99 — almost three months of the year, free". Those
-/// are arithmetic claims, and changing one price silently makes them false on
-/// the screen where money changes hands. The design handoff verified the sums
+/// The Plans page does not just print these — it asserts things ABOUT them:
+/// "€3 a month, billed yearly", "almost 3 months free". Those are arithmetic
+/// claims, and changing one price silently makes them false on the screen
+/// where money changes hands. The design handoff verified the sums
 /// once and warned specifically against restating the saving as "two months
 /// free"; this is what keeps that from drifting.
 ///
@@ -65,10 +65,52 @@ final class PricingCopyTests: XCTestCase {
         XCTAssertLessThan(yearly, monthly * 12)
     }
 
-    /// The two plans must not print the same string — the purchase window draws
-    /// them side by side and the reader picks between them.
+    /// The two periods must not print the same string — the Plans page's
+    /// switch flips between them and the reader picks one.
     func testThePlansAreDistinguishable() {
         XCTAssertNotEqual(License.Period.yearly.price, License.Period.monthly.price)
+    }
+
+    // MARK: - Pro
+
+    private let proYearly = 71.99
+    private let proMonthly = 7.99
+
+    func testProsPricesAreTheOnesInTheCopy() {
+        XCTAssertEqual(PlanCatalog.price(.pro, .yearly), "€71.99 a year")
+        XCTAssertEqual(PlanCatalog.price(.pro, .monthly), "€7.99 a month")
+    }
+
+    /// "€6 a month, billed yearly". €71.99 / 12 is €5.9992: the same
+    /// hundredth of a cent under as Plus, never over.
+    func testProsYearlyMonthlyEquivalentNeverOverstates() {
+        let perMonth = proYearly / 12
+        XCTAssertEqual((perMonth * 100).rounded() / 100, 6.00, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(perMonth, 6.00, "quoting €6 must never overstate what is charged")
+        XCTAssertEqual(PlanCatalog.note(.pro, .yearly), "€6 a month, billed yearly")
+        XCTAssertEqual(PlanCatalog.note(.plus, .yearly), "€3 a month, billed yearly")
+    }
+
+    /// One "almost 3 months free" sits beside the switch for both plans, so
+    /// it has to be true of both: Plus saves 2.98 months, Pro 2.99.
+    func testTheSavingIsJustUnderThreeMonthsOnBothPlans() {
+        for (perMonth, perYear) in [(monthly, yearly), (proMonthly, proYearly)] {
+            let monthsFree = (perMonth * 12 - perYear) / perMonth
+            XCTAssertGreaterThan(monthsFree, 2.9)
+            XCTAssertLessThan(monthsFree, 3.0, "\(monthsFree) months: dropping \"almost\" would overstate it")
+        }
+        XCTAssertEqual(PlanCatalog.yearlySaving, "almost 3 months free")
+    }
+
+    /// The catalog's cents are the sums above, so the arithmetic tested here
+    /// is the arithmetic on screen.
+    func testTheCatalogHoldsTheseNumbers() {
+        XCTAssertEqual(PlanCatalog.cents(.plus, .monthly), Int((monthly * 100).rounded()))
+        XCTAssertEqual(PlanCatalog.cents(.plus, .yearly), Int((yearly * 100).rounded()))
+        XCTAssertEqual(PlanCatalog.cents(.pro, .monthly), Int((proMonthly * 100).rounded()))
+        XCTAssertEqual(PlanCatalog.cents(.pro, .yearly), Int((proYearly * 100).rounded()))
+        XCTAssertEqual(PlanCatalog.yearlyPerMonthCents(.plus), 300)
+        XCTAssertEqual(PlanCatalog.yearlyPerMonthCents(.pro), 600)
     }
 
     /// The trial length quoted in onboarding is the one the countdown uses.

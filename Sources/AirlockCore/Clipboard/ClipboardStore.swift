@@ -49,10 +49,10 @@ public struct ClipboardStore: Sendable {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .millisecondsSince1970
             let history = try decoder.decode(ClipboardHistory.self, from: data)
-            return ClipboardHistory(items: history.items.filter { item in
-                guard let file = item.imageFile else { return true }
-                return FileManager.default.fileExists(atPath: imagesURL.appendingPathComponent(file).path)
-            })
+            return history.dropping { item in
+                guard let file = item.imageFile else { return false }
+                return !FileManager.default.fileExists(atPath: imagesURL.appendingPathComponent(file).path)
+            }
         } catch {
             Log.widgets.error(
                 "ignoring corrupt clipboard cache at \(fileURL.path, privacy: .private): \(error.localizedDescription, privacy: .private)")

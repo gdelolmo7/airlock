@@ -80,6 +80,7 @@ struct MeetingNotesBanner: View {
                         .font(Theme.chrome(10.5))
                         .foregroundStyle(Theme.textSecondary)
                 }
+                if meetings.flow.stoppedAtLimit { NotesStoppedAtLimit(meetings: meetings) }
             }
             .modifier(BannerBox())
         case .ready(_, let call):
@@ -177,6 +178,20 @@ private struct NotesBeingTaken: View {
             if !meetings.isPaused { health }
             jotField
             if !headsUpOver { headsUp }
+            // Free's last five minutes: said where the notes are, so the
+            // stop at the limit is no surprise. Purple like the notes: amber
+            // would say something waits on you, and nothing does.
+            if meetings.limitWord == .stopsSoon {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .accessibilityHidden(true)
+                    Text(MeetingNotesFlow.LimitWord.stopsSoon.line)
+                        .font(Theme.chrome(10.5))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(CallsLook.saidText)
+            }
         }
         .task(id: firstStarted) {
             let left = CallNotesPanel.headsUpWindow - Date().timeIntervalSince(firstStarted)
@@ -420,6 +435,7 @@ private struct NotesReady: View {
     var body: some View {
         let notes = CallNotesPanel.hasNotes(meetings.readyNotes) ? meetings.readyNotes : nil
         let tooLittle = meetings.readyOutcome == .tooLittleSaid
+        let later = meetings.readyOutcome == .later
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 7) {
                 if tooLittle {
@@ -429,12 +445,19 @@ private struct NotesReady: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Theme.textTertiary)
                         .accessibilityHidden(true)
+                } else if later {
+                    // No tick yet: the notes come later, online.
+                    Image(systemName: "clock")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .accessibilityHidden(true)
                 } else {
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Theme.done)
                 }
-                Text("\(tooLittle ? CallNotesPanel.tooLittleSaid : "Notes ready") · \(title)")
+                Text("\(tooLittle ? CallNotesPanel.tooLittleSaid : later ? CallNotesPanel.notesLater : "Notes ready")"
+                     + " · \(title)")
                     .font(Theme.chrome(11, .medium))
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
@@ -455,6 +478,13 @@ private struct NotesReady: View {
                 Text(CallNotesPanel.stoppedBySleep)
                     .font(Theme.chrome(10.5))
                     .foregroundStyle(Theme.textSecondary)
+            }
+            if meetings.flow.stoppedAtLimit { NotesStoppedAtLimit(meetings: meetings) }
+            if let waiting = meetings.readyWaiting {
+                Text(waiting)
+                    .font(Theme.chrome(10.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let notes {
                 let lead = CallNotesPanel.summaryLead(notes.summary)
@@ -502,10 +532,13 @@ private struct NotesReady: View {
                 }
             }
             // This month's online notes are used, so the Mac wrote these:
-            // said once a month, as news rather than as a fault.
+            // said once a month, as news rather than as a fault. On a Mac
+            // that can't write notes, said every time, with the day they
+            // will be written.
             if let until = meetings.readyAllowance {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(CloudNotesAllowance.message(until: until))
+                    Text(CloudNotesAllowance.message(until: until, macWrites: meetings.readyAllowanceMacWrites,
+                                                     plan: CloudNotesService.shared.plan()))
                         .font(Theme.chrome(10.5))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -528,6 +561,25 @@ private struct NotesReady: View {
             try? await Task.sleep(for: MeetingNotesBanner.flashFor)
             guard !Task.isCancelled else { return }
             copied = false
+        }
+    }
+}
+
+/// Under notes that Free stopped at its limit, being written or ready: how
+/// much was kept, what Plus would have done, and the way to it. Quiet grey:
+/// it is news about the notes, not something to answer.
+private struct NotesStoppedAtLimit: View {
+    let meetings: MeetingNotesModel
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(MeetingNotesFlow.LimitWord.stopped.line)
+                .font(Theme.chrome(10.5))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 6)
+            NotesPill("See Plus", quiet: true) { meetings.showPlans() }
+                .help("Opens Airlock's plans")
         }
     }
 }
@@ -710,4 +762,18 @@ extension EnvironmentValues {
     /// The call pill's mark for call notes, set where the compact island is
     /// drawn so `CallPill` needs no model.
     @Entry var callNotesMark: MeetingNotesFlow.PillMark = .none
+    /// Free's word about the notes' limit, and since when (`CallPill`).
+    @Entry var callNotesLimit: CallNotesLimit?
+}
+
+/// Free's word about the notes' limit, as the call pill gets it.
+struct CallNotesLimit: Equatable {
+    let word: MeetingNotesFlow.LimitWord
+    let since: Date
+
+    /// Whether the closed notch still says it at `now`.
+    func shows(at now: Date) -> Bool {
+        let shown = now.timeIntervalSince(since)
+        return shown >= 0 && shown < MeetingNotesFlow.LimitWord.pillFor
+    }
 }

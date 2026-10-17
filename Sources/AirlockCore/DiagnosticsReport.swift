@@ -138,31 +138,30 @@ public struct DiagnosticsReport: Equatable, Sendable {
     public enum LicenseState: Equatable, Sendable {
         case free
         case trial(daysRemaining: Int)
-        case trialExpired
-        case subscribed
-        case grace
-        case overdue
+        /// The plan, which is not the customer: every Plus subscriber says the
+        /// same word.
+        case subscribed(AirlockPlan)
+        case grace(AirlockPlan)
+        case overdue(AirlockPlan)
 
         public init(_ entitlement: Entitlement) {
             switch entitlement {
             case .free: self = .free
             case .trialing(let days): self = .trial(daysRemaining: days)
-            case .trialExpired: self = .trialExpired
-            case .licensed: self = .subscribed
-            case .grace: self = .grace
-            case .overdue: self = .overdue
+            case .licensed: self = .subscribed(entitlement.plan)
+            case .grace: self = .grace(entitlement.plan)
+            case .overdue: self = .overdue(entitlement.plan)
             }
         }
 
         public var label: String {
             switch self {
-            case .free: return "free"
+            case .free: return "Free"
             case .trial(let days):
                 return "trial, \(days) day\(days == 1 ? "" : "s") left"
-            case .trialExpired: return "trial expired"
-            case .subscribed: return "subscribed"
-            case .grace: return "subscribed (renewal not confirmed yet)"
-            case .overdue: return "subscription needs attention"
+            case .subscribed(let plan): return "subscribed, \(plan.label)"
+            case .grace(let plan): return "subscribed, \(plan.label) (renewal not confirmed yet)"
+            case .overdue(let plan): return "\(plan.label), subscription needs attention"
             }
         }
     }

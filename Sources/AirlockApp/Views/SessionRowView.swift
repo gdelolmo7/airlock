@@ -22,6 +22,8 @@ struct SessionRowView: View {
     /// Only to fold this session's branch into it — see
     /// `RepositoryWidgetModel.repository(for:)`.
     @Environment(RepositoryWidgetModel.self) private var repositories
+    /// Only for Free's "See Plus" on an agent passed over for another.
+    @Environment(LicenseModel.self) private var license: LicenseModel?
     @State private var isHovered = false
     /// Opened in place. Deliberately not a second window: the card's contract
     /// is one card, tap anywhere to jump, gate stays a sibling — and a window
@@ -294,6 +296,18 @@ struct SessionRowView: View {
                 QuestionReceiptView(session: session, receipt: receipt)
                     .contentShape(Rectangle())
                     .onTapGesture {}
+            }
+
+            // Free answers one agent at a time: this one asked while another
+            // had the notch, so it is asking in its terminal. Said for as
+            // long as it asks there, so the row's "Needs you" has a reason.
+            if model.passedOver.contains(session.id), SessionCardText.asksInItsTerminal(session),
+               (license?.entitlement.plan ?? .free) == .free {
+                PlanLimitLine(text: UpgradeReminder.agentLine(asking: SessionCardText.place(of: session))) {
+                    license?.showPlans(from: "agent_limit")
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {}
             }
         }
         .padding(12)

@@ -47,7 +47,7 @@ cd "$(dirname "$0")/.."
 # Notarization failed three times that way with `completedParts: []` — it
 # authenticates, opens the multipart upload, and transfers nothing — and worked
 # first time from Terminal.app.
-VERSION="${AIRLOCK_VERSION:-1.0.22}"
+VERSION="${AIRLOCK_VERSION:-1.0.23}"
 PROFILE="${AIRLOCK_NOTARY_PROFILE:-airlock}"
 OUT=output/package
 APP="$OUT/Airlock.app"
@@ -165,6 +165,21 @@ fi
 #    and offers it again, forever.
 AIRLOCK_VERSION="$VERSION" AIRLOCK_SIGN_IDENTITY="$IDENTITY" \
   AIRLOCK_SKIP_DMG=1 zsh scripts/package-app.sh
+
+# ── 1b. Look through the finished app for anything shaped like a secret key,
+#    before it is sent anywhere. The keys that cost money or mint licences live
+#    on the server and in this Mac's keychain; one pasted into the wrong file
+#    would ship to every Mac and to the public repository's readers at once.
+#    It prints where, what kind and a fingerprint, never the key. The public
+#    values the app is meant to carry are allowed by name from its Info.plist;
+#    a false alarm is let through with `--allow <fingerprint>` on this line,
+#    with a comment saying what it is (`SecretScanTool`).
+echo "▸ checking the app for secret keys"
+swift build -c release --product SecretScanTool > /dev/null
+.build/release/SecretScanTool "$APP" \
+  || fail "The app has something in it shaped like a secret key (above). Nothing was sent.
+  Take it out of the source or the build settings and release again; if it is
+  a false alarm, allow its fingerprint in release.sh's step 1b."
 
 # ── 2. Notarize the app itself. Submitted as a zip because notarytool takes
 #    archives, not bundles — ditto rather than `zip`, which loses symlinks and

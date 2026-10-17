@@ -31,6 +31,18 @@ public enum CloudNotes {
     /// The size the server measures.
     public static func size(_ text: String) -> Int { text.utf16.count }
 
+    /// Whose model wrote notes online, for the foot of the page, from the
+    /// server's name for it: "OpenAI's GPT" for "openai/…", "Google's
+    /// Gemini" for "google/…", and for notes from before the name was kept
+    /// (all of them Gemini's). Nil for any other maker: the page then says
+    /// only that they were written online.
+    public static func maker(ofModel model: String?) -> String? {
+        guard let model = model?.lowercased() else { return "Google's Gemini" }
+        if model.hasPrefix("openai/") || model.hasPrefix("gpt") { return "OpenAI's GPT" }
+        if model.hasPrefix("google/") || model.hasPrefix("gemini") { return "Google's Gemini" }
+        return nil
+    }
+
     /// Whether a failed request never left the Mac: no network, so it cost
     /// nothing, and the meeting can be written online once back online.
     /// A timeout or a dropped connection may have reached the server, and
@@ -234,7 +246,11 @@ public struct CloudNotesConditions: Equatable, Sendable {
     /// "Write notes online" in Settings: nil until the switch is touched,
     /// which counts as on. Only false keeps a subscriber's notes on the Mac.
     public var setting: Bool?
-    public var entitlement: Entitlement
+    /// The plan the call runs under (`PlanSnapshot.kept`): the one it started
+    /// on, or a bigger one bought since. Never the plan at the call's end
+    /// alone, or a subscription that ended mid-call would take its notes with
+    /// it.
+    public var plan: PlanSnapshot
     public var hasToken: Bool
     /// The licence server's address, built into the app.
     public var hasServer: Bool
@@ -249,12 +265,12 @@ public struct CloudNotesConditions: Equatable, Sendable {
     public var notEligibleUntil: Date?
     public var now: Date
 
-    public init(hiddenSwitch: Bool, setting: Bool?, entitlement: Entitlement, hasToken: Bool,
+    public init(hiddenSwitch: Bool, setting: Bool?, plan: PlanSnapshot, hasToken: Bool,
                 hasServer: Bool, online: Bool, words: Int, promptSize: Int = 0, allowanceUntil: Date? = nil,
                 notEligibleUntil: Date? = nil, now: Date) {
         self.hiddenSwitch = hiddenSwitch
         self.setting = setting
-        self.entitlement = entitlement
+        self.plan = plan
         self.hasToken = hasToken
         self.hasServer = hasServer
         self.online = online
@@ -276,7 +292,8 @@ public enum CloudNotesRoute: Equatable, Sendable {
         case hiddenSwitchOff
         /// "Write notes online" switched off in Settings.
         case settingOff
-        /// A trial, a free copy, or a subscription that has run out.
+        /// A plan that doesn't write notes online: Free, an old trial, or a
+        /// subscription that is overdue (`PlanLimits.writesNotesOnline`).
         case notSubscribed
         case noToken
         /// This build has no licence server.
@@ -315,7 +332,7 @@ public enum CloudNotesRoute: Equatable, Sendable {
         let now = conditions.now
         guard conditions.hiddenSwitch else { return .mac(.hiddenSwitchOff) }
         guard conditions.setting != false else { return .mac(.settingOff) }
-        guard conditions.entitlement.isPaid else { return .mac(.notSubscribed) }
+        guard conditions.plan.limits.writesNotesOnline else { return .mac(.notSubscribed) }
         guard conditions.hasToken else { return .mac(.noToken) }
         guard conditions.hasServer else { return .mac(.noServer) }
         guard conditions.words >= MeetingNotes.minimumWords else { return .mac(.tooShort) }
@@ -394,10 +411,18 @@ public enum CloudNotesAllowance {
     public static let offersUpgrade = false
 
     /// Said where the notes say they are ready, never as an error.
-    public static func message(until: Date, locale: Locale = .current, timeZone: TimeZone = .current,
+    /// `macWrites` false is a Mac that can't write notes: this call's are
+    /// written online on that day instead (`CloudNotesRedo`). On Plus, it
+    /// says that Pro has more (`MeetingFiles.proHasMore`).
+    public static func message(until: Date, macWrites: Bool = true, plan: PlanSnapshot? = nil,
+                               locale: Locale = .current, timeZone: TimeZone = .current,
                                offersUpgrade: Bool = CloudNotesAllowance.offersUpgrade) -> String {
-        "You've used this month's online notes. Notes are written on your Mac until "
-            + "\(day(until, locale: locale, timeZone: timeZone))." + (offersUpgrade ? " Upgrade for more." : "")
+        let day = day(until, locale: locale, timeZone: timeZone)
+        return (macWrites
+                ? "You've used this month's online notes. Notes are written on your Mac until \(day)."
+                : "You've used this month's online notes, so this call's notes will be written on \(day).")
+            + (plan?.plan == .plus ? " " + MeetingFiles.proHasMore : "")
+            + (offersUpgrade ? " Upgrade for more." : "")
     }
 
     /// The button beside the notice, only while `offersUpgrade` is on.
@@ -418,9 +443,20 @@ public enum CloudNotesAllowance {
 /// transcript goes, and is the way to keep it on the Mac.
 public enum CloudNotesSetting {
     public static let title = "Write notes online"
-    public static let subtitle = "When a meeting ends, its transcript goes through Airlock's server to "
-        + "Google's Gemini to write better notes. Neither Airlock nor Google keeps it, and it isn't used to "
-        + "train AI. Off, or without internet, notes are written on this Mac."
+    /// Plus's, and anybody's whose plan isn't known.
+    public static var subtitle: String { subtitle(for: .plus) }
+
+    /// Says whose model the transcript goes to: Google's Gemini for Plus,
+    /// OpenAI's GPT for Pro, run by Microsoft Azure (the server's only route
+    /// to it that keeps nothing, `worker/src/openrouter.js`).
+    public static func subtitle(for plan: License.Plan?) -> String {
+        let goesTo = plan == .pro
+            ? "OpenAI's GPT, run by Microsoft Azure, to write better notes. Neither Airlock, OpenAI nor "
+                + "Microsoft keeps it"
+            : "Google's Gemini to write better notes. Neither Airlock nor Google keeps it"
+        return "When a meeting ends, its transcript goes through Airlock's server to \(goesTo), and it "
+            + "isn't used to train AI. Off, or without internet, notes are written on this Mac."
+    }
 
     /// On unless switched off: an untouched switch is on.
     public static func isOn(_ setting: Bool?) -> Bool { setting != false }
@@ -428,27 +464,70 @@ public enum CloudNotesSetting {
 
 // MARK: - Written again once online
 
-/// The meetings whose notes the Mac wrote while offline, written online
-/// when the network comes back: newest first, a few at a time, each sent
-/// once at most, so it can never become a loop. Only those: a meeting the
-/// server has answered for (an error, a refusal, notes that didn't hold
-/// up) is never sent again, since a failed call may already have cost money.
+/// The meetings whose notes are still to be written online, written when
+/// they can be: newest first, a few at a time, so it can never become a loop.
+///
+/// Two kinds wait. Notes the Mac wrote while offline are sent once at most,
+/// when the network comes back: a meeting the server has answered for (an
+/// error, a refusal, notes that didn't hold up) is never sent again, since a
+/// failed call may already have cost money and the Mac's notes are there.
+///
+/// A Mac that can't write notes (no Apple Intelligence) has only the
+/// online ones, so its meetings keep waiting: after a failure they are tried
+/// again a few times (`retryWaits`), and after this month's online notes are
+/// used they wait for the day they come back. The page says which
+/// (`MeetingFiles.waitingLine`).
 public enum CloudNotesRedo {
     /// Meetings written again each time the network comes back.
     public static let perReturn = 3
-    /// Times one meeting is sent. Counted before it is, so a request cut
-    /// short by a quit is not made again either.
+    /// Times a meeting with the Mac's notes is sent. Counted before it is,
+    /// so a request cut short by a quit is not made again either.
     public static let maxTries = 1
+    /// How long a meeting with no notes waits before each try after one that
+    /// didn't work: an hour, then six, then a day. The first wait follows
+    /// the call itself; after the last try, it stops waiting, and its page
+    /// keeps the transcript and says why there are no notes.
+    public static let retryWaits: [TimeInterval] = [3_600, 6 * 3_600, 86_400]
+
+    /// Times a meeting is sent again: once for the Mac's notes, and once per
+    /// wait in `retryWaits` for a page with none.
+    public static func maxTries(for writer: MeetingNotesWriter) -> Int {
+        writer.noNotesYet == nil ? maxTries : retryWaits.count
+    }
+
+    /// Whether a meeting's notes are to be written online now: waiting,
+    /// tries left, and its date (if it has one) come.
+    public static func isDue(_ writer: MeetingNotesWriter, now: Date) -> Bool {
+        guard writer.waitsForOnline, writer.onlineTries < maxTries(for: writer) else { return false }
+        return writer.notBefore.map { $0 <= now } ?? true
+    }
 
     /// The meetings to write again now, newest first, at most `perReturn`:
-    /// finished meetings still waiting that have not been sent.
-    public static func waiting(_ calls: [(folder: URL, record: MeetingRecord)])
+    /// finished meetings that are due (`isDue`).
+    public static func waiting(_ calls: [(folder: URL, record: MeetingRecord)], now: Date = Date())
         -> [(folder: URL, record: MeetingRecord)] {
         let waiting = calls.filter { call in
             guard let writer = call.record.notesWriter, call.record.endedAt != nil else { return false }
-            return writer.waitsForOnline && writer.onlineTries < maxTries
+            return isDue(writer, now: now)
         }
         return Array(waiting.sorted { $0.record.startedAt > $1.record.startedAt }.prefix(perReturn))
+    }
+
+    /// How long after a look that left meetings due it looks again: they
+    /// were not sent for a reason that may not have changed (switched off,
+    /// more than `perReturn` at once), and are not asked about every minute.
+    public static let lookAgainAfter: TimeInterval = 3_600
+
+    /// When to look again for meetings that wait for a date: the earliest
+    /// one to come, or `lookAgainAfter` from now for one already due. Nil
+    /// when none waits for a date; the rest wait for the network.
+    public static func nextLook(_ calls: [(folder: URL, record: MeetingRecord)], now: Date) -> Date? {
+        calls.compactMap { call -> Date? in
+            guard let writer = call.record.notesWriter, call.record.endedAt != nil,
+                  writer.waitsForOnline, writer.onlineTries < maxTries(for: writer),
+                  let date = writer.notBefore else { return nil }
+            return date > now ? date : now.addingTimeInterval(lookAgainAfter)
+        }.min()
     }
 
     /// Whether a change in the network is a reason to look: only coming
@@ -461,33 +540,85 @@ public enum CloudNotesRedo {
     public enum Step: Equatable, Sendable {
         /// Send it.
         case send
-        /// Never: its Mac notes stay, and it stops waiting.
+        /// Never: it stops waiting, with whatever notes the Mac wrote.
         case leave
         /// Not now: it keeps waiting, and so do the rest.
         case stop
+        /// A page with no notes, and this month's online notes are used:
+        /// it waits for the day they come back, and the page says so.
+        case waitUntil(Date)
     }
 
-    public static func step(for route: CloudNotesRoute) -> Step {
+    public static func step(for route: CloudNotesRoute, writer: MeetingNotesWriter? = nil) -> Step {
         switch route {
         case .online: return .send
         // Nothing about this meeting will change.
         case .mac(.tooShort), .mac(.tooLong): return .leave
+        case .mac(.allowanceUsed(let until)) where writer?.noNotesYet != nil: return .waitUntil(until)
         // Offline again, this month's notes used, switched off, no longer
         // a subscriber: maybe later.
         case .mac: return .stop
         }
     }
 
-    /// The writer once a sent meeting came back without notes: still
-    /// waiting, its try given back, only when the request never left the
-    /// Mac (`CloudNotes.neverLeft`); otherwise left as the Mac's.
-    public static func afterFailedTry(_ writer: MeetingNotesWriter, neverLeft: Bool) -> MeetingNotesWriter {
+    /// Why a meeting's notes weren't written online when the call ended.
+    public enum Missed: Equatable, Sendable {
+        /// Not asked, or refused, for this reason.
+        case mac(CloudNotesRoute.Reason)
+        /// Asked, and no notes came back that hold up.
+        case failed
+    }
+
+    /// The writer for a meeting the Mac couldn't write notes for either:
+    /// waiting to be written online, and from when. Nil when waiting would
+    /// change nothing (switched off, not a subscriber, not eligible, too
+    /// short or too long): the page says why there are no notes, as before.
+    public static func withoutNotes(_ missed: Missed, now: Date) -> MeetingNotesWriter? {
+        switch missed {
+        case .failed: return .noNotes(.failed, at: now, notBefore: now.addingTimeInterval(retryWaits[0]))
+        case .mac(.offline): return .noNotes(.offline, at: now)
+        case .mac(.allowanceUsed(let until)): return .noNotes(.allowanceUsed, at: now, notBefore: until)
+        case .mac: return nil
+        }
+    }
+
+    /// The writer once a sent meeting came back without notes.
+    /// - The request never left the Mac (`CloudNotes.neverLeft`): still
+    ///   waiting, its try given back.
+    /// - A page with no notes and tries left: waiting for its next try.
+    /// - Otherwise: it stops waiting (`stopped`).
+    public static func afterFailedTry(_ writer: MeetingNotesWriter, neverLeft: Bool,
+                                      now: Date = Date()) -> MeetingNotesWriter {
         var writer = writer
         if neverLeft {
             writer.onlineTries = max(0, writer.onlineTries - 1)
-        } else {
-            writer.waitsForOnline = false
+            return writer
         }
+        guard writer.noNotesYet != nil, writer.onlineTries < retryWaits.count else { return stopped(writer) }
+        writer.noNotesYet = .failed
+        writer.notBefore = now.addingTimeInterval(retryWaits[writer.onlineTries])
+        return writer
+    }
+
+    /// The writer of a page with no notes once this month's online notes
+    /// are found used: waiting for `until`, its try given back, since a
+    /// refusal costs nothing.
+    public static func afterAllowanceUsed(_ writer: MeetingNotesWriter, until: Date,
+                                          triedNow: Bool) -> MeetingNotesWriter {
+        var writer = writer
+        writer.noNotesYet = .allowanceUsed
+        writer.notBefore = until
+        if triedNow { writer.onlineTries = max(0, writer.onlineTries - 1) }
+        return writer
+    }
+
+    /// The writer once a meeting stops waiting: its notes are what is on
+    /// the page now.
+    public static func stopped(_ writer: MeetingNotesWriter) -> MeetingNotesWriter {
+        var writer = writer
+        writer.waitsForOnline = false
+        writer.noNotesYet = nil
+        writer.notBefore = nil
         return writer
     }
 }

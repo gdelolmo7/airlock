@@ -54,6 +54,14 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.0.23", title: "Free, Plus and Pro", items: [
+            Item("square.stack.3d.up", "Airlock now comes as Free, Plus or Pro. Settings › Plans shows yours and what each adds."),
+            Item("checkmark.seal", "Subscribed before plans came? You're on Plus and keep everything you had."),
+            // The privacy page promises a new outbound request is in the notes
+            // of the version that adds it.
+            Item("chart.bar", "Share which features you use to help improve Airlock. Off unless you say yes, never what you type."),
+            Item("macwindow", "Calls and Settings share one window that reopens where you left it, plus dictation and Zoom fixes."),
+        ]),
         Notes(version: "1.0.22", title: "Call notes, more like an app", items: [
             Item("dock.rectangle", "Call notes and Settings now show in the Dock, in ⌘Tab and in Stage Manager."),
             Item("person.crop.circle.badge.plus", "Name the other person during the call. Notes say \"the other person\", not Them."),

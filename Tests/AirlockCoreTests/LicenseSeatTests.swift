@@ -92,10 +92,11 @@ final class LicenseSeatTests: XCTestCase {
     }
 
     /// A seat is not a date. The entitlement states are unchanged by any of
-    /// this — a licence for another Mac never becomes an entitlement at all,
+    /// this: a licence for another Mac never becomes an entitlement at all,
     /// because it is refused at the door.
     func testSeatsDoNotChangeWhatAValidLicenceIsEntitledTo() {
-        XCTAssertTrue(Entitlement.licensed(license(machine: "UUID-A")).allowsUse)
-        XCTAssertTrue(Entitlement.grace(license(machine: "UUID-A")).allowsUse)
+        XCTAssertTrue(Entitlement.licensed(license(machine: "UUID-A")).isPaid)
+        XCTAssertTrue(Entitlement.grace(license(machine: "UUID-A")).isPaid)
+        XCTAssertEqual(Entitlement.resolve(verdict: .invalid(.otherMachine), trialStarted: nil), .free)
     }
 }

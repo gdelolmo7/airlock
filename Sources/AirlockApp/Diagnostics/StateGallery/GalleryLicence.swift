@@ -1,112 +1,136 @@
 import SwiftUI
 import AirlockCore
 
-/// The licence rows (L), drawn from fixed entitlements.
+/// The plan rows (L): the Plans page, the notch's plan cards and the
+/// updater, drawn from fixed entitlements.
 ///
 /// Every model here is a preview: `LicenseModel(previewing:)` reads and writes
-/// nothing and ignores the pane's `refresh()`, and `SettingsModel(previewing:)`
-/// stands in for the one figure the win-back reads. `LicenseModel(defaults:)`
-/// is never used — its first `refresh()` would start a trial on disk.
+/// nothing, ignores the page's `refresh()` and never asks the server, and
+/// `SettingsModel(previewing:)` stands in for the window. `LicenseModel(defaults:)`
+/// is never used — its first `refresh()` would read and heal the real trial
+/// markers.
 @MainActor
 enum GalleryLicence {
-    static let area = "Licence"
+    static let area = "Plans"
 
     static var states: [GalleryState] {
         [
-            GalleryState("L1", area, "Trial, 4–14 days left", ground: .window, width: paneWidth) {
-                pane(.trialing(daysRemaining: 10))
+            // A trial from before plans, running out on its own dates.
+            GalleryState("L1", area, "Plans page: a trial from before plans", ground: .window, width: paneWidth) {
+                plans(.trialing(daysRemaining: 10))
             },
             GalleryState("L2", area, "Trial ending (3 days or fewer)") {
                 LicenseNoticeBanner(notice: .endingSoon(daysRemaining: 3))
                     .environment(LicenseModel(previewing: .trialing(daysRemaining: 3)))
             },
             // One day left is the last day: `resolve` never reports zero, it
-            // reports `.trialExpired`.
+            // reports `.free`.
             GalleryState("L3", area, "Last-day card") {
                 LicenseNoticeBanner(notice: .endingSoon(daysRemaining: 1),
                                     tally: UsageTally(approvals: 41, answers: 9, dictations: 23))
                     .environment(LicenseModel(previewing: .trialing(daysRemaining: 1)))
             },
-            GalleryState("L4", area, "Trial ended") {
-                LicenseBlockedView(onSubscribe: {}, onEnterKey: {}, surface: LicenseBlockedView.panel)
+            // "You're on Free now", once, above the widgets. It took the place
+            // of the screen that locked the panel when a trial ran out.
+            GalleryState("L4", area, "You're on Free now: after the trial") {
+                freeCard(PlanBefore(plan: PlanSnapshot(plan: .plus, isPaid: false), ending: .trial,
+                                    endedOn: endedDay))
             },
-            GalleryState("L4a", area, "Subscription ended (subscribed before)") {
-                LicenseBlockedView(onSubscribe: {}, onEnterKey: {}, surface: LicenseBlockedView.panel,
-                                   subscribedBefore: true)
+            GalleryState("L4a", area, "You're on Free now: after Plus") {
+                freeCard(PlanBefore(endedLicense: endedLicence(.plus)))
             },
-            // With agents on, their requests go straight back to the terminal
-            // and the island stays shut, so this card is where that is said.
-            GalleryState("L4b", area, "Trial ended, coding agents on") {
-                LicenseBlockedView(onSubscribe: {}, onEnterKey: {}, surface: LicenseBlockedView.panel,
-                                   agentsAsk: true)
+            GalleryState("L4b", area, "You're on Free now: after Pro, no Apple Intelligence") {
+                freeCard(PlanBefore(endedLicense: endedLicence(.pro)), macWritesNotes: false)
+            },
+            // A date still ahead: the key stopped checking out on this Mac
+            // (moved to another, or refused) rather than running out.
+            GalleryState("L4c", area, "You're on Free now: the key no longer works here") {
+                freeCard(PlanBefore(plan: PlanSnapshot(plan: .plus, isPaid: true), ending: .subscription,
+                                    endedOn: endedDay.addingTimeInterval(200 * 86_400)))
             },
             GalleryState("L5", area, "Payment overdue") {
                 LicenseNoticeBanner(notice: .overdue)
                     .environment(LicenseModel(previewing: .overdue(licence)))
             },
-            GalleryState("L6", area, "Grace period", ground: .window, width: paneWidth) {
-                pane(.grace(licence))
+            GalleryState("L6", area, "Plans page: grace period", ground: .window, width: paneWidth) {
+                plans(.grace(licence))
             },
-            GalleryState("L7", area, "Bad key / other Mac / offline", ground: .window, width: paneWidth) {
-                pane(.trialing(daysRemaining: 10), token: "", rejection: .signature)
+            GalleryState("L7", area, "Plans page: a key that isn't one", ground: .window, width: paneWidth) {
+                plans(.free, rejection: .signature, enteringKey: true)
             },
             .notYet("L8", area, "Update available",
                     why: "Sparkle draws this window itself; the gallery never starts Sparkle."),
             .notYet("L9", area, "\"licence\" vs \"license\"",
                     why: "A spelling rule across the whole UI, not one screen."),
             GalleryOnboarding.permissionsAgain(area),
-            GalleryState("L11", area, "Every \"Subscribe\" button in the island") {
+            GalleryState("L11", area, "Every \"See plans\" button in the island") {
                 LicenseNoticeBanner(notice: .endingSoon(daysRemaining: 2))
                     .environment(LicenseModel(previewing: .trialing(daysRemaining: 2)))
             },
-            GalleryState("L12", area, "Payment overdue — what you're offered", ground: .window, width: paneWidth) {
-                pane(.overdue(licence), token: "lic_gallery")
+            GalleryState("L12", area, "Plans page: payment overdue", ground: .window, width: paneWidth) {
+                plans(.overdue(licence))
             },
-            GalleryState("L13", area, "Ended after subscribing before", ground: .window, width: paneWidth) {
-                pane(.trialExpired, subscribedBefore: true)
+            // A subscription that ended keeps its key, so the page can offer
+            // to check it again.
+            GalleryState("L13", area, "Plans page: on Free after Plus ended", ground: .window, width: paneWidth) {
+                plans(.free, subscribedBefore: true, stored: endedLicence(.plus))
             },
-            GalleryState("L14", area, "Licence page: privacy promise", ground: .window, width: paneWidth) {
-                pane(.licensed(licence), token: "lic_gallery")
+            GalleryState("L14", area, "Plans page: on Plus, more options and the privacy promise",
+                         ground: .window, width: paneWidth) {
+                plans(.licensed(licence), moreOptions: true)
             },
-            GalleryState("L15", area, "Licence page: key for another Mac", ground: .window, width: paneWidth) {
-                pane(.trialing(daysRemaining: 10), rejection: .otherMachine)
+            GalleryState("L15", area, "Plans page: key for another Mac", ground: .window, width: paneWidth) {
+                plans(.free, rejection: .otherMachine, enteringKey: true)
             },
-            GalleryState("L16", area, "Licence page: build without keys", ground: .window, width: paneWidth) {
-                pane(.trialing(daysRemaining: 10), activationError: LicenseModel.cannotCheckMessage)
+            GalleryState("L16", area, "Plans page: build without keys", ground: .window, width: paneWidth) {
+                plans(.free, activationError: LicenseModel.cannotCheckMessage, enteringKey: true)
             },
-            GalleryState("L17", area, "Licence page: offline", ground: .window, width: paneWidth) {
-                pane(.trialing(daysRemaining: 10),
-                     activationError: LicenseModel.unreachableMessage(keepsWorking: true))
+            GalleryState("L17", area, "Plans page: offline", ground: .window, width: paneWidth) {
+                plans(.free, activationError: LicenseModel.unreachableMessage, enteringKey: true)
             },
-            GalleryState("L18", area, "Licence page: Remove", ground: .window, width: paneWidth) {
-                pane(.licensed(licence), token: "lic_gallery", confirmingRemove: true)
+            GalleryState("L18", area, "Plans page: Remove", ground: .window, width: paneWidth) {
+                plans(.licensed(licence), confirmingRemove: true)
             },
-            GalleryState("L19", area, "Licence page: the pitch", ground: .window, width: paneWidth) {
-                pane(.trialExpired)
-            },
-            GalleryState("L20", area, "Purchase window: choose a plan", ground: .window, width: purchaseWidth) {
-                purchase(PurchaseFlow())
+            GalleryState("L19", area, "Plans page: on Free", ground: .window, width: paneWidth) {
+                plans(.free)
             },
             // What the last-day card's monthly button opens.
-            GalleryState("L20a", area, "Purchase window: opened on monthly", ground: .window, width: purchaseWidth) {
-                purchase(PurchaseFlow(), plan: .monthly)
+            GalleryState("L19a", area, "Plans page: on Free, monthly prices", ground: .window, width: paneWidth) {
+                plans(.free, period: .monthly)
             },
-            GalleryState("L21", area, "Purchase window: finish in your browser", ground: .window, width: purchaseWidth) {
-                purchase(flow { $0.begin(plan: .yearly) })
+            GalleryState("L19b", area, "Plans page: on Pro", ground: .window, width: paneWidth) {
+                plans(.licensed(proLicence))
             },
-            GalleryState("L21a", area, "Purchase window: the payment page didn't open",
-                         ground: .window, width: purchaseWidth) {
-                purchase(flow { $0.failToOpen(plan: .yearly) })
+            GalleryState("L19c", area, "Plans page: a hand-issued key", ground: .window, width: paneWidth) {
+                plans(.licensed(handIssued))
             },
-            GalleryState("L22", area, "Purchase window: still waiting (3 min)", ground: .window, width: purchaseWidth) {
-                purchase(flow { $0.begin(plan: .yearly); $0.setStalled() })
+            GalleryState("L20", area, "Plans page: entering a key", ground: .window, width: paneWidth) {
+                plans(.free, enteringKey: true)
             },
-            GalleryState("L23", area, "Purchase window: you're subscribed", ground: .window, width: purchaseWidth) {
-                purchase(flow { $0.begin(plan: .yearly); $0.succeed() }, pendingGate: "git push origin main")
+            GalleryState("L21", area, "Plans page: finish in your browser", ground: .window, width: paneWidth) {
+                plans(.free) { $0.begin(.plus, .yearly) }
             },
-            GalleryState("L24", area, "Trial-ended dictation hold") {
-                HoldNoticeCard(notice: .noSubscription)
+            GalleryState("L21a", area, "Plans page: the payment page didn't open", ground: .window, width: paneWidth) {
+                plans(.free) { $0.failToOpen(.pro, .monthly) }
             },
+            GalleryState("L22", area, "Plans page: still waiting (3 min)", ground: .window, width: paneWidth) {
+                plans(.free) { $0.begin(.plus, .yearly); $0.setStalled() }
+            },
+            // The key came back from the browser: the page is already on Plus.
+            GalleryState("L23", area, "Plans page: you're on Plus", ground: .window, width: paneWidth) {
+                plans(.licensed(licence)) { $0.begin(.plus, .yearly); $0.succeed() }
+            },
+            GalleryState("L23a", area, "Plans page: checked just now", ground: .window, width: paneWidth) {
+                plans(.licensed(proLicence), lastCheck: .current(.pro))
+            },
+            GalleryState("L23b", area, "Plans page: the shop says it ended", ground: .window, width: paneWidth) {
+                plans(.free, stored: endedLicence(.plus), lastCheck: .ended)
+            },
+            GalleryState("L23c", area, "Plans page: couldn't reach the server", ground: .window, width: paneWidth) {
+                plans(.licensed(licence), lastCheck: .unreachable)
+            },
+            .notYet("L24", area, "Trial-ended dictation hold",
+                    why: "Retired: nothing locks any more, so a hold is never turned away for the licence."),
             .notYet("L25", area, "Update dialogs",
                     why: "Sparkle draws these windows itself; the gallery never starts Sparkle."),
             // Settings › General › Updates, from the values the live updater
@@ -123,6 +147,42 @@ enum GalleryLicence {
             GalleryState("L26c", area, "Checking for updates", ground: .window, width: paneWidth) {
                 updates(.quiet, canCheck: false)
             },
+            // "Welcome to Plus", above the widgets, after a key for a bigger
+            // plan goes in.
+            GalleryState("L27", area, "Welcome to Plus") {
+                welcome(.plus)
+            },
+            GalleryState("L27a", area, "Welcome to Pro") {
+                welcome(.pro)
+            },
+            GalleryState("L27b", area, "Welcome to Plus: redo the last call's notes") {
+                welcome(.plus, redo: .offered)
+            },
+            GalleryState("L27c", area, "Welcome to Pro: writing the notes again") {
+                welcome(.pro, redo: .writing)
+            },
+            GalleryState("L27d", area, "Welcome to Plus: new notes written") {
+                welcome(.plus, redo: .written)
+            },
+            GalleryState("L27e", area, "Welcome to Plus: offline, notes not redone") {
+                welcome(.plus, redo: .said(CallNotesLibrary.said(.offline, plan: PlanSnapshot(plan: .plus,
+                                                                                               isPaid: true)) ?? ""))
+            },
+            // Free's reminders: at most one a day, when the panel opens, in
+            // the working blue with the stressed face. Never a sound.
+            GalleryState("L28", area, "Free reminder: the clipboard let copies go (first time only)") {
+                reminder(.clipboardFull)
+            },
+            GalleryState("L28a", area, "Free reminder: an agent asked in its terminal") {
+                reminder(.agentInTerminal(asking: "website", answering: "storefront"))
+            },
+            GalleryState("L28b", area, "Free reminder: the month on Free") {
+                reminder(.monthlyRecap(FreeMonth(month: endedDay, callsStopped: 3, copiesLetGo: 214,
+                                                 agentsInTerminal: 6)))
+            },
+            GalleryState("L28c", area, "Free reminder: a month with one thing in it") {
+                reminder(.monthlyRecap(FreeMonth(month: endedDay, callsStopped: 1)))
+            },
         ]
     }
 
@@ -130,28 +190,70 @@ enum GalleryLicence {
 
     /// The settings window's detail column: 780 less the sidebar's 204.
     static let paneWidth: CGFloat = 576
-    /// `PurchaseView`'s own frame.
-    private static let purchaseWidth: CGFloat = 480
 
+    /// A yearly Plus bought in the shop (it has a shop key to check).
     private static let licence: License = {
         let renews = Date(timeIntervalSince1970: 1_822_000_000) // late Sep 2027
+        return License(id: "lic_gallery", email: "someone@example.com", product: "airlock",
+                       period: .yearly, issued: renews.addingTimeInterval(-365 * 86_400),
+                       renewsAt: renews, checkBy: renews.addingTimeInterval(14 * 86_400), ref: "gallery")
+    }()
+
+    /// The same, issued by hand: nothing at the shop to check or manage.
+    private static let handIssued: License = {
+        let renews = Date(timeIntervalSince1970: 1_822_000_000)
         return License(id: "lic_gallery", email: "someone@example.com", product: "airlock",
                        period: .yearly, issued: renews.addingTimeInterval(-365 * 86_400),
                        renewsAt: renews, checkBy: renews.addingTimeInterval(14 * 86_400))
     }()
 
+    private static let proLicence: License = {
+        let renews = Date(timeIntervalSince1970: 1_822_000_000)
+        return License(id: "lic_gallery", email: "someone@example.com", product: "airlock",
+                       period: .yearly, issued: renews.addingTimeInterval(-365 * 86_400),
+                       renewsAt: renews, checkBy: renews.addingTimeInterval(14 * 86_400),
+                       ref: "gallery", plan: .pro)
+    }()
+
+    /// The day a plan in the Free card ended: 15 November 2026, a morning.
+    private static let endedDay = Date(timeIntervalSince1970: 1_794_733_200)
+
+    private static func endedLicence(_ plan: License.Plan) -> License {
+        License(id: "lic_gallery", email: "someone@example.com", product: "airlock", period: .monthly,
+                issued: endedDay.addingTimeInterval(-30 * 86_400), renewsAt: endedDay,
+                checkBy: endedDay.addingTimeInterval(14 * 86_400), plan: plan)
+    }
+
     // MARK: - Drawing
 
-    private static func pane(_ entitlement: Entitlement, token: String = "",
-                             rejection: LicenseVerdict.Reason? = nil, activationError: String? = nil,
-                             subscribedBefore: Bool = false, confirmingRemove: Bool = false) -> some View {
-        LicensePane(confirmingRemove: confirmingRemove)
-            .environment(LicenseModel(previewing: entitlement, token: token, rejection: rejection,
-                                      activationError: activationError,
-                                      hasSubscribedBefore: subscribedBefore))
+    /// The Free card at the width of the panel's stack, a day after the plan
+    /// ended.
+    static func freeCard(_ before: PlanBefore, macWritesNotes: Bool = true) -> some View {
+        let card = FreeCard.due(entitlement: .free, before: before, seen: false)!
+        return MovedToFreeCard(card: card, macWritesNotes: macWritesNotes, onSeePlus: {}, onGotIt: {},
+                               now: endedDay.addingTimeInterval(86_400))
+    }
+
+    /// Settings › Plans as the window shows it. `flow` puts the browser
+    /// hand-off where a click would have left it.
+    private static func plans(_ entitlement: Entitlement, period: License.Period = .yearly,
+                              rejection: LicenseVerdict.Reason? = nil, activationError: String? = nil,
+                              subscribedBefore: Bool = false, stored: License? = nil,
+                              hasServer: Bool = true, lastCheck: PlanCheck? = nil,
+                              confirmingRemove: Bool = false, enteringKey: Bool = false,
+                              moreOptions: Bool = false,
+                              flow: (PurchaseFlow) -> Void = { _ in }) -> some View {
+        let license = LicenseModel(previewing: entitlement, rejection: rejection,
+                                   activationError: activationError,
+                                   hasSubscribedBefore: subscribedBefore, stored: stored,
+                                   hasServer: hasServer, lastCheck: lastCheck)
+        license.plansPeriod = period
+        flow(license.purchase)
+        return PlansPane(confirmingRemove: confirmingRemove, enteringKey: enteringKey, moreOptions: moreOptions)
+            .environment(license)
             .environment(SettingsModel(previewing: [], policy: winBackPolicy))
-            // A grouped Form scrolls, so it has no height of its own to fit.
-            .frame(height: entitlement.isPaid ? 500 : entitlement == .trialExpired ? 780 : 720)
+            // The page scrolls, so it has no height of its own to fit.
+            .frame(height: moreOptions ? 1080 : 880)
     }
 
     /// Seven rules, so the win-back's "Your rules" has a number to read.
@@ -182,19 +284,19 @@ enum GalleryLicence {
         }
     }
 
-    private static func flow(_ steps: (PurchaseFlow) -> Void) -> PurchaseFlow {
-        let flow = PurchaseFlow()
-        steps(flow)
-        return flow
+    /// One of Free's reminder cards at the width of the panel's stack.
+    private static func reminder(_ card: UpgradeReminder) -> some View {
+        UpgradeReminderCard(reminder: card, onSeePlus: {}, onNotNow: {})
     }
 
-    private static func purchase(_ flow: PurchaseFlow, pendingGate: String? = nil,
-                                 plan: License.Period = .yearly) -> some View {
-        PurchaseView(flow: flow, tally: UsageTally(approvals: 41, answers: 9, dictations: 23),
-                     onBuy: { _ in }, onPasteKey: {}, onDismiss: {}, pendingGate: pendingGate,
-                     openingPlan: plan)
-            // The real window's see-through title bar, which the page sits under.
-            .safeAreaPadding(.top, 28)
-            .background(SettingsLook.ground)
+    /// The welcome card at the width of the panel's stack. `redo` draws the
+    /// row at that stage, for a call named the way the notch names one.
+    private static func welcome(_ plan: AirlockPlan, redo: WelcomeCardView.Redo.Stage? = nil) -> some View {
+        let card = WelcomeCard(plan)!
+        let row = redo.map {
+            WelcomeCardView.Redo(question: card.redoQuestion(title: "Budget review", when: "today", minutes: 42),
+                                 stage: $0)
+        }
+        return WelcomeCardView(card: card, redo: row, onGotIt: {})
     }
 }

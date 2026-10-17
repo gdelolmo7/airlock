@@ -170,6 +170,8 @@ struct OnboardingView: View {
 // MARK: - Welcome
 
 private struct WelcomeStep: View {
+    @Environment(OnboardingModel.self) private var model
+
     var body: some View {
         VStack(spacing: 10) {
             Row(symbol: "bell.badge",
@@ -185,6 +187,30 @@ private struct WelcomeStep: View {
             Row(symbol: "tray.full",
                 title: "It holds your files and your day",
                 detail: "A drop shelf, clipboard history, calendar and what's playing, all in the notch.")
+            // The same question the panel's first screen puts, off unless
+            // switched on, and only in a build that could send counts.
+            if model.offersUsageCounts {
+                HStack(alignment: .top, spacing: 13) {
+                    Image(systemName: "chart.bar")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Share usage counts?").font(.system(size: 13, weight: .medium))
+                        Text(UsageCountsSection.subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Toggle("", isOn: Binding(get: { model.sharesUsageCounts },
+                                             set: { model.sharesUsageCounts = $0 }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .accessibilityLabel("Share usage counts")
+                }
+                .padding(12)
+                .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+            }
         }
     }
 
@@ -727,40 +753,19 @@ private struct FinishStep: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // **The trial, said out loud, once.**
-            //
-            // Nothing anywhere in first run mentioned the trial or the price:
-            // the first signal was a banner on day 11 (`TrialClock.length` 14
-            // less `LicenseNotice` warningWindow 3), and that banner is
-            // suppressed while onboarding is up. Every trial user met the same
-            // surprise, and the people most surprised are the ones who liked it
-            // enough to still be here on day 11.
-            //
-            // Length and prices are read, never written: `TrialClock.length` is
-            // the same constant the countdown uses, and `Period.price` is the
-            // same string the purchase window quotes.
-            // Not said at all while Airlock is free: there is no trial.
-            if !Pricing.isFree {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("About the trial")
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Everything is yours for \(TrialClock.length) days — the whole app, "
-                         + "nothing held back. After that it needs a subscription: "
-                         + "\(License.Period.yearly.price) or \(License.Period.monthly.price).")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    // Said in the same breath, because "everything stops" invites
-                    // exactly one question and leaving it unanswered is what makes
-                    // a trial feel like a trap.
-                    Text("Nothing you have saved goes anywhere — your clipboard history and the "
-                         + "shelf are still there if you subscribe later.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(13)
-                .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+            // **Money, said out loud, once.** There is no trial: a new copy
+            // starts on Free, and this says so before anybody wonders what
+            // happens on day 15. The words are the panel's (`PlanSetupNote`).
+            VStack(alignment: .leading, spacing: 6) {
+                Text(PlanSetupNote.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(PlanSetupNote.detail)
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(13)
+            .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
 
             VStack(spacing: 9) {
                 Text("Where to find everything")

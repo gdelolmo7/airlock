@@ -74,15 +74,21 @@ public struct MeetingStore: Sendable {
         return name
     }
 
-    /// The notes page, and the page as it was written, without the line
-    /// that promises they will be written online (`MeetingFiles.offlineLine`).
-    public func dropOfflineLine(in folder: URL) throws {
+    /// The notes page, and the page as it was written, with the line that
+    /// says they will be written online (`MeetingFiles.waitingLine`) put
+    /// right for `writer`: changed, or gone when nothing waits any more.
+    public func setWaitingLine(for writer: MeetingNotesWriter?, in folder: URL) throws {
         for name in [Self.notesAsWrittenName, MeetingFiles.notesName] {
             let url = folder.appendingPathComponent(name)
             guard let page = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let kept = MeetingFiles.withoutOfflineLine(page)
+            let kept = MeetingFiles.withWaitingLine(page, for: writer)
             if kept != page { try write(Data(kept.utf8), to: url) }
         }
+    }
+
+    /// Both pages without the line that says they will be written online.
+    public func dropWaitingLine(in folder: URL) throws {
+        try setWaitingLine(for: nil, in: folder)
     }
 
     /// The notes, with the names given to voices put in (`MeetingNaming`),

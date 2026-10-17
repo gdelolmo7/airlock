@@ -448,81 +448,108 @@ struct LookMoreButton: View {
 
 /// The pages as a column down the left: an icon and a word each, the one you
 /// are on in the brighter fill, sliding to the next.
+///
+/// With `calls`, the Airlock window's column: Calls first, then the Settings
+/// pages under their label. One highlight slides between all of them.
 struct LookSideTabs: View {
     let pages: [SettingsPane]
     @Binding var selection: SettingsPane
+    /// Whether Calls is the row chosen; nil leaves the row out (call notes
+    /// are off, or this is Settings on its own, as in the gallery).
+    var calls: Binding<Bool>?
     @Namespace private var highlight
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let onCalls = calls?.wrappedValue == true
         VStack(alignment: .leading, spacing: 2) {
+            if let calls {
+                tab("Calls", symbol: "phone", help: "Every call's notes, what was said, and its recording.",
+                    selected: onCalls) { calls.wrappedValue = true }
+                LookGroupLabel("Settings")
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
+            }
             ForEach(pages) { page in
-                let selected = selection == page
-                Button {
-                    withAnimation(Motion.swap.animation(reduceMotion: reduceMotion)) { selection = page }
-                } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: page.symbol)
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(width: 18)
-                        Text(page.tabTitle)
-                            .font(Theme.chrome(12.5, selected ? .semibold : .medium))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background {
-                        if selected {
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(SettingsLook.selectedFill)
-                                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .strokeBorder(SettingsLook.selectedStroke, lineWidth: 1))
-                                .matchedGeometryEffect(id: "selectedPage", in: highlight)
-                        }
-                    }
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .clickable()
-                .help(page.blurb)
-                .accessibilityAddTraits(selected ? [.isSelected] : [])
+                tab(page.tabTitle, symbol: page.symbol, help: page.blurb,
+                    selected: !onCalls && selection == page) { selection = page }
             }
         }
     }
+
+    private func tab(_ title: String, symbol: String, help: String, selected: Bool,
+                     choose: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(Motion.swap.animation(reduceMotion: reduceMotion)) { choose() }
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 18)
+                Text(title)
+                    .font(Theme.chrome(12.5, selected ? .semibold : .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(SettingsLook.selectedFill)
+                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(SettingsLook.selectedStroke, lineWidth: 1))
+                        .matchedGeometryEffect(id: "selectedPage", in: highlight)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .clickable()
+        .help(help)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
 }
 
-/// The window's left column: search at the top, the pages under it.
+/// The window's left column: search at the top, the pages under it, and
+/// with `calls` the Calls row above them.
 struct LookSidebar: View {
     let pages: [SettingsPane]
     @Binding var selection: SettingsPane
+    var calls: Binding<Bool>?
     @Binding var query: String
     /// Changes when ⌘F is pressed; the field takes the cursor.
     var focusRequest = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            LookSearchField(text: $query, focusRequest: focusRequest)
-            LookSideTabs(pages: pages, selection: $selection)
+            // It searches the settings only; the calls have their own field
+            // above their list.
+            LookSearchField(text: $query, hint: calls == nil ? "Search" : "Search settings",
+                            focusRequest: focusRequest)
+            LookSideTabs(pages: pages, selection: $selection, calls: calls)
             Spacer(minLength: 0)
         }
         // The window's title bar is already above this (the safe area), and
         // clears the close and minimise buttons on its own.
         .padding(.top, 10)
         .padding(.horizontal, 12)
-        .frame(width: 176)
+        .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.white.opacity(0.02))
         .overlay(alignment: .trailing) {
             Rectangle().fill(SettingsLook.rowStroke).frame(width: 1)
         }
     }
+
+    static let width: CGFloat = 176
 }
 
 /// "Search", in the row box's fill. Esc clears it.
 struct LookSearchField: View {
     @Binding var text: String
+    var hint = "Search"
     var focusRequest = 0
     @FocusState private var focused: Bool
 
@@ -531,7 +558,7 @@ struct LookSearchField: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.textTertiary)
-            TextField("Search", text: $text, prompt: Text(""))
+            TextField(hint, text: $text, prompt: Text(""))
                 .textFieldStyle(.plain)
                 .font(Theme.chrome(12))
                 .foregroundStyle(Theme.textPrimary)
@@ -541,7 +568,7 @@ struct LookSearchField: View {
                 // out white, which read as something already typed.
                 .background(alignment: .leading) {
                     if text.isEmpty {
-                        Text("Search")
+                        Text(hint)
                             .font(Theme.chrome(12))
                             .foregroundStyle(Theme.textTertiary)
                             .allowsHitTesting(false)

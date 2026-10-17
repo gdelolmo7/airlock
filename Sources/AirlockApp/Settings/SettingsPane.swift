@@ -55,15 +55,11 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// (designs 11a–b), and Agents reads "Developer" (11c): the Developer mode
     /// switch heads it, and the hooks and rules below it show only while the
     /// switch is on. With the guide off, nothing changes.
-    ///
-    /// A free Airlock (`Pricing.isFree`) has no Licence page: there is
-    /// nothing to buy, renew or paste.
-    static func sidebar(guideOn: Bool = guideIsOn, free: Bool = Pricing.isFree) -> [SettingsPane] {
-        let all: [SettingsPane] = guideOn
+    static func sidebar(guideOn: Bool = guideIsOn) -> [SettingsPane] {
+        guideOn
             ? [.general, .guide, .privacy, .appearance, .voice, .clipboard,
                .agents, .permissions, .license]
             : sidebarCases
-        return free ? all.filter { $0 != .license } : all
     }
 
     static var guideIsOn: Bool { GuideSwitch.isOn }
@@ -77,8 +73,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .tray, .widgets: return .appearance
         case .policy: return .agents
         case .about: return .general
-        // A stored "last page" or an old deep link to a page that is gone.
-        case .license where Pricing.isFree: return .general
         default: return self
         }
     }
@@ -100,7 +94,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         // "Policy" was the implementation's word for it.
         case .policy: return "Rules"
         case .permissions: return "Permissions"
-        case .license: return "Licence"
+        case .license: return "Plans"
         case .about: return "About"
         }
     }
@@ -125,7 +119,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .agents: return "sparkle"
         case .policy: return "checkmark.shield"
         case .permissions: return "lock.shield"
-        case .license: return "key"
+        case .license: return "crown"
         case .about: return "info.circle"
         case .guide: return "hand.point.up.left"
         case .privacy: return "hand.raised"
@@ -147,7 +141,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .privacy: return "What the guide looks at"
         case .policy: return "What runs without asking"
         case .permissions: return "What macOS has allowed"
-        case .license: return "Trial, licence and renewal"
+        case .license: return "Free, Plus and Pro"
         case .about: return "Version and links"
         }
     }

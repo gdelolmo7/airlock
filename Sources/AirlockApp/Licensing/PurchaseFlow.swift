@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import AirlockCore
 
-/// The gap between "Continue to payment" and a working app.
+/// The gap between "Get Plus" and a working app.
 ///
 /// **Nothing in the code covered it.** `LicenseModel.isActivating` exists for the
 /// paste-a-key path, and the browser hand-off had no state at all — so a person
@@ -15,9 +15,9 @@ import AirlockCore
 /// something went wrong out there — and both exits are named, because neither
 /// of them is "start over".
 ///
-/// **It survives the window closing.** Somebody who shuts the purchase window
-/// mid-payment has not cancelled anything, and the app goes on listening until
-/// it quits — which is why this lives on a model rather than in a view's state.
+/// **It survives the window closing.** Somebody who shuts Settings mid-payment
+/// has not cancelled anything, and the app goes on listening until it quits —
+/// which is why this lives on `LicenseModel` rather than in a view's state.
 @MainActor
 @Observable
 final class PurchaseFlow {
@@ -32,14 +32,16 @@ final class PurchaseFlow {
         /// or macOS would not open the link. Nothing to wait for.
         case couldNotOpen
         /// A key arrived and verified. Carries nothing itself — the entitlement
-        /// is the source of truth, and this only says the window may celebrate.
+        /// is the source of truth, and this only says the page may say so.
         case activated
     }
 
     private(set) var stage: Stage = .idle
-    /// Which plan they left to buy, so the waiting screen can name the amount
-    /// they are about to be charged rather than "a subscription".
-    private(set) var plan: License.Period = .yearly
+    /// Which plan they left to buy, and for how long, so the waiting line can
+    /// name the amount they are about to be charged rather than "a
+    /// subscription", and "Open the page again" opens the same one.
+    private(set) var plan: AirlockPlan = .plus
+    private(set) var period: License.Period = .yearly
 
     /// When patience stops being the honest word.
     ///
@@ -51,8 +53,9 @@ final class PurchaseFlow {
     @ObservationIgnored private var timer: Task<Void, Never>?
 
     /// They have left for the browser.
-    func begin(plan: License.Period, now: Date = Date()) {
+    func begin(_ plan: AirlockPlan, _ period: License.Period, now: Date = Date()) {
         self.plan = plan
+        self.period = period
         stage = .waiting(since: now)
         timer?.cancel()
         timer = Task { [weak self] in
@@ -72,10 +75,11 @@ final class PurchaseFlow {
 
     /// The browser did not open. Stops the waiting: a three-minute "still
     /// waiting" for a page that was never shown is the screen this replaces.
-    func failToOpen(plan: License.Period) {
+    func failToOpen(_ plan: AirlockPlan, _ period: License.Period) {
         timer?.cancel()
         timer = nil
         self.plan = plan
+        self.period = period
         stage = .couldNotOpen
     }
 
@@ -86,7 +90,7 @@ final class PurchaseFlow {
         stage = .activated
     }
 
-    /// Explicitly abandoned — the "Not now" on the waiting screen, never the
+    /// Explicitly abandoned — the "Not now" on the waiting line, never the
     /// window merely closing.
     func cancel() {
         timer?.cancel()

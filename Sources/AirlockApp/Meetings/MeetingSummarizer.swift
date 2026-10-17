@@ -111,6 +111,16 @@ enum MeetingSummarizer {
         case notes(MeetingNotes)
         /// No notes, and why, in words for the notes page.
         case unavailable(String)
+        /// No notes because this Mac has no model to write them (Apple
+        /// Intelligence off, not supported, or not ready), and why: online
+        /// is the only way this call gets notes (`CloudNotesRedo`). The page
+        /// says what to do about it (`MeetingFiles.noModelLines`).
+        case noModel(ModelAvailability)
+    }
+
+    /// Why there is no model, in words for the log and the page.
+    static func noModelReason(_ availability: ModelAvailability) -> String {
+        availability.message(feature: "call notes") ?? "Apple Intelligence isn't available."
     }
 
     /// Room for the answers. A cap, not a reservation: most answers are far
@@ -148,8 +158,7 @@ enum MeetingSummarizer {
         }
         let availability = CleanupService().availability
         guard availability.isReady else {
-            return .unavailable(availability.message(feature: "call notes")
-                                ?? "Apple Intelligence isn't available.")
+            return .noModel(availability)
         }
         let check = CallLanguage.check(record)
         log(check.logLine)

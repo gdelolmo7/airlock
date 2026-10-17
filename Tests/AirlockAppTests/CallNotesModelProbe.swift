@@ -91,6 +91,11 @@ final class CallNotesModelProbe: XCTestCase {
             print("PROBE no notes: \(reason)")
             print(MeetingFiles.notesPage(for: record, notes: nil, unavailableReason: reason))
             throw XCTSkip("No notes: \(reason)")
+        case .noModel(let availability):
+            let reason = MeetingSummarizer.noModelReason(availability)
+            print("PROBE no notes: \(reason)")
+            print(MeetingFiles.notesPage(for: record, notes: nil, unavailableReason: reason))
+            throw XCTSkip("No notes: \(reason)")
         case .notes(let notes):
             print("PROBE notes page:\n" + MeetingFiles.notesPage(for: record, notes: notes))
             let transcript = NumberedTranscript(record)

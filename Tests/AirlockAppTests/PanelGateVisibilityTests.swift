@@ -44,7 +44,7 @@ final class PanelGateVisibilityTests: XCTestCase {
         model.seedDemo(gateTimeout: .seconds(60))
         let agents = AgentsWidgetModel()
         let registry = WidgetRegistry(widgets: [
-            AgentsWidget(model: model, agents: agents, isEntitled: { true }),
+            AgentsWidget(model: model, agents: agents),
             QuietWidget(),
         ])
         return (model, agents, registry)

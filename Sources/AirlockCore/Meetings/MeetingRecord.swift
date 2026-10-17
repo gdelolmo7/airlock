@@ -173,8 +173,9 @@ public struct MeetingRecording: Codable, Equatable, Sendable {
 }
 
 /// Who wrote a meeting's notes: the Mac's own model, or a larger one online
-/// (`CloudNotes`), and whether notes the Mac wrote while offline still wait
-/// to be written online (`CloudNotesRedo`).
+/// (`CloudNotes`), and whether they still wait to be written online
+/// (`CloudNotesRedo`): notes the Mac wrote while offline, and the notes of a
+/// Mac that can't write any (no Apple Intelligence).
 ///
 /// Kept only while notes online are switched on at all; every other
 /// meeting has none, and its `meeting.json` is what it always was.
@@ -187,41 +188,126 @@ public struct MeetingNotesWriter: Codable, Equatable, Sendable {
     /// The name kept for the Mac's own model.
     public static let macModel = "apple-on-device"
 
+    /// Why a page has no notes yet, on a Mac that can't write them: they
+    /// come from online only, later (`CloudNotesRedo`).
+    public enum NoNotesYet: String, Codable, Sendable {
+        /// The Mac was offline when the call ended.
+        case offline
+        /// Writing them online didn't work; tried again later.
+        case failed
+        /// This month's online notes were used; written once they're back.
+        case allowanceUsed
+    }
+
+    /// Why the Mac wrote the notes rather than the online service: said on
+    /// the page (`MeetingFiles.notesPage`) and read by the window, which
+    /// offers a better model to notes that didn't get one.
+    public enum MacWhy: String, Codable, Sendable {
+        /// The plan writes them on the Mac: Free, a trial from before plans,
+        /// a subscription that is overdue.
+        case plan
+        /// "Write notes online" is switched off in Settings.
+        case setting
+        /// The online notes service was asked and didn't answer, or answered
+        /// with nothing that held up.
+        case serviceDown
+        /// This month's online notes are used up (`backOn`).
+        case allowanceUsed
+        /// Offline when the call ended.
+        case offline
+        /// Anything else: too little said, too long to send, no licence
+        /// server, a licence the server won't write notes for.
+        case other
+    }
+
     public var place: Place
     /// The model that wrote them: the server's name for it when online.
+    /// None while a page has no notes yet.
     public var model: String?
     public var writtenAt: Date
-    /// Written on the Mac while it was offline: to be written online once it
-    /// is back. The page says so (`MeetingFiles.offlineLine`).
+    /// To be written online: notes the Mac wrote while it was offline, or
+    /// the notes of a Mac that can't write any (`noNotesYet`). The page says
+    /// so under the date (`MeetingFiles.waitingLine`).
     public var waitsForOnline: Bool
     /// How many times writing them online again was tried.
     public var onlineTries: Int
+    /// Set while the page has no notes because the Mac can't write them,
+    /// and why; nil whenever the Mac wrote them.
+    public var noNotesYet: NoNotesYet?
+    /// Not sent again before this: the day this month's online notes come
+    /// back, or the next try after one that didn't work.
+    public var notBefore: Date?
+    /// Why the Mac wrote them; nil for notes written online, and on every
+    /// page from before it was kept.
+    public var why: MacWhy?
+    /// The plan the notes were written under (`PlanSnapshot.kept`); nil on
+    /// every page from before plans.
+    public var plan: PlanSnapshot?
+    /// The day this month's online notes come back, for notes the Mac wrote
+    /// because they were used up (`MacWhy.allowanceUsed`). Only said on the
+    /// page: unlike `notBefore`, nothing waits for it.
+    public var backOn: Date?
 
     public init(place: Place, model: String?, writtenAt: Date, waitsForOnline: Bool = false,
-                onlineTries: Int = 0) {
+                onlineTries: Int = 0, noNotesYet: NoNotesYet? = nil, notBefore: Date? = nil,
+                why: MacWhy? = nil, plan: PlanSnapshot? = nil, backOn: Date? = nil) {
         self.place = place
         self.model = model
         self.writtenAt = writtenAt
         self.waitsForOnline = waitsForOnline
         self.onlineTries = max(0, onlineTries)
+        self.noNotesYet = noNotesYet
+        self.notBefore = notBefore
+        self.why = why
+        self.plan = plan
+        self.backOn = backOn
     }
 
-    public static func mac(at date: Date, waitsForOnline: Bool = false) -> MeetingNotesWriter {
-        MeetingNotesWriter(place: .mac, model: macModel, writtenAt: date, waitsForOnline: waitsForOnline)
+    public static func mac(at date: Date, waitsForOnline: Bool = false, why: MacWhy? = nil,
+                           plan: PlanSnapshot? = nil, backOn: Date? = nil) -> MeetingNotesWriter {
+        MeetingNotesWriter(place: .mac, model: macModel, writtenAt: date, waitsForOnline: waitsForOnline,
+                           why: why, plan: plan, backOn: backOn)
     }
 
-    public static func online(model: String?, at date: Date) -> MeetingNotesWriter {
-        MeetingNotesWriter(place: .online, model: model, writtenAt: date)
+    public static func online(model: String?, at date: Date, plan: PlanSnapshot? = nil) -> MeetingNotesWriter {
+        MeetingNotesWriter(place: .online, model: model, writtenAt: date, plan: plan)
     }
 
-    /// Fields missing from an older file read as nothing waiting.
+    /// A page with no notes, on a Mac that can't write them, waiting for
+    /// them to be written online.
+    public static func noNotes(_ why: NoNotesYet, at date: Date, notBefore: Date? = nil) -> MeetingNotesWriter {
+        MeetingNotesWriter(place: .mac, model: nil, writtenAt: date, waitsForOnline: true,
+                           noNotesYet: why, notBefore: notBefore)
+    }
+
+    /// Fields missing from an older file read as nothing waiting; a reason
+    /// or a plan this version doesn't know reads as none.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(place: try container.decode(Place.self, forKey: .place),
                   model: try container.decodeIfPresent(String.self, forKey: .model),
                   writtenAt: try container.decode(Date.self, forKey: .writtenAt),
                   waitsForOnline: try container.decodeIfPresent(Bool.self, forKey: .waitsForOnline) ?? false,
-                  onlineTries: try container.decodeIfPresent(Int.self, forKey: .onlineTries) ?? 0)
+                  onlineTries: try container.decodeIfPresent(Int.self, forKey: .onlineTries) ?? 0,
+                  noNotesYet: (try? container.decodeIfPresent(NoNotesYet.self, forKey: .noNotesYet)) ?? nil,
+                  notBefore: try container.decodeIfPresent(Date.self, forKey: .notBefore),
+                  why: (try? container.decodeIfPresent(MacWhy.self, forKey: .why)) ?? nil,
+                  plan: (try? container.decodeIfPresent(PlanSnapshot.self, forKey: .plan)) ?? nil,
+                  backOn: try container.decodeIfPresent(Date.self, forKey: .backOn))
+    }
+}
+
+extension MeetingNotesWriter.MacWhy {
+    /// Why the Mac wrote them, from why the online service wasn't asked or
+    /// refused (`CloudNotesRoute.Reason`).
+    public init(_ reason: CloudNotesRoute.Reason) {
+        switch reason {
+        case .settingOff: self = .setting
+        case .notSubscribed: self = .plan
+        case .allowanceUsed: self = .allowanceUsed
+        case .offline: self = .offline
+        case .hiddenSwitchOff, .noToken, .noServer, .tooShort, .tooLong, .notEligible: self = .other
+        }
     }
 }
 
@@ -280,6 +366,15 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
     /// calendar and a recording do not (`MeetingFiles.title(of:)`); nil on
     /// every older meeting, which keeps the name it had.
     public var topic: String?
+    /// The plan the call started on. Its notes are written the way that plan
+    /// writes them even if the plan changes before the call ends
+    /// (`PlanSnapshot.kept`). Nil on every call from before plans.
+    public var startedOn: PlanSnapshot?
+    /// How long the notes listened when the plan's limit stopped them
+    /// (`PlanLimits.notesListenFor`): the call went on without them, and the
+    /// notes page says they cover only its start. Nil for notes that
+    /// listened as long as they were meant to.
+    public var stoppedAtLimit: TimeInterval?
 
     public init(bundleID: String, appName: String, site: MeetingLink.Provider? = nil,
                 startedAt: Date, endedAt: Date? = nil, languages: [String] = [],
@@ -288,7 +383,7 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
                 listenings: [MeetingListening] = [], shadow: [MeetingShadowLine] = [],
                 droppedAt: Date? = nil, names: [MeetingVoiceName] = [],
                 recording: MeetingRecording? = nil, notesWriter: MeetingNotesWriter? = nil,
-                topic: String? = nil) {
+                topic: String? = nil, startedOn: PlanSnapshot? = nil, stoppedAtLimit: TimeInterval? = nil) {
         self.bundleID = bundleID
         self.appName = appName
         self.site = site
@@ -306,12 +401,14 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
         self.recording = recording
         self.notesWriter = notesWriter
         self.topic = MeetingNotes.title(topic)
+        self.startedOn = startedOn
+        self.stoppedAtLimit = stoppedAtLimit
         self.names = []
         for name in names { self.name(name.voice, as: name.isYou ? nil : name.name, isYou: name.isYou) }
     }
 
     /// A `meeting.json` written before events, jots, marks, pauses,
-    /// listenings, the shadow, names, recordings and topics existed has none of
+    /// listenings, the shadow, names, recordings, topics and plans existed has none of
     /// their keys. It still opens, with all of them empty: those files are
     /// calls somebody had, and an update must not lose them.
     public init(from decoder: any Decoder) throws {
@@ -334,7 +431,9 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
             names: try container.decodeIfPresent([MeetingVoiceName].self, forKey: .names) ?? [],
             recording: try container.decodeIfPresent(MeetingRecording.self, forKey: .recording),
             notesWriter: try container.decodeIfPresent(MeetingNotesWriter.self, forKey: .notesWriter),
-            topic: try container.decodeIfPresent(String.self, forKey: .topic))
+            topic: try container.decodeIfPresent(String.self, forKey: .topic),
+            startedOn: try container.decodeIfPresent(PlanSnapshot.self, forKey: .startedOn),
+            stoppedAtLimit: try container.decodeIfPresent(TimeInterval.self, forKey: .stoppedAtLimit))
     }
 
     /// The name people know the call by: the meeting service when the call is

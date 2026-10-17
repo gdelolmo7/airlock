@@ -132,6 +132,13 @@ struct BloubFace: Equatable {
             // The "is anything happening" distinction it used to carry moves
             // entirely onto MOTION, which is what that channel is for: resting
             // breathes, working blinks.
+            //
+            // A dying battery outranks an agent that is merely open or working:
+            // the Mac going dark ends every session with it, and with the lamp
+            // first the scared face never showed to anyone who keeps one open.
+            // An agent WAITING keeps the face, because orange is the only place
+            // a waiting gate shows on this side, and answering takes a second.
+            if ambient.batteryCritical, !attention { break }
             let busy = working || attention
             return BloubFace(expression: busy ? .curious : .attentive,
                              tint: attention ? .attention : .working,

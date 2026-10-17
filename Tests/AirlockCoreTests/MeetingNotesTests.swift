@@ -171,6 +171,69 @@ final class MeetingEchoTests: XCTestCase {
         ]
         XCTAssertEqual(MeetingEcho.removingEchoes(from: segments).count, 1)
     }
+
+    /// Shaped on a real class: a reply to somebody in the room, said while
+    /// the teacher was mid-way through a long turn. Most of its words
+    /// ("vale", "esto", "por", "dónde", "lo") are in the teacher's lines, so
+    /// counting shared words called it an echo; none of its word pairs are.
+    func testAReplyMadeOfCommonWordsIsNotAnEchoOfALongTurn() {
+        let segments = [
+            MeetingSegment(speaker: .them, start: 9025.1, end: 9041.2, text: "Y luego, si quieres probarla, la puedes probar directamente desde el panel, y aquí vas a ver cómo se conecta, por dónde entra cada dato y lo que hace el flujo, ¿vale? Esto lo tienes también en la guía para que lo hagas tú"),
+            MeetingSegment(speaker: .them, start: 9041.2, end: 9072.5, text: "Dentro de tu cuenta lo puedes conectar directamente, ¿vale? Y tienes aquí todas las instrucciones de cómo se haría. ¿Esto qué te va a permitir? Pues esto te va a permitir, si ya lo tienes montado, sacar una serie de perfiles"),
+            MeetingSegment(speaker: .me, start: 9037.4, end: 9044.3, text: "Vale, ¿y esto por dónde lo has hecho?"),
+        ]
+        XCTAssertEqual(MeetingEcho.removingEchoes(from: segments).count, 3)
+    }
+
+    /// The teacher's words coming back out of the speakers half garbled.
+    /// Half its words are wrong, but "siempre tenemos que" is still in order.
+    func testAGarbledEchoThatKeepsTheOrderIsDropped() {
+        let segments = [
+            MeetingSegment(speaker: .them, start: 1250.0, end: 1271.2, text: "Podemos saber de muchas cosas, ¿vale? Porque al final siempre tenemos que darle un poco de contexto a la herramienta y tenemos que meter lo que sabemos"),
+            MeetingSegment(speaker: .me, start: 1254.2, end: 1259.6, text: "Nada. Siempre tenemos que jugar una"),
+        ]
+        XCTAssertEqual(MeetingEcho.removingEchoes(from: segments).map(\.speaker), [.them])
+    }
+
+    /// Two stray words under your name, the start of what the teacher was
+    /// saying that very second.
+    func testAStrayPairOfWordsFromTheOtherSideIsDropped() {
+        let segments = [
+            MeetingSegment(speaker: .them, start: 2733.2, end: 2765.3, text: "Para poder generar esa clave hace falta una cuenta. No todas las herramientas son gratuitas, pero casi todas os dejan probar con un límite diario."),
+            MeetingSegment(speaker: .me, start: 2734.3, end: 2738.5, text: "Para poder"),
+        ]
+        XCTAssertEqual(MeetingEcho.removingEchoes(from: segments).map(\.speaker), [.them])
+    }
+
+    /// Two words are an echo only when the other side said them at that
+    /// moment, not anywhere in a half-minute turn.
+    func testAShortReplyIsKeptWhenTheOtherSideSaidItElsewhereInTheirTurn() {
+        let segments = [
+            MeetingSegment(speaker: .them, start: 0, end: 30, text: "Sí, claro, os lo enseño ahora mismo, primero abrimos el flujo, luego el nodo de Notion, y al final lo publicamos todo junto"),
+            MeetingSegment(speaker: .me, start: 25, end: 26, text: "Sí, claro."),
+        ]
+        XCTAssertEqual(MeetingEcho.removingEchoes(from: segments).count, 2)
+    }
+
+    /// "ya" near the end of their sentence and "Ya." said back to it. One
+    /// common word inside a sentence is no sign of an echo.
+    func testAOneWordReplyIsKeptWhenTheirSentenceHasThatWord() {
+        let segments = [
+            MeetingSegment(speaker: .them, start: 1768.4, end: 1780.4, text: "Entonces podemos empezar con una prueba usando sus datos reales. En ese punto ya estamos en marcha."),
+            MeetingSegment(speaker: .me, start: 1778.2, end: 1783.7, text: "Ya."),
+        ]
+        XCTAssertEqual(MeetingEcho.removingEchoes(from: segments).count, 2)
+    }
+
+    /// Their words said back once they had finished.
+    func testRepeatingTheirWordsAfterThemIsAReply() {
+        let segments = [
+            MeetingSegment(speaker: .them, start: 1258.4, end: 1261.4, text: "I haven't checked, but it might be free."),
+            MeetingSegment(speaker: .them, start: 1261.4, end: 1263.4, text: "The one we took last year was free."),
+            MeetingSegment(speaker: .me, start: 1263.8, end: 1265.7, text: "Might be free, yes."),
+        ]
+        XCTAssertEqual(MeetingEcho.removingEchoes(from: segments).count, 3)
+    }
 }
 
 final class MeetingFilesTests: XCTestCase {

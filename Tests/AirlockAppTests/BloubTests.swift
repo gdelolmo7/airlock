@@ -181,6 +181,70 @@ final class BloubTests: XCTestCase {
         XCTAssertEqual(BloubExpression(for: .needsAttention), BloubExpression(for: .running))
         XCTAssertEqual(BloubExpression(for: .waitingQuestion), BloubExpression(for: .running))
     }
+
+    /// `.stressed` is for a limit being reached, which no session status is.
+    func testNoStatusMakesTheBloubStressed() {
+        let faces = Self.allStatuses.map(BloubExpression.init(for:))
+        XCTAssertFalse(faces.contains(BloubExpression.stressed))
+    }
+
+    // MARK: - The sweat
+
+    /// Exactly one face sweats, and it is `scared`'s eyes with the drop added:
+    /// the owner picked that look, so the eyes must not drift from `scared`.
+    func testOnlyTheStressedFaceSweats() {
+        XCTAssertEqual(BloubExpression.allCases.filter(\.sweats), [.stressed])
+        XCTAssertEqual(BloubExpression.stressed.eyes.left, BloubExpression.scared.eyes.left)
+        XCTAssertEqual(BloubExpression.stressed.eyes.right, BloubExpression.scared.eyes.right)
+    }
+
+    /// The drop hangs from its tip: the round end is at the bottom. An arc drawn
+    /// the wrong way round turns it into a lens with the point at both ends.
+    func testTheDropHangsFromItsTip() {
+        let box = BloubSweat.drop.boundingRect
+        XCTAssertEqual(box.minY, -72, accuracy: 0.5, "tip")
+        XCTAssertEqual(box.maxY, -23, accuracy: 0.5, "round bottom")
+        XCTAssertEqual(box.width, 32, accuracy: 0.5)
+    }
+
+    /// The drop and its rim stay inside the frame the body is fitted to, so a
+    /// stressed bloub is the same size as every other face and nothing clips
+    /// when it is drawn small.
+    func testTheSweatStaysInsideTheFrame() {
+        for side in [18.0, 22.0, 34.0, 240.0] {
+            let rect = CGRect(x: 0, y: 0, width: side, height: side)
+            let drawn = BloubBody.bounds.applying(BloubBody.fit(in: rect))
+            for outline in [false, true] {
+                let box = BloubSweat(outline: outline).path(in: rect).boundingRect
+                XCTAssertTrue(drawn.insetBy(dx: -0.5, dy: -0.5).contains(box),
+                              "sweat (outline: \(outline)) escaped a \(side)pt frame: \(box)")
+            }
+        }
+    }
+
+    /// The rim scales with the character instead of being a fixed hairline.
+    func testTheRimScalesWithTheBloub() {
+        func rimHeight(_ side: CGFloat) -> CGFloat {
+            let rect = CGRect(x: 0, y: 0, width: side, height: side)
+            return BloubSweat(outline: true).path(in: rect).boundingRect.height
+                - BloubSweat().path(in: rect).boundingRect.height
+        }
+        XCTAssertEqual(rimHeight(240) / rimHeight(24), 10, accuracy: 0.5)
+    }
+
+    /// The drop sits clear of both eyes: a drop over an eye reads as a tear.
+    func testTheSweatLeavesTheEyesClear() {
+        let rect = CGRect(x: 0, y: 0, width: 400, height: 400)
+        let sweat = BloubSweat(outline: true).path(in: rect).boundingRect
+        let fit = BloubBody.fit(in: rect)
+        let (left, right) = BloubExpression.stressed.eyes
+        for (side, eye) in [("left", left), ("right", right)] {
+            let box = CGRect(x: -eye.size.width / 2, y: -eye.size.height / 2,
+                             width: eye.size.width, height: eye.size.height)
+            let drawn = box.applying(eye.pose.concatenating(fit))
+            XCTAssertFalse(drawn.intersects(sweat), "the sweat overlaps the \(side) eye")
+        }
+    }
 }
 
 /// The menu bar mark. Its failure mode is specific and silent: a template image

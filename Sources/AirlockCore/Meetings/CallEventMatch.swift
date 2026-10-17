@@ -71,10 +71,20 @@ public enum CallEventMatch {
     /// A name fit to show for an attendee, or nil. Calendars often have only
     /// an address for somebody outside the organisation; an address is not a
     /// name, and printing one in the notes reads like a mistake.
+    ///
+    /// Nor is a code. A course or a room booked into the invite ("MKT0412ESP",
+    /// "B-204") sits among the people, and a call with one other attendee puts
+    /// every voice on the far side under that attendee's name: a class's
+    /// questions all went to the teacher that way. A code has a digit and no
+    /// small letter; a name shouted in capitals has no digit.
     public static func displayName(_ raw: String?) -> String? {
         guard let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !name.isEmpty, !name.contains("@") else { return nil }
+              !name.isEmpty, !name.contains("@"), !looksLikeACode(name) else { return nil }
         return name
+    }
+
+    private static func looksLikeACode(_ name: String) -> Bool {
+        name.contains(where: \.isNumber) && !name.contains(where: \.isLowercase)
     }
 
     /// The meeting service a desktop call app is, when it is one. A call in

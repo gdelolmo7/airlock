@@ -41,41 +41,14 @@ final class LicenseNoticeTests: XCTestCase {
                        .endingSoon(daysRemaining: 1))
     }
 
-    /// A warning, not a blockade — the widgets are still there underneath.
-    func testAnEndingTrialDoesNotTakeThePanel() {
-        XCTAssertFalse(LicenseNotice.forIsland(.trialing(daysRemaining: 1)).isBlocking)
+    func testOverdueAsksAboveTheWidgets() {
+        XCTAssertEqual(LicenseNotice.forIsland(.overdue(license(renewsIn: -40))), .overdue)
     }
 
-    func testOverdueAsksAboveTheWidgetsRatherThanInsteadOfThem() {
-        let notice = LicenseNotice.forIsland(.overdue(license(renewsIn: -40)))
-        XCTAssertEqual(notice, .overdue)
-        XCTAssertFalse(notice.isBlocking, "they paid; the app keeps working")
-    }
-
-    /// The one and only case that takes the panel over.
-    func testOnlyAFinishedTrialBlocks() {
-        XCTAssertEqual(LicenseNotice.forIsland(.trialExpired), .blocked)
-        XCTAssertTrue(LicenseNotice.forIsland(.trialExpired).isBlocking)
-
-        for entitlement: Entitlement in [.licensed(license(renewsIn: 20)),
-                                         .grace(license(renewsIn: -3)),
-                                         .overdue(license(renewsIn: -40)),
-                                         .trialing(daysRemaining: 1)] {
-            XCTAssertFalse(LicenseNotice.forIsland(entitlement).isBlocking, "\(entitlement)")
-        }
-    }
-
-    /// Blocking and `allowsUse` have to agree, or the panel would be taken over
-    /// for somebody the rules say is entitled to use the app.
-    func testBlockingMatchesTheEntitlementThatStopsUse() {
-        for entitlement: Entitlement in [.licensed(license(renewsIn: 20)),
-                                         .grace(license(renewsIn: -3)),
-                                         .overdue(license(renewsIn: -40)),
-                                         .trialing(daysRemaining: 5),
-                                         .trialExpired] {
-            XCTAssertEqual(LicenseNotice.forIsland(entitlement).isBlocking,
-                           !entitlement.allowsUse, "\(entitlement)")
-        }
+    /// Free is a plan, not a problem: the island says nothing about it. The
+    /// one-time "You're on Free now" card is the app's, not this notice's.
+    func testFreeSaysNothing() {
+        XCTAssertEqual(LicenseNotice.forIsland(.free), .none)
     }
 
     /// The last-day card was gated on zero days, which a trial never reports:
@@ -88,7 +61,6 @@ final class LicenseNoticeTests: XCTestCase {
         XCTAssertTrue(LicenseNotice.forIsland(entitlement).isLastDay)
 
         XCTAssertFalse(LicenseNotice.endingSoon(daysRemaining: 2).isLastDay)
-        XCTAssertFalse(LicenseNotice.blocked.isLastDay)
         XCTAssertFalse(LicenseNotice.overdue.isLastDay)
     }
 }

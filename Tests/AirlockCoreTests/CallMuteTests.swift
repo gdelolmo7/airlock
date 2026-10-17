@@ -44,6 +44,31 @@ final class CallMuteLabelsTests: XCTestCase {
         XCTAssertTrue(CallMuteLabels.looksLikeMeetMicButton("Désactiver le micro (ctrl + d)"))
         XCTAssertFalse(CallMuteLabels.looksLikeMeetMicButton("Turn off camera (⌘ + e)"))
     }
+
+    /// Zoom's web client names the button for you ("mute my microphone").
+    func testMyMicrophoneWordingCountsInABrowser() {
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "unmute my microphone", in: .browser), true)
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "Mute my microphone", in: .browser), false)
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "Activar mi micrófono", in: .browser), true)
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "Silenciar mi micrófono", in: .browser), false)
+    }
+
+    func testCallServicePagesAreKnownByTheirAddress() {
+        XCTAssertTrue(CallMuteLabels.isCallPage("https://app.zoom.us/wc/81234567890/join?fromPWA=1"))
+        XCTAssertTrue(CallMuteLabels.isCallPage("https://us05web.zoom.us/wc/81234567890/start"))
+        XCTAssertTrue(CallMuteLabels.isCallPage("https://app.zoom.com/wc/home"))
+        XCTAssertTrue(CallMuteLabels.isCallPage("https://meet.google.com/abc-defg-hij"))
+        XCTAssertTrue(CallMuteLabels.isCallPage("https://teams.microsoft.com/v2/"))
+        XCTAssertTrue(CallMuteLabels.isCallPage("https://teams.cloud.microsoft/"))
+        XCTAssertTrue(CallMuteLabels.isCallPage("acme.webex.com"))
+    }
+
+    func testOtherPagesAreNotCallPages() {
+        XCTAssertFalse(CallMuteLabels.isCallPage("https://www.youtube.com/watch?v=x"))
+        XCTAssertFalse(CallMuteLabels.isCallPage("https://notzoom.us/"))
+        XCTAssertFalse(CallMuteLabels.isCallPage("https://discord.com/channels/1/2"))
+        XCTAssertFalse(CallMuteLabels.isCallPage(""))
+    }
 }
 
 final class MuteTimelineTests: XCTestCase {

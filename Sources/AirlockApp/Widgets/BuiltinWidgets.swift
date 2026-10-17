@@ -42,13 +42,6 @@ struct RepositoryWidget: NotchWidget {
 struct AgentsWidget: NotchWidget {
     let model: AppModel
     let agents: AgentsWidgetModel
-    /// Whether the agent surface is paid up. The nine free widgets never ask.
-    let isEntitled: () -> Bool
-    /// Buying, not configuring. The blocked card's whole job is to sell, so it
-    /// opens the purchase window rather than a preferences tree.
-    var onOpenSettings: () -> Void = {}
-    /// The blocked card's "I have a key": Settings › Licence, at the key field.
-    var onEnterKey: () -> Void = {}
 
     var id: String { "agents" }
     var displayName: String { "AI agents" }
@@ -92,24 +85,8 @@ struct AgentsWidget: NotchWidget {
         agents.isEnabled || isUnconfigured(agents)
     }
 
-    /// What the trial card names as locked, in the tab's own name — "The
-    /// agent surface" was ours, never a word anyone sees on screen.
-    static let lockedSurface = "The Agents tab"
-
     func panelSection() -> AnyView? {
         guard isVisible else { return nil }
-        // Unentitled with nothing running gets the card; unentitled with a
-        // session gets the SESSION. "Airlock still watches and still shows you
-        // everything — it just stops answering for you" is only true if the
-        // sessions are still drawn, and the gate is exactly the thing worth
-        // seeing: the value being sold is answering it from here, so hiding it
-        // hides the argument. `PermissionCardView` swaps its buttons for the
-        // ask.
-        guard isEntitled() || !model.sessions.isEmpty else {
-            return AnyView(LicenseBlockedView(onSubscribe: onOpenSettings,
-                                              onEnterKey: onEnterKey,
-                                              surface: Self.lockedSurface))
-        }
         return AnyView(AgentSessionsSectionView().environment(model).environment(agents))
     }
 }

@@ -183,6 +183,7 @@ final class AudioOutputModel {
             return
         }
         Moments.shared.announce(.outputSwitched, "picked")
+        UsageCounts.shared.record(.used(.outputSwitched))
         refresh()
     }
 

@@ -8,13 +8,12 @@ import AirlockCore
 /// should arrive without a face, and get one only by somebody deciding it.
 @MainActor
 final class BloubPlacementTests: XCTestCase {
-    /// Only "heard nothing" and "the trial has ended" are about the cloud
-    /// itself. The rest are about the Mac, a permission or where the words
-    /// went, and keep their glyph.
-    func testOnlyHeardNothingAndTrialEndedNoticesGetAFace() {
+    /// Only "heard nothing" is about the cloud itself. The rest are about the
+    /// Mac, a permission or where the words went, and keep their glyph. (A
+    /// hold turned away after the trial wore the cloud too, until nothing
+    /// locked any more.)
+    func testOnlyHeardNothingGetsAFace() {
         XCTAssertEqual(HoldNoticeCard.face(for: .nothingCaught), .confused)
-        XCTAssertNotNil(HoldNoticeCard.face(for: .noSubscription),
-                        "a hold turned away after the trial shows the cloud, not a clock")
 
         let others: [DictationHoldNotice] = [
             .microphoneDenied,
@@ -23,6 +22,7 @@ final class BloubPlacementTests: XCTestCase {
             .microphoneFailedToStart,
             .microphoneAllowed(key: "⌃ Control", asking: false),
             .copiedNowhereToType,
+            .copiedAfterKeyOrClick,
             .reachedLimit,
             .tidyingFailed,
             .secureInput(holder: nil),
@@ -32,21 +32,16 @@ final class BloubPlacementTests: XCTestCase {
         }
     }
 
-    /// The trial-ended panel leads with the cloud: big enough to be the
-    /// middle of the card, in a colour of its own rather than the resting
-    /// grey, and awake. It was a 34pt grey cloud asleep, which read as the
-    /// app having given up on the person it was asking to come back.
-    func testTheTrialEndedPanelLeadsWithAnAwakeCloud() {
-        XCTAssertEqual(LicenseBlockedView.face, .excited)
-        XCTAssertNotEqual(LicenseBlockedView.face, .sleepy)
-        XCTAssertNotEqual(LicenseBlockedView.tint, .resting, "a real Bloub colour, not grey")
-        XCTAssertTrue((56...72).contains(LicenseBlockedView.cloudWidth),
-                      "\(LicenseBlockedView.cloudWidth)pt is not the centre of the card")
-    }
-
-    /// The dictation strip is that panel in small, so it wears the same face.
-    func testTheTrialEndedStripWearsThePanelsFace() {
-        XCTAssertEqual(HoldNoticeCard.face(for: .noSubscription), LicenseBlockedView.face)
+    /// "You're on Free now" is good news told plainly: the cloud awake and
+    /// calm, in the working blue, not the resting grey and not the stressed
+    /// face kept for a limit reached.
+    func testTheFreeCardWearsACalmAwakeCloud() {
+        XCTAssertEqual(MovedToFreeCard.face, .neutral)
+        XCTAssertNotEqual(MovedToFreeCard.face, .stressed, "nothing is wrong")
+        XCTAssertNotEqual(MovedToFreeCard.face, .sleepy)
+        XCTAssertNotEqual(MovedToFreeCard.tint, .resting, "a real Bloub colour, not grey")
+        XCTAssertTrue((44...60).contains(MovedToFreeCard.cloudWidth),
+                      "\(MovedToFreeCard.cloudWidth)pt is a card's cloud, not a page's")
     }
 
     /// The pages that open and close setup, and nothing between them.

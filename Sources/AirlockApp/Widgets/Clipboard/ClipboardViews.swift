@@ -84,6 +84,8 @@ enum FilterRowMetrics {
 
 struct ClipboardSectionView: View {
     @Environment(ClipboardWidgetModel.self) private var clipboard
+    /// Only for Free's "See Plus" under a full list.
+    @Environment(LicenseModel.self) private var license: LicenseModel?
     @FocusState private var searchFocused: Bool
     @State private var confirmingClear = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -383,6 +385,12 @@ struct ClipboardSectionView: View {
                 .font(Theme.chrome(10, .medium))
                 .foregroundStyle(confirmingClear ? Theme.danger : Theme.textTertiary)
                 .fixedSize()
+            }
+
+            // Free's limit, said where it bites: always there while the list
+            // is full to it, so a copy that went is never a mystery.
+            if clipboard.isFullForThePlan {
+                PlanLimitLine(text: UpgradeReminder.clipboardLine) { license?.showPlans(from: "clipboard_limit") }
             }
         }
         // Two clicks, not a dialog — but the armed state must not linger and

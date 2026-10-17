@@ -20,6 +20,10 @@ enum GalleryOnboarding {
             GalleryState("O2", area, "Welcome: \"This is Airlock\"") {
                 panel(at: .welcome)
             },
+            GalleryState("O2a", area, "Welcome window: the usage counts question", ground: .window,
+                         width: windowWidth) {
+                window(at: .welcome)
+            },
             GalleryState("O3", area, "Connect your agents") {
                 panel(at: .agents)
             },
@@ -54,6 +58,20 @@ enum GalleryOnboarding {
             GalleryState("O14", area, "Wizard: Automation") {
                 panel(at: .permissions)
             },
+            // Apple Intelligence writes call notes on the Mac, and on Free it
+            // is the only thing that does, so setup says which of these it is.
+            GalleryState("O14a", area, "Setup: Apple Intelligence switched off") {
+                panel(at: .permissions, appleIntelligence: .needsAppleIntelligence)
+            },
+            GalleryState("O14b", area, "Setup: Apple Intelligence not on this Mac") {
+                panel(at: .permissions, appleIntelligence: .deviceNotEligible)
+            },
+            GalleryState("O14c", area, "Setup: Apple Intelligence still downloading") {
+                panel(at: .permissions, appleIntelligence: .modelNotReady)
+            },
+            GalleryState("O14d", area, "Setup: Apple Intelligence on") {
+                panel(at: .permissions, appleIntelligence: .ready)
+            },
             GalleryState("O15", area, "Wizard: \"Skip Setup\" vs \"Skip setup\"", ground: .window,
                          width: windowWidth) {
                 // The window's footer; the panel's "Skip setup" is in O1.
@@ -74,6 +92,9 @@ enum GalleryOnboarding {
             },
             GalleryState("O19", area, "After an unexpected quit: crash reports, asked once") {
                 CrashQuestionCard()
+            },
+            GalleryState("O20", area, "Set up before counts existed: usage counts, asked once") {
+                UsageQuestionCard()
             },
         ]
     }
@@ -109,18 +130,25 @@ enum GalleryOnboarding {
 
     // MARK: - Drawing
 
+    /// `appleIntelligence` stands in for this Mac's own answer, so a picture
+    /// says the same thing on every Mac it is taken on.
     private static func model(at step: OnboardingPlan.Step, agents: [SettingsModel.AgentRow],
                               basis: AgentsPresence.Basis, calendar: CalendarWidgetModel,
-                              resumed: Bool = false) -> OnboardingModel {
+                              resumed: Bool = false,
+                              appleIntelligence: ModelAvailability = .ready) -> OnboardingModel {
+        let assistant = AssistantModel()
+        assistant.previewAvailability = appleIntelligence
         let model = OnboardingModel(settings: SettingsModel(previewing: agents),
                                     calendar: calendar,
                                     dictation: DictationModel(),
                                     clipboard: ClipboardWidgetModel(history: ClipboardHistory(items: [])),
-                                    assistant: AssistantModel(),
+                                    assistant: assistant,
                                     agentsWidget: AgentsWidgetModel(previewing: basis))
-        // The last step as a release build draws it, with the crash-reports
-        // question, whether or not this build carries somewhere to send.
+        // The first and last steps as a release build draws them, with the
+        // usage-counts and crash-reports questions, whether or not this
+        // build carries somewhere to send.
         model.offersCrashReports = true
+        model.offersUsageCounts = true
         model.restart(at: step, resumed: resumed)
         return model
     }
@@ -129,9 +157,11 @@ enum GalleryOnboarding {
     private static func panel(at step: OnboardingPlan.Step, agents: [SettingsModel.AgentRow] = unwired,
                               basis: AgentsPresence.Basis = .noHooksInstalled,
                               calendar: CalendarWidgetModel = CalendarWidgetModel(),
-                              resumed: Bool = false) -> some View {
+                              resumed: Bool = false,
+                              appleIntelligence: ModelAvailability = .ready) -> some View {
         PanelOnboardingView(maxContentHeight: 420, tabs: NotchTab.allCases)
-            .environment(model(at: step, agents: agents, basis: basis, calendar: calendar, resumed: resumed))
+            .environment(model(at: step, agents: agents, basis: basis, calendar: calendar, resumed: resumed,
+                               appleIntelligence: appleIntelligence))
             .environment(NotchUIState())
     }
 

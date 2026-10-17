@@ -92,6 +92,10 @@ enum Theme {
                                     light: rgb(0.039, 0.039, 0.047))
     static let bloubEyes = adaptive(dark: rgb(0.020, 0.024, 0.031),
                                     light: rgb(0.976, 0.976, 0.976))
+    /// The drop of sweat on the stressed face: a pale blue, one value in both
+    /// appearances. Its rim takes `bloubEyes`, so the drop is drawn in the
+    /// face's own ink wherever it overhangs the body.
+    static let bloubSweat = fixed(rgb(0.839, 0.925, 1.0))
 
     static func accent(for status: SessionStatus) -> Color {
         switch status {

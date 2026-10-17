@@ -440,7 +440,7 @@ enum GalleryWidgets {
     }
 
     /// Settings' "How should the music bars move?" section, drawn as
-    /// `SettingsView` draws its status line: the sentence is the model's.
+    /// Settings draws its status line: the sentence is the model's.
     private static func waveSettings(_ diagnosis: WaveTapDiagnosis) -> some View {
         LookColumn {
             LookToggleRow("Wave follows the audio", isOn: .constant(true))

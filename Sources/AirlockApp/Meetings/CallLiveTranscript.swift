@@ -762,6 +762,11 @@ private struct LiveTranscriptOutcome: View {
             NotesBreathingDot(size: 8)
                 .frame(width: 14)
                 .accessibilityHidden(true)
+        case .later:
+            Image(systemName: "clock")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.textTertiary)
+                .accessibilityHidden(true)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11, weight: .semibold))
@@ -777,6 +782,7 @@ private struct LiveTranscriptOutcome: View {
         case .ready: "Your notes are ready"
         case .writing: "Writing your notes…"
         case .tooLittleSaid: CallNotesPanel.tooLittleSaid
+        case .later: "Call saved"
         case .tooShort: "Too short to keep"
         case .failed: "The notes stopped"
         case .listening, .paused: ""
@@ -788,6 +794,7 @@ private struct LiveTranscriptOutcome: View {
         case .ready(let todos): CallLive.readyDetail(todos: todos)
         case .writing: "They'll be ready in a moment."
         case .tooLittleSaid: "The transcript is kept in Calls."
+        case .later: "Its notes will be written online later."
         case .tooShort: "A call this short isn't saved, unless it comes back."
         case .failed(let reason): reason
         case .listening, .paused: nil
@@ -797,7 +804,7 @@ private struct LiveTranscriptOutcome: View {
     @ViewBuilder
     private var buttons: some View {
         switch stage {
-        case .ready:
+        case .ready, .later:
             HStack(spacing: 8) {
                 LiveCardButton("Open notes", prominent: true) { actions.open(.notes) }
                 LiveCardButton("Close") { actions.close() }

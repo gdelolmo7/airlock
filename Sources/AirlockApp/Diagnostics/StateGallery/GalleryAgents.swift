@@ -42,10 +42,8 @@ enum GalleryAgents {
                       .init(name: "Codex", status: .conflict("lines Airlock didn't write"),
                             settingsPath: "/Users/you/.codex/hooks.json"),
                   ])),
-            GalleryState("A9", area, "Trial ended, no sessions") {
-                // What `AgentsWidget.panelSection` returns unentitled and empty.
-                LicenseBlockedView(onSubscribe: {}, onEnterKey: {}, surface: AgentsWidget.lockedSurface)
-            },
+            .notYet("A9", area, "Trial ended, no sessions",
+                    why: "Retired: nothing locks any more, so the Agents tab looks the same on every plan."),
             tab("A10", "Session: starting") { story in
                 // Any first event that is not `sessionStarted` creates the row.
                 story.send("s", .jumpTargetUpdated(JumpTarget(terminalApp: "iTerm.app")))
@@ -146,15 +144,8 @@ enum GalleryAgents {
                 story.bash("s", "rm -rf ./dist && npm run deploy:prod")
                 story.resolve("s", .deferred)
             },
-            // A live gate no longer reaches this card: after the trial the
-            // bridge hands it straight back (`GateHolding`). The demo's gate
-            // still does, and so does one in the moment before the bridge
-            // lets go of it.
-            tab("A25", "Permission card: trial ended", license: .trialExpired) { story in
-                story.start("s", .claudeCode, "storefront", ago: 27)
-                story.hook("s", "UserPromptSubmit", ["prompt": "run the tests and fix what fails"])
-                story.bash("s", "npm test -- --watch=false")
-            },
+            .notYet("A25", area, "Permission card: trial ended",
+                    why: "Retired: nothing locks any more, so a gate is held and answered on every plan."),
             tab("A26", "Question card (single / multiple choice)") { story in
                 story.start("s", .claudeCode, "storefront", ago: 8)
                 story.ask("s", [question("Which payment provider should checkout use?", header: "Payments",
@@ -234,6 +225,19 @@ enum GalleryAgents {
                     }
                 }
             },
+            // Free answers one agent at a time: the second one asked in its
+            // own terminal, and its row says what Plus would have done.
+            GalleryState("A35", area, "Free: the second agent asked in its terminal") {
+                let story = Story { story in
+                    story.start("s", .claudeCode, "storefront", ago: 11)
+                    story.hook("s", "UserPromptSubmit", ["prompt": "run the tests and fix what fails"])
+                    story.bash("s", "npm test -- --watch=false")
+                    story.start("b", .claudeCode, "website", terminal: "ghostty", ago: 6)
+                    story.hook("b", "UserPromptSubmit", ["prompt": "add the new footer to every page"])
+                    story.send("b", .claudeCode, .activity(summary: SessionCardText.handedBack))
+                }
+                inPanel(.free, model: passedOverModel) { AgentSessionsList(sessions: story.sessions) }
+            },
         ]
     }
 
@@ -247,6 +251,13 @@ enum GalleryAgents {
     /// about, so the rest of the gallery never shows it.
     private static let refusedJump = troubled(.notAllowed(app: "iTerm"))
     private static let unopenedTerminal = troubled(.didNotOpen(app: "Terminal"))
+
+    /// One more, with the website row passed over (A35).
+    private static let passedOverModel: AppModel = {
+        let model = AppModel()
+        model.previewPassedOver(["b"])
+        return model
+    }()
 
     private static func troubled(_ trouble: TerminalTrouble) -> AppModel {
         let model = AppModel()

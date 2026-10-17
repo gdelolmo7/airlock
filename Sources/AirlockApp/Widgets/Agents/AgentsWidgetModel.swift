@@ -204,6 +204,7 @@ final class AgentsWidgetModel {
             let staged = try HookBinaryStager.stage(from: source)
             for integration in registry.all where integration.installer.status() == .notInstalled {
                 try integration.installer.install(hookBinaryPath: staged.path)
+                UsageCounts.shared.record(.agentConnection(integration.kind, connected: true, inSetup: false))
             }
         } catch {
             Self.log.error("connect failed: \(error.localizedDescription, privacy: .private)")

@@ -65,6 +65,12 @@ final class MeetingNotesModel {
     /// The words typed in Settings for transcripts to spell their way
     /// (`MeetingKnownWords`), as a list of strings.
     static let knownWordsKey = "meetings.knownWords"
+    /// How long notes have listened on a plan that caps it
+    /// (`NotesListening`, as JSON), so a quit and a relaunch carry it on.
+    static let listeningKey = "meetings.listening"
+    /// How often the count is kept while notes listen: what a crash can
+    /// lose of it.
+    static let listeningKeptEvery: TimeInterval = 60
     /// How many of the latest meetings are read for names given to voices.
     static let namesLookedBack = 50
     static let echoLogEvery: TimeInterval = 60
@@ -102,6 +108,13 @@ final class MeetingNotesModel {
     /// once a month (`CloudNotesAllowance`): these notes were written on the
     /// Mac for that reason.
     private(set) var readyAllowance: Date?
+    /// False on a Mac that can't write notes: this call has none, and they
+    /// are written online on `readyAllowance` instead. Said every time.
+    private(set) var readyAllowanceMacWrites = true
+    /// Under "Call saved, notes later": why there are no notes yet, as the
+    /// page says it, when that isn't this month's notes being used up
+    /// (`readyAllowance` says that one, with the day).
+    private(set) var readyWaiting: String?
     /// To-dos in those notes, for the line to mention.
     var readyTodoCount: Int { readyNotes?.todos.count ?? 0 }
 
@@ -110,6 +123,14 @@ final class MeetingNotesModel {
     /// app's mute, and the pill should redraw when those change, not on every
     /// look.
     private(set) var pillMark: MeetingNotesFlow.PillMark = .none
+    /// What the pill and the notes card say about Free's limit, and when it
+    /// started saying it: the closed notch shows it for
+    /// `LimitWord.pillFor` from then.
+    private(set) var limitWord: MeetingNotesFlow.LimitWord?
+    private(set) var limitWordAt: Date?
+    /// The plan's limit stopped a call's notes: Free's reminders count it
+    /// (`UpgradeReminders.notesStopped`).
+    @ObservationIgnored var onNotesStopped: () -> Void = {}
     /// The call app's own mute, as last seen while notes are taken.
     private(set) var isMuted = false
     /// What the compact island says once the call is over, and when it began
@@ -143,6 +164,8 @@ final class MeetingNotesModel {
 
     /// Collapses the island when "Show" opens the notes window.
     @ObservationIgnored var onNavigateAway: (() -> Void)?
+    /// Opens Settings › Plans. Wired by whoever owns the windows.
+    @ObservationIgnored var onShowPlans: (() -> Void)?
     /// The glance changed: it brings the compact island up, so the island
     /// has to look again at whether to be on screen.
     @ObservationIgnored var onChange: (() -> Void)?
@@ -177,6 +200,8 @@ final class MeetingNotesModel {
     @ObservationIgnored private var speakers: SpeakersTap?
     @ObservationIgnored private var echo: SpeakerEcho?
     @ObservationIgnored private var echoLoggedAt: Date?
+    /// When the listening count was last kept (`keepCount`).
+    @ObservationIgnored private var countKeptAt: Date?
     /// The call tap gone dead while the Mac still plays a voice
     /// (`CallTapWatch`), and what its two steps need: when the call tap
     /// last started, and the transcriber's format for the other side.
@@ -193,7 +218,7 @@ final class MeetingNotesModel {
     @ObservationIgnored private var sidesLoggedAt: Date?
     @ObservationIgnored private var mute: CallMuteWatcher?
     /// Made the first time it is asked for.
-    @ObservationIgnored private var notesWindow: CallNotesWindowController?
+    @ObservationIgnored private var madeCallsPage: CallsPage?
     @ObservationIgnored private var me: MeetingTrack?
     @ObservationIgnored private var them: MeetingTrack?
     /// Tells the other side's voices apart, when the voice model is here
@@ -283,12 +308,14 @@ final class MeetingNotesModel {
         live = CallNotesLive()
         recordings.onFolder = { [weak self] folder in
             guard let self else { return }
-            window.show(folder: folder)
+            callsPage.show(folder: folder)
             onNavigateAway?()
         }
-        recordings.onSaved = { [weak self] _, record, notes in self?.recordingSaved(record, notes: notes) }
+        recordings.onSaved = { [weak self] folder, record, notes in
+            self?.recordingSaved(record, notes: notes, in: folder)
+        }
         recordings.onEnded = { [weak self] in
-            self?.notesWindow?.refreshIfOpen()
+            self?.madeCallsPage?.refreshIfOpen()
             self?.recentCalls.refresh()
         }
     }
@@ -312,6 +339,9 @@ final class MeetingNotesModel {
             callEvent = event
         }
         pillMark = flow.pillMark(now: Date(), muted: false)
+        let word = flow.limitWord(running: RunningTime.now(), plan: .free)
+        limitWord = word
+        limitWordAt = word.map { _ in Date() }
         recentCalls = RecentCalls(previewing: [])
         recordings = RecordingImporter(previewing: reading)
         live = CallNotesLive(previewing: record, hearing: hearing)
@@ -337,17 +367,42 @@ final class MeetingNotesModel {
     /// At launch: finish the notes of any call the app quit or crashed during.
     func start() {
         watchSwitch()
+        // The listening count from before the quit: notes started again soon
+        // after carry it on rather than starting a new one.
+        if let data = UserDefaults.standard.data(forKey: Self.listeningKey),
+           let kept = try? JSONDecoder().decode(NotesListening.self, from: data) {
+            flow.restore(kept)
+        }
         // Notes the Mac wrote offline, written online later: the window and
-        // the Calls tab show the new ones.
-        CloudNotesService.shared.onRedone = { [weak self] folder, notes in
+        // the Calls tab show the new ones. On a Mac that can't write notes,
+        // these are the call's first, and the Mac says they are ready.
+        CloudNotesService.shared.onRedone = { [weak self] folder, notes, first in
             guard let self else { return }
             // Still under the "Notes ready" line: it counts the new to-dos.
             if case let .ready(name, _) = flow.phase, name == folder.lastPathComponent {
                 readyNotes = notes.isEmpty ? nil : notes
+                if first {
+                    // "Call saved, notes later" becomes "Notes ready".
+                    readyOutcome = .notes
+                    savedTodos = notes.todos.count
+                    readyWaiting = nil
+                    readyAllowance = nil
+                    readyAllowanceMacWrites = true
+                }
+            }
+            if first {
+                live.settle(folder, as: .saved(.notes, todos: notes.todos.count), title: notes.title)
             }
             live.retitle(folder, as: notes.title)
-            notesWindow?.refreshIfOpen()
+            madeCallsPage?.refreshIfOpen()
             recentCalls.refresh()
+            if first, let record = store.loadRecord(in: folder),
+               let notice = CallNotesPanel.readyNotice(of: record, ready: CallNotesPanel.ready(of: record, notes: notes),
+                                                       todos: notes.todos.count) {
+                Notifications.post(title: notice.title, body: notice.body,
+                                   identifier: Notifications.ID.notesReady(folder.lastPathComponent),
+                                   opensCall: folder.lastPathComponent)
+            }
         }
         guard isEnabled else { return }
         let unfinished = store.unfinishedFolders()
@@ -464,32 +519,52 @@ final class MeetingNotesModel {
     func pause() { send(.pause(at: Date())) }
     func resume() { send(.resume(at: Date())) }
 
-    /// The notes window, on this call.
+    /// The calls in the Airlock window, on this call.
     func showNotes() {
         guard case let .ready(name, _) = flow.phase else { return }
-        window.show(folder: store.root.appendingPathComponent(name, isDirectory: true))
+        callsPage.show(folder: store.root.appendingPathComponent(name, isDirectory: true))
         onNavigateAway?()
     }
 
-    /// "Upgrade", under the notes once this month's online notes are used:
-    /// the website's plans. Shown only while `CloudNotesAllowance.offersUpgrade`
-    /// is on, which it is not yet.
+    /// "See Plus" and "Get Plus" in the notes window, the comparison window's
+    /// buttons and "Upgrade" under the notes once this month's online notes
+    /// are used: Settings › Plans, where paying starts.
     func showPlans() {
-        NSWorkspace.shared.open(LicenseModel.pricingURL)
+        onShowPlans?()
         log("notes online: plans opened")
         onNavigateAway?()
     }
 
-    /// The notes window on a call an answer in the notch came from, at the
+    /// The calls, on the one an answer in the notch came from, at the
     /// moment it cites.
     func showCall(folder: String, saidAt time: TimeInterval) {
-        window.show(folder: store.root.appendingPathComponent(folder, isDirectory: true), saidAt: time)
+        callsPage.show(folder: store.root.appendingPathComponent(folder, isDirectory: true), saidAt: time)
+        UsageCounts.shared.record(.used(.callNotesOpened))
         onNavigateAway?()
     }
 
-    /// The notes window on a call picked on the notch's Calls tab.
+    /// The call "Welcome to Plus" offers to write again, read off the main
+    /// thread: the last one, when the notes window would offer the same redo
+    /// (`WelcomeCard.redoCall`). Nil when there is none.
+    func welcomeRedo(plan: PlanSnapshot) async -> (folder: URL, record: MeetingRecord)? {
+        let store = store
+        let online = CloudNotesService.shared.offering
+        return await Task.detached(priority: .utility) {
+            WelcomeCard.redoCall(store.calls(), page: { store.notesPage(in: $0) }, plan: plan, online: online)
+        }.value
+    }
+
+    /// "Redo" on the welcome card: the same request as the notes window's.
+    func redoNotes(in folder: URL) async -> CloudNotesService.Redo {
+        let result = await CloudNotesService.shared.redo(folder, log: { MeetingDiagnostics.log($0) })
+        recentCalls.refresh()
+        return result
+    }
+
+    /// The calls, on one picked on the notch's Calls tab.
     func showCall(folder: String) {
-        window.show(folder: store.root.appendingPathComponent(folder, isDirectory: true))
+        callsPage.show(folder: store.root.appendingPathComponent(folder, isDirectory: true))
+        UsageCounts.shared.record(.used(.callNotesOpened))
         onNavigateAway?()
     }
 
@@ -498,19 +573,20 @@ final class MeetingNotesModel {
     /// far along it is shows.
     func addRecording() {
         if let folder = recordings.reading?.folder {
-            window.show(folder: folder)
+            callsPage.show(folder: folder)
         } else {
             recordings.choose()
         }
     }
 
-    /// The notes window on the newest call, from the menu bar, Settings or
+    /// The calls, on the newest, from the menu bar, Settings or
     /// the Calls tab's "All calls": any call, whenever, not only the one
     /// "Open notes" offers as it ends. With none saved yet the window says
     /// so. The menu bar and Settings are not the island, so there is nothing
     /// to collapse; from the tab, the island steps aside for the window.
     func showPastCalls(fromIsland: Bool = false) {
-        window.show(folder: nil)
+        callsPage.show(folder: nil)
+        UsageCounts.shared.record(.used(.callNotesOpened))
         if fromIsland { onNavigateAway?() }
     }
 
@@ -537,15 +613,17 @@ final class MeetingNotesModel {
         onNavigateAway?()
     }
 
-    /// The notes window on the call the live transcript shows, on `tab`.
+    /// The calls, on the one the live transcript shows, on `tab`.
     func showLiveCall(on tab: CallNotesLibrary.Tab) {
         guard let folder = live.folder else { return }
-        window.show(folder: folder, on: tab)
+        callsPage.show(folder: folder, on: tab)
     }
 
-    private var window: CallNotesWindowController {
-        if let notesWindow { return notesWindow }
-        let made = CallNotesWindowController(store: store)
+    /// The Calls page of the Airlock window, which the app hands to the window
+    /// at launch. Every way into a call here goes through it.
+    var callsPage: CallsPage {
+        if let madeCallsPage { return madeCallsPage }
+        let made = CallsPage(store: store)
         made.follow(live, openWindow: { [weak self] in self?.openLiveWindow() },
                     isPaused: { [weak self] in self?.isPaused ?? false })
         made.takeNotes(state: { [weak self] in self?.handButton ?? .busy },
@@ -557,8 +635,28 @@ final class MeetingNotesModel {
             add: { [weak self] in self?.recordings.choose() },
             drop: { [weak self] url in self?.recordings.add(url) },
             stop: { [weak self] in self?.recordings.stop() }))
-        notesWindow = made
+        let notes = CloudNotesService.shared
+        made.offering(CallNotesLibrary.Offering(
+            offers: { call in
+                CallNotesOffers.of(call.record, page: call.page, plan: notes.plan(), online: notes.offering)
+            },
+            showPlans: { [weak self] in self?.showPlans() },
+            showComparison: { [weak self] in self?.showComparison() },
+            redo: { [weak self] call in
+                let result = await notes.redo(call.folder, log: { MeetingDiagnostics.log($0) })
+                self?.recentCalls.refresh()
+                return result
+            },
+            plan: { notes.plan() }))
+        madeCallsPage = made
         return made
+    }
+
+    /// "What each plan writes": one sample call's notes as each plan writes
+    /// them, side by side.
+    func showComparison() {
+        NotesComparisonWindowController.shared.show(showPlans: { [weak self] in self?.showPlans() })
+        log("notes online: comparison shown")
     }
 
     /// Names given to a call's voices in the notes window. The call these
@@ -577,7 +675,7 @@ final class MeetingNotesModel {
         } catch {
             log("names: save FAILED: \(error.localizedDescription)")
         }
-        notesWindow?.refreshIfOpen()
+        madeCallsPage?.refreshIfOpen()
         recentCalls.refresh()
     }
 
@@ -719,9 +817,20 @@ final class MeetingNotesModel {
         // Applied to a copy and stored only when something changed: the ticks
         // come every second, and every store redraws whatever reads `flow`.
         var next = flow
-        let effects = next.apply(event, enabled: isEnabled, autoStart: autoStart)
+        let running = RunningTime.now()
+        let plan = CloudNotesService.shared.plan()
+        let effects = next.apply(event, enabled: isEnabled, autoStart: autoStart, running: running, plan: plan)
         let before = flow
         if next != flow { flow = next }
+        if next.listening != before.listening { keepCount(next.listening) }
+        if next.stoppedAtLimit, !before.stoppedAtLimit {
+            log("notes: stopped, the plan's listening time is used up")
+            onNotesStopped()
+        }
+        if event.asksToStart, !effects.contains(where: \.startsNotes),
+           next.listening?.isSpent(at: running, plan: plan) == true {
+            log("notes: not started, this meeting's listening time is used up")
+        }
         if before.isWaitingForCallBack != next.isWaitingForCallBack, case .recording = next.phase {
             log(next.isWaitingForCallBack ? "notes: waiting to be sure the call ended" : "notes: the call is back")
         }
@@ -737,7 +846,9 @@ final class MeetingNotesModel {
                 recordIsLive = false
                 enqueue { await self.begin(call, continuing: continuing) }
             case .finishNotes:
-                enqueue { await self.finish() }
+                // Stopped by the plan's limit: the page says how much it covers.
+                let cut = next.stoppedAtLimit ? next.listening?.limit(now: plan) : nil
+                enqueue { await self.finish(stoppedAtLimit: cut) }
             case .dropNotes:
                 enqueue { await self.finish(keeping: false) }
             case .pauseNotes:
@@ -760,6 +871,7 @@ final class MeetingNotesModel {
             if case .ready = next.phase {} else {
                 if readyNotes != nil { readyNotes = nil }
                 if readyAllowance != nil { readyAllowance = nil }
+                if readyWaiting != nil { readyWaiting = nil }
             }
             if !next.phase.isRecording, isMuted { isMuted = false }
             scheduleLinger()
@@ -782,9 +894,22 @@ final class MeetingNotesModel {
         settleTheAsk()
     }
 
+    /// Keeps the listening count as it stands now, closed here, for the next
+    /// launch (`MeetingNotesFlow.restore`).
+    private func keepCount(_ count: NotesListening?) {
+        countKeptAt = Date()
+        guard let count, let data = try? JSONEncoder().encode(count.kept(at: RunningTime.now())) else { return }
+        UserDefaults.standard.set(data, forKey: Self.listeningKey)
+    }
+
     private func refreshPillMark() {
         let mark = flow.pillMark(now: Date(), muted: isMuted)
         if mark != pillMark { pillMark = mark }
+        let word = flow.limitWord(running: RunningTime.now(), plan: CloudNotesService.shared.plan())
+        if word != limitWord {
+            limitWord = word
+            limitWordAt = word == nil ? nil : Date()
+        }
     }
 
     /// "Notes?" settles to a dot after `askWiden`: one wake to redraw it,
@@ -829,7 +954,7 @@ final class MeetingNotesModel {
         switch flow.phase {
         case .writing: glance = .writing
         case .ready:
-            glance = readyOutcome == .tooLittleSaid ? .tooLittleSaid : .ready(todos: savedTodos)
+            glance = Self.glance(readyOutcome, todos: savedTodos)
         default: glance = nil
         }
         guard glance != self.glance else { return }
@@ -838,13 +963,22 @@ final class MeetingNotesModel {
         onChange?()
     }
 
+    /// The island's few words for notes saved as `ready` says.
+    static func glance(_ ready: CallNotesPanel.Ready, todos: Int) -> CallNotesGlance {
+        switch ready {
+        case .notes: .ready(todos: todos)
+        case .tooLittleSaid: .tooLittleSaid
+        case .later: .later
+        }
+    }
+
     /// A recording's notes are saved: the island's tick, as after a call,
     /// unless a call's notes are under way and the island is theirs. It
     /// goes again once shown, so the next call's glance is stamped afresh.
-    private func recordingSaved(_ record: MeetingRecord, notes: MeetingNotes?) {
+    private func recordingSaved(_ record: MeetingRecord, notes: MeetingNotes?, in folder: URL) {
         guard isEnabled, case .idle = flow.phase else { return }
-        let ready = CallNotesPanel.ready(of: record, notes: notes)
-        glance = ready == .tooLittleSaid ? .tooLittleSaid : .ready(todos: notes?.todos.count ?? 0)
+        let ready = CallNotesPanel.ready(of: record, notes: notes, writer: store.loadRecord(in: folder)?.notesWriter)
+        glance = Self.glance(ready, todos: notes?.todos.count ?? 0)
         let stamp = Date()
         glanceAt = stamp
         onChange?()
@@ -934,6 +1068,9 @@ final class MeetingNotesModel {
     private func look() {
         guard case let .recording(call, _) = flow.phase else { return }
         let now = Date()
+        if now.timeIntervalSince(countKeptAt ?? .distantPast) >= Self.listeningKeptEvery {
+            keepCount(flow.listening)
+        }
         keepMicrophoneGoing(now: now)
         if let echo, now.timeIntervalSince(echoLoggedAt ?? now) >= Self.echoLogEvery {
             echoLoggedAt = now
@@ -1068,8 +1205,11 @@ final class MeetingNotesModel {
             let event = eventCall?.bundleID == call.bundleID ? callEvent : nil
             // Nothing from before these notes can be heard in them.
             pauses.removeAll { $0.to.map { $0 <= now } ?? false }
+            // The plan is fixed here: a plan that ends during the call does
+            // not change how its notes are written (`PlanSnapshot.kept`).
             let record = MeetingRecord(bundleID: call.bundleID, appName: call.appName,
-                                       site: call.site, startedAt: now, event: event)
+                                       site: call.site, startedAt: now, event: event,
+                                       startedOn: CloudNotesService.shared.plan())
             jotCount = 0
             do {
                 folder = try store.makeFolder(for: record)
@@ -1087,7 +1227,7 @@ final class MeetingNotesModel {
         followPauseInRecord()
         saveNow()
         // On disk now: a notes window left open lists the call as it starts.
-        notesWindow?.refreshIfOpen()
+        madeCallsPage?.refreshIfOpen()
 
         guard let setup = await speechSetup() else {
             send(.failed("The speech model isn't installed for your language yet."))
@@ -1544,7 +1684,9 @@ final class MeetingNotesModel {
     /// `keeping` false: the call ended too short to keep. Nothing is
     /// written up, and the folder goes once the call has had its chance to
     /// come back (`discardSoon`).
-    private func finish(keeping: Bool = true) async {
+    /// `stoppedAtLimit` is how long the plan let the notes listen, when that
+    /// is what stopped them (`MeetingRecord.stoppedAtLimit`).
+    private func finish(keeping: Bool = true, stoppedAtLimit: TimeInterval? = nil) async {
         themRetry?.cancel()
         themRetry = nil
         voicesLooking?.cancel()
@@ -1597,6 +1739,7 @@ final class MeetingNotesModel {
             return
         }
         record.endedAt = Date()
+        if let stoppedAtLimit { record.stoppedAtLimit = stoppedAtLimit }
         if !languages.isEmpty {
             record.languages = languages.reduce(into: []) { kept, language in
                 if !kept.contains(language) { kept.append(language) }
@@ -1673,7 +1816,7 @@ final class MeetingNotesModel {
         } catch {
             log("notes: short call remove FAILED: \(error.localizedDescription)")
         }
-        notesWindow?.refreshIfOpen()
+        madeCallsPage?.refreshIfOpen()
         recentCalls.refresh()
     }
 
@@ -1703,6 +1846,10 @@ final class MeetingNotesModel {
                 if let writer = page.writer {
                     do {
                         try store.saveNotesWriter(writer, in: folder)
+                        // Waits for a date: the service looks again then.
+                        if writer.waitsForOnline, writer.notBefore != nil {
+                            Task { await CloudNotesService.shared.planNextLook() }
+                        }
                     } catch {
                         log("summary: writer not saved: \(error.localizedDescription)")
                     }
@@ -1715,7 +1862,18 @@ final class MeetingNotesModel {
                 if announce, let self {
                     // Counted before the line goes up, so it can say them.
                     self.savedTodos = written?.todos.count ?? 0
-                    self.readyOutcome = CallNotesPanel.ready(of: record, notes: written)
+                    self.readyOutcome = CallNotesPanel.ready(of: record, notes: written, writer: page.writer)
+                    // How long, and where its notes were written. Nothing
+                    // anybody said, no names, no title.
+                    let notesWritten: UsageEvent.NotesWritten = switch self.readyOutcome {
+                    case .notes: page.writer?.place == .online ? .online : .mac
+                    case .later: .later
+                    case .tooLittleSaid: .none
+                    }
+                    let seconds = (record.endedAt ?? Date()).timeIntervalSince(record.startedAt)
+                    UsageCounts.shared.record(.callEnded(minutes: Int((seconds / 60).rounded()),
+                                                         notes: notesWritten,
+                                                         inPerson: record.isInPerson))
                     self.live.settle(folder, as: .saved(self.readyOutcome, todos: self.savedTodos),
                                      title: written?.title)
                     self.send(.saved(folder: folder.lastPathComponent))
@@ -1730,13 +1888,24 @@ final class MeetingNotesModel {
                     }
                     if case let .ready(name, _) = self.flow.phase, name == folder.lastPathComponent {
                         self.readyNotes = written
-                        // Once a month, where the notes say they are ready.
-                        self.readyAllowance = page.allowanceUntil.flatMap {
-                            CloudNotesService.shared.takeAllowanceNotice(until: $0)
+                        self.readyWaiting = page.writer.flatMap { writer in
+                            writer.noNotesYet == nil || writer.noNotesYet == .allowanceUsed
+                                ? nil : MeetingFiles.waitingLine(for: writer)
+                        }
+                        if let writer = page.writer, writer.noNotesYet == .allowanceUsed, let until = writer.notBefore {
+                            // No notes at all until then: said every time.
+                            self.readyAllowance = until
+                            self.readyAllowanceMacWrites = false
+                        } else {
+                            // Once a month, where the notes say they are ready.
+                            self.readyAllowance = page.allowanceUntil.flatMap {
+                                CloudNotesService.shared.takeAllowanceNotice(until: $0)
+                            }
+                            self.readyAllowanceMacWrites = true
                         }
                     }
                 }
-                self?.notesWindow?.refreshIfOpen()
+                self?.madeCallsPage?.refreshIfOpen()
                 self?.recentCalls.refresh()
             } catch {
                 log("summary: save FAILED: \(error.localizedDescription)")
@@ -1776,24 +1945,40 @@ final class MeetingNotesModel {
     /// Written online first, for a subscriber who has notes online
     /// (`CloudNotesService`), and by the Mac whenever they aren't, a failure
     /// included, without a word.
+    ///
+    /// A Mac that can't write notes (no Apple Intelligence) keeps the call
+    /// waiting instead, when waiting can bring notes: offline, a failure, or
+    /// this month's online notes used. They are written online later
+    /// (`CloudNotesRedo`), and the page says when.
     static func notesPage(for record: MeetingRecord, log: @escaping (String) -> Void) async -> WrittenNotes {
-        let writer: MeetingNotesWriter?
+        var writer: MeetingNotesWriter?
         var allowanceUntil: Date?
+        let missed: CloudNotesRedo.Missed
+        // The plan the call is written under, kept with the notes: the page
+        // and the window say what a better one would have written.
+        let plan = PlanSnapshot.kept(startedOn: record.startedOn, now: CloudNotesService.shared.plan())
         switch await CloudNotesService.shared.write(record, log: log) {
         case .written(let notes, let model):
-            let online = MeetingNotesWriter.online(model: model, at: Date())
+            let online = MeetingNotesWriter.online(model: model, at: Date(), plan: plan)
             return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: notes, writer: online),
                                 notes: notes, writer: online)
         case .mac(.hiddenSwitchOff):
             // Today's notes, and today's record: no writer kept.
             writer = nil
+            missed = .mac(.hiddenSwitchOff)
         case .mac(.offline):
-            writer = .mac(at: Date(), waitsForOnline: true)
+            writer = .mac(at: Date(), waitsForOnline: true, why: .offline, plan: plan)
+            missed = .mac(.offline)
         case .mac(.allowanceUsed(let until)):
-            writer = .mac(at: Date())
+            writer = .mac(at: Date(), why: .allowanceUsed, plan: plan, backOn: until)
             allowanceUntil = until
-        case .mac, .failed:
-            writer = .mac(at: Date())
+            missed = .mac(.allowanceUsed(until: until))
+        case .mac(let reason):
+            writer = .mac(at: Date(), why: MeetingNotesWriter.MacWhy(reason), plan: plan)
+            missed = .mac(reason)
+        case .failed:
+            writer = .mac(at: Date(), why: .serviceDown, plan: plan)
+            missed = .failed
         }
 
         let source = MeetingNotesSource(record, canRead: CallNotesWriter.canRead)
@@ -1810,6 +1995,18 @@ final class MeetingNotesModel {
             log("summary: none — \(reason)")
             return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: nil, unavailableReason: reason,
                                                              writer: writer),
+                                notes: nil, writer: writer, allowanceUntil: allowanceUntil)
+        case .noModel(let availability):
+            let reason = MeetingSummarizer.noModelReason(availability)
+            log("summary: none — \(reason)")
+            if var waiting = writer.flatMap({ _ in CloudNotesRedo.withoutNotes(missed, now: Date()) }) {
+                waiting.plan = plan
+                writer = waiting
+                log("notes online: waiting, \(waiting.noNotesYet?.rawValue ?? "")"
+                    + (waiting.notBefore.map { " until \($0.formatted(.iso8601))" } ?? ""))
+            }
+            return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: nil, unavailableReason: reason,
+                                                             writer: writer, noModel: availability),
                                 notes: nil, writer: writer, allowanceUntil: allowanceUntil)
         }
     }
@@ -1892,5 +2089,22 @@ private extension MeetingNotesFlow.Phase {
         case .idle, .failed:
             return nil
         }
+    }
+}
+
+private extension MeetingNotesFlow.Event {
+    /// A press of "Take notes", on a call or in the room.
+    var asksToStart: Bool {
+        switch self {
+        case .accept, .acceptAlways, .takeNotesInPerson: true
+        default: false
+        }
+    }
+}
+
+private extension MeetingNotesFlow.Effect {
+    var startsNotes: Bool {
+        if case .startNotes = self { return true }
+        return false
     }
 }

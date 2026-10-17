@@ -10,7 +10,9 @@ import Foundation
 /// Gates that ask are held until the user decides or `ask_timeout` expires,
 /// at which point the hook is told to defer to the agent's own prompt. Several
 /// can wait in one session; they queue, oldest first, one card at a time.
-/// Once the trial has ended they are not held at all — see `GateHolding`.
+/// `GateHolding.handBack` stops holding them at all; nothing sets it today.
+/// On a plan that answers one agent at a time, only the session that asked
+/// first is held, and the others ask in their own terminal (`answering`).
 public actor BridgeServer {
     /// Domain events, ready for `SessionState.apply`. Consumed by the app.
     public nonisolated let events: AsyncStream<AgentEvent>
@@ -22,6 +24,9 @@ public actor BridgeServer {
     /// Called for gates the policy settled without a human. The app writes them
     /// to the gate log; the actor stays off the filesystem.
     private var onAutoDecision: (@Sendable (GateRecord) -> Void)?
+    /// Called when an agent asks in its own terminal because another has the
+    /// notch (`oneAgentAtATime`): the asking session, then the answered one.
+    private var onPassedOver: (@Sendable (_ asking: String, _ answering: String) -> Void)?
 
     /// One held permission gate: the blocked hook connection, the request it
     /// is waiting on, and enough to end it on its own — its clock, a rule
@@ -59,6 +64,21 @@ public actor BridgeServer {
     /// and it is the right side to be wrong on: a held gate can still be
     /// handed back, a handed-back one cannot be asked again.
     private var holding: GateHolding = .holdForPerson
+
+    /// Whether the notch answers one agent at a time (`PlanLimits
+    /// .oneAgentAtATime`, Free). Off until the app says, the same side to be
+    /// wrong on as `holding`.
+    private var oneAgentAtATime = false
+
+    /// The session the notch is answering: the first whose gate was held, kept
+    /// until that session ends. Tracked on every plan, so a plan that drops to
+    /// one agent at a time keeps the one already being answered.
+    ///
+    /// On that plan, a gate from any other session goes straight back with no
+    /// decision, and its agent asks in its own terminal. Never approved, never
+    /// left waiting, and only after the deny rules and the risk floor, which
+    /// run first for every agent.
+    private var answering: String?
 
     /// How long any gate may be held, from its arrival: a minute short of the
     /// hook's own wait (`HookDirective.blockingWait`, which is also what the
@@ -128,6 +148,7 @@ public actor BridgeServer {
             for gate in queue { deferGate(gate, sessionID: sessionID) }
         }
         gates.removeAll()
+        answering = nil
         // Before cancelling ingest: `server.stop()` closes the connections and
         // finishes the transport stream, which ends the `for await` on its own.
         // Cancelling first would abandon disconnects still in the buffer.
@@ -198,17 +219,61 @@ public actor BridgeServer {
         onAutoDecision = handler
     }
 
-    /// Set by the app whenever the entitlement changes — see `GateHolding`.
+    /// Set once at startup, like `setAutoDecisionHandler`. Free's agents row
+    /// and its reminders say which agent had the notch.
+    public func setPassedOverHandler(_ handler: @escaping @Sendable (_ asking: String, _ answering: String) -> Void) {
+        onPassedOver = handler
+    }
+
+    /// See `GateHolding`.
     ///
-    /// Handing back also lets go of everything already held. A card up when
-    /// the trial ran out — or one that arrived in the moment between launch
-    /// and the licence being read — can no more be answered than a new one,
-    /// and its hook would otherwise wait out `ask_timeout` with the terminal
-    /// showing nothing.
+    /// Handing back also lets go of everything already held: a hook whose
+    /// card can no longer be answered would otherwise wait out `ask_timeout`
+    /// with the terminal showing nothing.
     public func setGateHolding(_ holding: GateHolding) {
         self.holding = holding
         guard holding == .handBack else { return }
         for sessionID in Array(gates.keys) { releaseSession(sessionID) }
+    }
+
+    /// Whether the notch answers one agent at a time. A gate already held is
+    /// never handed back for this: a plan change never takes an open card away.
+    ///
+    /// Turned on, the notch goes on answering the session it is answering if
+    /// that one has a card up; otherwise the one whose card has waited
+    /// longest, or failing that the next to ask. Who asked first on a plan
+    /// that answered everyone says nothing about who is still there.
+    public func setOneAgentAtATime(_ on: Bool) {
+        if on, !oneAgentAtATime, answering.map({ gates[$0] == nil }) ?? true {
+            answering = longestWaiting()
+        }
+        oneAgentAtATime = on
+    }
+
+    /// The session the notch is answering, if any. For tests and the log.
+    public func answeringSession() -> String? { answering }
+
+    /// A session ended, however the app found out: its gates go back, and if
+    /// the notch was answering it, the session waiting longest takes over, or
+    /// failing that the next one to ask.
+    public func sessionEnded(_ sessionID: String) {
+        releaseSession(sessionID)
+        if answering == sessionID { answering = longestWaiting() }
+    }
+
+    /// The session whose card has waited longest, if any is up.
+    private func longestWaiting() -> String? {
+        gates
+            .compactMap { id, queue in queue.first.map { (id, $0.arrivedAt) } }
+            .min { $0.1 < $1.1 }?.0
+    }
+
+    /// A session was replaced by another in the same terminal (`/clear`, a
+    /// resume): its gates go back, and the notch goes on answering that
+    /// terminal under its new session.
+    public func sessionSuperseded(_ sessionID: String, by successor: String) {
+        releaseSession(sessionID)
+        if answering == sessionID { answering = successor }
     }
 
     // MARK: - Ingest
@@ -271,7 +336,7 @@ public actor BridgeServer {
             // goes back to the agent now rather than in `ask_timeout`'s own
             // time. See `releaseSession`.
             for event in decoded where event.kind.endsTheSession {
-                releaseSession(event.sessionID)
+                sessionEnded(event.sessionID)
             }
             connection.send(.ack)
             connection.close()
@@ -307,17 +372,25 @@ public actor BridgeServer {
                                        agent: payload.source, projectRoot: payload.cwd,
                                        decidedAt: Date()))
 
-        case .ask where holding == .handBack:
-            // Nobody can answer it from the notch, so it goes straight back
-            // with no decision and the agent asks in its own terminal. No
-            // card, so nothing opens the island; the row says where the
-            // question went, the same line a card handed back leaves. Not
-            // logged, like a gate that ran out of time: nobody decided it.
-            connection.send(.directive(HookDirective(action: .deferToAgent)))
-            connection.close()
-            emit(gateEvent.replacing(kind: .activity(summary: SessionCardText.handedBack)))
-
         case .ask:
+            let sessionID = gateEvent.sessionID
+            let anotherIsAnswered = oneAgentAtATime && answering.map { $0 != sessionID } == true
+            guard holding == .holdForPerson, !anotherIsAnswered else {
+                // Nobody can answer it from the notch, so it goes straight
+                // back with no decision and the agent asks in its own
+                // terminal. No card, so nothing opens the island; the row
+                // says where the question went, the same line a card handed
+                // back leaves. Not logged, like a gate that ran out of time:
+                // nobody decided it.
+                connection.send(.directive(HookDirective(action: .deferToAgent)))
+                connection.close()
+                emit(gateEvent.replacing(kind: .activity(summary: SessionCardText.handedBack)))
+                if holding == .holdForPerson, anotherIsAnswered, let answering {
+                    onPassedOver?(sessionID, answering)
+                }
+                return
+            }
+            if answering == nil { answering = sessionID }
             emit(gateEvent)
             hold(request: request, event: gateEvent, connection: connection,
                  askTimeout: decision.askTimeout, projectRoot: payload.cwd)

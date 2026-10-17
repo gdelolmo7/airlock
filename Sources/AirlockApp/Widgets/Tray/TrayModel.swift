@@ -609,6 +609,7 @@ final class TrayModel {
         // complained about, so nobody is left staring at an error about a file
         // that has since arrived.
         lastError = result.message
+        if result.added > 0 { UsageCounts.shared.record(.used(.shelfDropped)) }
         reload()
     }
 

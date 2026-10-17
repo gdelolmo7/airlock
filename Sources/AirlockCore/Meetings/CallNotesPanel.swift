@@ -144,10 +144,23 @@ public enum CallNotesPanel {
         /// Too little was said for the notes to be written at all: no tick,
         /// because nothing was made.
         case tooLittleSaid
+        /// Saved, and its notes are written online later: a Mac that can't
+        /// write them waits for the service (`MeetingNotesWriter.noNotesYet`).
+        /// No tick either: nothing is made yet.
+        case later
     }
 
     /// The line for `Ready.tooLittleSaid`, in the panel and on the island.
     public static let tooLittleSaid = "Not enough was said for notes"
+    /// The line for `Ready.later`, in the panel and on the island.
+    public static let notesLater = "Call saved, notes later"
+
+    /// `ready(of:notes:)`, or `later` when the page has no notes yet and
+    /// says when they will come.
+    public static func ready(of record: MeetingRecord, notes: MeetingNotes?,
+                             writer: MeetingNotesWriter?) -> Ready {
+        writer?.noNotesYet != nil ? .later : ready(of: record, notes: notes)
+    }
 
     /// Whether a call's notes are ready or too little was said for any.
     /// The same rule the notes page goes by (`MeetingFiles.notesPage`):

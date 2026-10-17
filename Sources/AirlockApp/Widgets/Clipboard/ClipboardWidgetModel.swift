@@ -40,7 +40,7 @@ final class ClipboardWidgetModel {
     init(previewing history: ClipboardHistory, filter: ClipboardFilter = .all, query: String = "",
          isEnabled: Bool = true, pastesAutomatically: Bool = false, pasteTrusted: Bool = true,
          lastSkip: ClipboardSkipReason? = nil, hotkeyError: String? = nil,
-         missingPictures: Set<String> = [], pictureGoneNotice: Bool = false) {
+         missingPictures: Set<String> = [], pictureGoneNotice: Bool = false, planShows: Int? = nil) {
         self.history = history
         self.filter = filter
         self.query = query
@@ -49,6 +49,7 @@ final class ClipboardWidgetModel {
         _isEnabled = isEnabled
         _pastesAutomatically = pastesAutomatically
         _capacity = ClipboardHistory.defaultCapacity
+        _planShows = planShows
         _hotkeyEnabled = true
         _hotkey = .commandShiftC
         _ignoresPasswordManagerTypes = true
@@ -160,14 +161,55 @@ final class ClipboardWidgetModel {
         }
     }
 
+    /// The person's own setting, kept as they chose it on every plan: a plan
+    /// that shows fewer copies limits what shows (`shownCapacity`), and the
+    /// setting comes back whole on a plan that shows it.
     var capacity: Int = Defaults.int("clipboard.capacity", default: ClipboardHistory.defaultCapacity) {
         didSet {
             guard capacity != oldValue else { return }
             Defaults.set(capacity, "clipboard.capacity")
-            history.trim(to: capacity)
+            fitToPlan()
             prune()
             save()
         }
+    }
+
+    /// What the plan lets the clipboard show, asked every time the history is
+    /// fitted, which is every copy (`PlanLimits.clipboardShows`). Nil, as in
+    /// tests and the gallery, is no plan limit.
+    @ObservationIgnored var plan: () -> PlanLimits? = { nil }
+    /// The plan's limit when it was last asked; nil has none. Kept for what
+    /// draws it, which cannot watch a closure.
+    private(set) var planShows: Int?
+
+    /// How many copies show now: the person's setting, or fewer on a plan
+    /// that shows fewer.
+    var shownCapacity: Int { min(capacity, planShows ?? capacity) }
+
+    /// The plan changed: copies a smaller plan does not show go out of sight,
+    /// and a bigger one brings them back. Nothing waits for the next copy.
+    func planDidChange() {
+        fitToPlan()
+        prune()
+        save()
+    }
+
+    private func fitToPlan() {
+        planShows = plan()?.clipboardShows
+        let letGo = history.fit(planShows: planShows, capacity: capacity, now: Date())
+        if letGo > 0 { onCopiesLetGo(letGo) }
+    }
+
+    /// Copies the plan's limit let go, as it happens: Free's reminders count
+    /// them (`UpgradeReminders.copiesLetGo`). Never the copies themselves.
+    @ObservationIgnored var onCopiesLetGo: (Int) -> Void = { _ in }
+
+    /// Whether the plan's limit is what keeps the list this short: full to
+    /// it, with the person's own setting allowing more. Free's quiet line
+    /// under the list says so.
+    var isFullForThePlan: Bool {
+        guard let planShows, capacity > planShows else { return false }
+        return history.items.lazy.filter { !$0.pinned }.count >= planShows
     }
 
     /// Opt-in, because it is the only part of this that needs Accessibility.
@@ -236,18 +278,28 @@ final class ClipboardWidgetModel {
     /// animation key), and it used to filter the whole history every time.
     /// The comparison is cheap: an unchanged history shares its storage, and
     /// arrays that share storage compare equal without reading anything.
+    ///
+    /// Never more than the plan shows, pins aside, whatever is in the history:
+    /// unpinning on Free can leave one over until the next copy fits it.
     var items: [ClipboardItem] {
-        let history = history, query = query, filter = filter
+        let history = history, query = query, filter = filter, limit = planShows
         if let cached = shownCache, cached.filter == filter, cached.query == query,
-           cached.history == history {
+           cached.limit == limit, cached.history == history {
             return cached.items
         }
-        let shown = history.matching(query).filter(filter.matches)
-        shownCache = (history, query, filter, shown)
+        var unpinned = 0
+        let allowed = Set(history.items.filter { item in
+            if item.pinned { return true }
+            unpinned += 1
+            return limit.map { unpinned <= $0 } ?? true
+        }.map(\.id))
+        let shown = history.matching(query).filter { allowed.contains($0.id) && filter.matches($0) }
+        shownCache = (history, query, filter, limit, shown)
         return shown
     }
     @ObservationIgnored private var shownCache: (history: ClipboardHistory, query: String,
-                                                 filter: ClipboardFilter, items: [ClipboardItem])?
+                                                 filter: ClipboardFilter, limit: Int?,
+                                                 items: [ClipboardItem])?
 
     var isSearching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -259,7 +311,7 @@ final class ClipboardWidgetModel {
     func start() {
         history = store.load()
         history.mergeRepeatedText()
-        history.trim(to: capacity)
+        fitToPlan()
         rebuildClassifier()
         prune()
         applyHotkey()
@@ -400,6 +452,7 @@ final class ClipboardWidgetModel {
         if case .merged = history.insert(item, capacity: capacity) {
             store.deleteImage(file)
         }
+        fitToPlan()
         prune()
         save()
         Moments.shared.announce(.copied, "image")
@@ -407,6 +460,7 @@ final class ClipboardWidgetModel {
 
     private func insert(_ item: ClipboardItem) {
         history.insert(item, capacity: capacity)
+        fitToPlan()
         prune()
         save()
         // The kind only: what was copied never reaches the log.
@@ -433,6 +487,7 @@ final class ClipboardWidgetModel {
         }
         pictureGone = nil
         Moments.shared.announce(.pastedFromHistory)
+        UsageCounts.shared.record(.used(.clipboardPasted))
         // Stamped now, not when the promotion finally runs. If a real copy lands
         // from another app during the wait below, that one is genuinely newer
         // and has to sort above this one.

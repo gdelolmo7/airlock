@@ -25,9 +25,9 @@ struct LastDayCard: View {
     /// like a link to a preferences tree.
     @Environment(LicenseModel.self) private var license
 
-    /// The price buttons, each with the plan it opens the window on. One
-    /// table so a button's words and its plan cannot part: both used to open
-    /// on yearly, so "€3.99 a month" led to a window offering €35.99.
+    /// The price buttons, each with the period Settings › Plans opens on.
+    /// One table so a button's words and its period cannot part: both used
+    /// to open on yearly, so "€3.99 a month" led to a page offering €35.99.
     static let offers: [(title: String, plan: License.Period, prominent: Bool)] = [
         ("Keep it — \(License.Period.yearly.price)", .yearly, true),
         (License.Period.monthly.price, .monthly, false),
@@ -41,7 +41,7 @@ struct LastDayCard: View {
                 Text("Last day of your trial")
                     .font(Theme.chrome(12, .semibold))
                 Spacer(minLength: 6)
-                Text("€35.99 a year · €3.99 a month")
+                Text("\(License.Period.yearly.price) · \(License.Period.monthly.price)")
                     .font(Theme.chrome(10.5))
                     .foregroundStyle(Theme.textTertiary)
             }
@@ -65,10 +65,10 @@ struct LastDayCard: View {
 
             HStack(spacing: 6) {
                 ForEach(Self.offers, id: \.title) { offer in
-                    action(offer.title, prominent: offer.prominent) { license.showPurchase(plan: offer.plan) }
+                    action(offer.title, prominent: offer.prominent) { license.showPlans(period: offer.plan, from: "notice") }
                 }
                 Spacer(minLength: 0)
-                action("I have a key", prominent: false) { license.showLicence(keyField: true) }
+                action("I have a key", prominent: false) { license.showPlans(keyField: true, from: "notice_key") }
             }
         }
         .padding(10)
@@ -109,12 +109,11 @@ struct LicenseNoticeBanner: View {
     let notice: LicenseNotice
     /// Lifetime counts, for the last day only.
     var tally: UsageTally = UsageTally()
-    /// Where the pill goes. It used to be a bare "open Settings", which landed
-    /// on whichever page was open last while VoiceOver promised the licence.
-    /// A trial's "Subscribe" opens the subscribe window (plans, and "I have a
-    /// key" for somebody who already bought); an overdue subscription goes to
-    /// the Licence page, because offering it a second subscription is how
-    /// people get billed twice.
+    /// Where the pill goes: Settings › Plans, both ways. It used to be a bare
+    /// "open Settings", which landed on whichever page was open last while
+    /// VoiceOver promised the licence. An overdue subscription is offered no
+    /// second checkout there (`PlansPage`): that is how people get billed
+    /// twice.
     @Environment(LicenseModel.self) private var license
 
     var body: some View {
@@ -125,7 +124,7 @@ struct LicenseNoticeBanner: View {
         // restraint the banner exists to keep.
         //
         // `isLastDay`, not `days <= 0`: a trial with no days left is
-        // `.trialExpired`, so the old test could never pass and the card was
+        // `.free`, so the old test could never pass and the card was
         // written, designed and never seen.
         if notice.isLastDay, tally.isWorthShowing {
             LastDayCard(tally: tally)
@@ -177,17 +176,14 @@ struct LicenseNoticeBanner: View {
             .clickable()
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
-            .accessibilityHint(notice == .overdue ? "Opens the Licence page in Settings"
-                                                  : "Opens the subscribe window")
+            .accessibilityHint("Opens Plans in Settings")
             .accessibilityAction { act() }
         }
     }
 
-    private var button: String { notice == .overdue ? "See licence" : "Subscribe" }
+    private var button: String { notice == .overdue ? "See plan" : "See plans" }
 
-    private func act() {
-        if notice == .overdue { license.showLicence() } else { license.showPurchase() }
-    }
+    private func act() { license.showPlans(from: "notice") }
 
     private var icon: String {
         switch notice {
@@ -204,184 +200,154 @@ struct LicenseNoticeBanner: View {
             // Says what is true and what is not: it has not stopped working, and
             // nobody is being accused of anything.
             return "Your subscription needs renewing"
-        case .none, .blocked:
+        case .none:
             return nil
         }
     }
 }
 
-// MARK: - Instead of the widgets
+// MARK: - Once, on moving to Free
 
-/// Shown only when the trial has run out and nothing was bought — the one state
-/// where there is genuinely nothing to display.
+/// "You're on Free now": shown once, above the widgets, when a Mac that was on
+/// a trial or a paid plan has moved to Free (`FreeCard.due`).
 ///
-/// It still says what Airlock costs and still offers the way back, because the
-/// most likely reader is somebody who meant to subscribe and forgot. So it is
-/// drawn as an invitation, not a locked door: the cloud awake in the middle,
-/// in the app's own blue; what is kept said before what it costs; one blue
-/// button that does the obvious thing, and a quiet one for a key.
+/// **It takes the place of the screen that used to lock the panel, and says
+/// the opposite.** Airlock keeps working, nothing anybody made is gone, and the
+/// rows say exactly what changes. Those rows come from `PlanLimits`, never from
+/// a list written here, so the card cannot promise a change nothing enforces.
 ///
-/// No usage tally here, on purpose. The last-day card argues with the
-/// person's own numbers the day before; saying them again the day after turns
-/// evidence into a sales pitch, and the card stays short enough to fit the
-/// narrowest panel with the agents sentence in it.
-struct LicenseBlockedView: View {
-    /// Opens the subscribe window: the plans, yearly first.
-    var onSubscribe: () -> Void
-    /// Somebody who already bought goes straight to the field that takes a
-    /// key (Settings › Licence), not through the plans.
-    var onEnterKey: () -> Void
-    /// What is actually locked, named. It is filed in place of the whole panel
-    /// again (2026-08-21) as well as in place of the agents section, so it still
-    /// has to say which — "Agents needs a subscription" inside a panel that is
-    /// otherwise working is a different sentence from the panel itself being
-    /// closed.
-    var surface: String = "Agents"
-    /// Somebody who used to pay. Settings already welcomes them back; the
-    /// panel told them their *trial* had ended, which addresses a customer as
-    /// a stranger and gets the fact wrong.
-    var subscribedBefore = false
-    /// Whether coding agents are on (Developer mode), so the card says where
-    /// they ask now — see `agentsMeanwhile`. Off, it would be a sentence about
-    /// something the reader never set up.
-    var agentsAsk = false
+/// Above the widgets rather than instead of them: the widgets still work, and a
+/// card standing in their place would read as the old lock.
+struct MovedToFreeCard: View {
+    let card: FreeCard
+    /// Whether this Mac writes notes itself (Apple Intelligence on), which
+    /// changes what the notes row says.
+    var macWritesNotes: Bool
+    /// Opens Settings › Plans. It never charges anyone by itself.
+    var onSeePlus: () -> Void
+    /// Marks the card seen, so it never comes back for this move.
+    var onGotIt: () -> Void
+    var now: Date = Date()
 
-    /// What the panel names when the whole stack is replaced. Not "Airlock":
-    /// Settings, the menu bar item and everything saved are still there, and
-    /// a card that says all of it stopped is a card that overstates.
-    static let panel = "The panel, dictation and asking"
-
-    /// Where an agent's requests go meanwhile. They are handed straight back
-    /// (`GateHolding`), so the island no longer opens for them, and this card
-    /// — what the notch shows when it is opened — is the one place left to
-    /// say where the asking went.
-    static let agentsMeanwhile = "Until then, your coding agents ask in their own terminal."
-
-    /// The cloud, awake. It used to be asleep in the resting grey, which read
-    /// as the app having given up on the person reading it. Eager, in the
-    /// blue it wears while working for you, it says the opposite: nothing was
-    /// lost and it is ready to start again. Not `.happy`: its narrowed eyes
-    /// read as a squint at this size once the blink is still.
-    static let face: BloubExpression = .excited
+    /// Calm, in the blue it wears while working for you. Not `.stressed`: that
+    /// face is for a limit being reached, and moving to Free is not one.
+    static let face: BloubExpression = .neutral
     static let tint: BloubTint = .working
-    /// The middle of the card, not a glyph beside a sentence.
-    static let cloudWidth: CGFloat = 64
-
-    /// Yearly first: it is where the money is, and it is priced as the default.
-    static var prices: String { "\(License.Period.yearly.price), or \(License.Period.monthly.price)" }
-
-    /// What is kept, then what comes back, then — with agents on — where they
-    /// ask now.
-    ///
-    /// **"Everything else keeps working" was here once and is false.** It was
-    /// true while only two surfaces were paid; the whole app is paid now, and
-    /// leaving it would put a lie on the one card a person reads at the moment
-    /// they decide whether to pay. The reassurance that IS still true, and the
-    /// one worth making, is that nothing they built up is gone.
-    static func explanation(surface: String, subscribedBefore: Bool, agentsAsk: Bool) -> String {
-        let back = "\(lowercasingFirst(surface)) \(surface == panel ? "come" : "comes") straight back."
-        let kept = subscribedBefore
-            ? "Your subscription ended, and nothing was deleted. Subscribe again and \(back)"
-            : "Everything you've saved is still here. Subscribe and \(back)"
-        return agentsAsk ? "\(kept) \(agentsMeanwhile)" : kept
-    }
-
-    /// "The Agents tab" in the middle of a sentence. Only the first letter, so
-    /// a name inside it keeps its capital.
-    private static func lowercasingFirst(_ text: String) -> String {
-        guard let first = text.first else { return text }
-        return first.lowercased() + text.dropFirst()
-    }
+    static let cloudWidth: CGFloat = 52
 
     private var accent: Color { Self.tint.color }
 
     var body: some View {
         VStack(spacing: 0) {
-            cloud
-                .padding(.bottom, 12)
-            Text(subscribedBefore ? "Welcome back" : "Your trial has ended")
+            BloubView(expression: Self.face, motion: .breathing, tint: accent)
+                .frame(width: Self.cloudWidth)
+                .padding(.bottom, 10)
+                .accessibilityHidden(true)
+            Text(FreeCard.title)
                 .font(Theme.chrome(15, .semibold))
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 5)
-            Text(Self.explanation(surface: surface, subscribedBefore: subscribedBefore, agentsAsk: agentsAsk))
+                .accessibilityAddTraits(.isHeader)
+            Text(card.message(now: now))
                 .font(Theme.chrome(11.5))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 380)
+                .frame(maxWidth: 420)
+                .padding(.bottom, card.changes.isEmpty ? 14 : 10)
+            if !card.changes.isEmpty {
+                VStack(spacing: 6) {
+                    ForEach(card.changes, id: \.self) { change in
+                        row(change)
+                    }
+                }
                 .padding(.bottom, 14)
-            // Side by side wherever they fit, which is every panel width and
-            // a half column; stacked only at the largest text sizes.
+            }
+            // Side by side wherever they fit; stacked only at the largest
+            // text sizes.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { subscribeButton; keyButton }
-                VStack(spacing: 6) { subscribeButton; keyButton }
+                HStack(spacing: 8) { seePlusButton; gotItButton }
+                VStack(spacing: 6) { seePlusButton; gotItButton }
             }
             .padding(.bottom, 8)
-            Text(Self.prices)
+            Text(FreeCard.prices)
                 .font(Theme.chrome(10.5))
                 .foregroundStyle(Theme.textTertiary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 22)
-        .padding(.bottom, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
         .padding(.horizontal, 10)
         .accessibilityElement(children: .contain)
     }
 
-    /// The cloud on a soft glow of its own colour. The glow fades out inside
-    /// the card's top padding, so the scroll view the panel puts it in never
-    /// cuts a visible edge. It blinks at the resting rate; Reduce Motion
-    /// stills it (`BloubView`).
-    private var cloud: some View {
-        BloubView(expression: Self.face, motion: .breathing, tint: accent)
-            .frame(width: Self.cloudWidth)
-            .background(
-                Circle()
-                    .fill(RadialGradient(colors: [accent.opacity(0.30), accent.opacity(0)],
-                                         center: .center, startRadius: 0,
-                                         endRadius: Self.cloudWidth * 0.75))
-                    .frame(width: Self.cloudWidth * 1.5, height: Self.cloudWidth * 1.5)
-            )
-    }
-
-    /// The one blue button. It opens the plans, so it never charges anyone by
-    /// itself.
-    private var subscribeButton: some View {
-        Button(action: onSubscribe) {
-            Text(subscribedBefore ? "Subscribe again" : "Subscribe")
-                .font(Theme.chrome(12, .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .frame(height: 28)
-                .background(Capsule().fill(accent))
-                // Inside the label: `.plain` hit-tests the label's content,
-                // and a background does not extend it.
-                .contentShape(Capsule())
+    private func row(_ change: PlanLimits.Difference) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: change.symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(accent)
+                .frame(width: 26, height: 26)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(accent.opacity(0.14)))
+                .accessibilityHidden(true)
+            Text(change.sentence(macWritesNotes: macWritesNotes))
+                .font(Theme.chrome(12))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .clickable()
-        .fixedSize()
-        .help("Choose a plan: \(Self.prices)")
-        .accessibilityHint("Opens the subscribe window")
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        )
     }
 
-    /// Quieter than Subscribe on purpose: most readers have no key.
-    private var keyButton: some View {
-        Button(action: onEnterKey) {
-            Text("I have a key")
-                .font(Theme.chrome(11.5, .medium))
-                .foregroundStyle(Theme.textSecondary)
+    /// Quieter than "Got it": the card is news, not a sales page.
+    private var seePlusButton: some View {
+        Button(action: onSeePlus) {
+            Text("See Plus")
+                .font(Theme.chrome(12, .semibold))
+                .foregroundStyle(accent)
                 .padding(.horizontal, 14)
                 .frame(height: 28)
-                .background(Capsule().fill(Color.white.opacity(0.09)))
-                .contentShape(Capsule())
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(accent.opacity(0.14))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(accent.opacity(0.35), lineWidth: 1))
+                )
+                // Inside the label: `.plain` hit-tests the label's content,
+                // and a background does not extend it.
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .clickable()
         .fixedSize()
-        .help("Enter a licence key you already have")
-        .accessibilityHint("Opens the Licence page in Settings, at the key field")
+        .help(FreeCard.prices)
+        .accessibilityHint("Opens Plans in Settings")
+    }
+
+    private var gotItButton: some View {
+        Button(action: onGotIt) {
+            Text("Got it")
+                .font(Theme.chrome(12, .semibold))
+                .foregroundStyle(Color.black)
+                .padding(.horizontal, 16)
+                .frame(height: 28)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(0.92)))
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .clickable()
+        .fixedSize()
+        .accessibilityHint("Closes this card. It won't come back.")
     }
 }

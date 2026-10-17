@@ -95,13 +95,18 @@ final class SettingsAnchorTests: XCTestCase {
         }
     }
 
-    /// A free Airlock has no Licence page, and search cannot lead to one.
-    func testAFreeAirlockHasNoLicencePage() {
+    /// Every copy has a Plans page, Free included: it is where a key goes
+    /// and where Plus and Pro are bought, and search leads to it by the words
+    /// people use for either.
+    func testEveryCopyHasAPlansPage() {
         for guideOn in [false, true] {
-            XCTAssertFalse(SettingsPane.sidebar(guideOn: guideOn, free: true).contains(.license))
-            XCTAssertTrue(SettingsPane.sidebar(guideOn: guideOn, free: false).contains(.license))
+            XCTAssertTrue(SettingsPane.sidebar(guideOn: guideOn).contains(.license))
         }
-        XCTAssertEqual(SettingsAnchor.search("licence").contains(.licenceKey), !Pricing.isFree)
-        XCTAssertEqual(SettingsPane.license.resolved, Pricing.isFree ? .general : .license)
+        XCTAssertEqual(SettingsPane.license.title, "Plans")
+        XCTAssertTrue(SettingsAnchor.search("licence").contains(.licenceKey))
+        XCTAssertEqual(SettingsAnchor.search("upgrade").first, .plans)
+        XCTAssertEqual(SettingsAnchor.search("pro").first, .plans)
+        XCTAssertTrue(SettingsAnchor.search("check my plan").contains(.checkPlan))
+        XCTAssertEqual(SettingsPane.license.resolved, .license)
     }
 }

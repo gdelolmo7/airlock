@@ -57,27 +57,42 @@ public struct License: Equatable, Sendable, Codable {
     /// something they already bought.
     public let machine: String?
 
+    /// Which plan was paid for. Signed, like everything else here.
+    ///
+    /// **A key without one is Plus.** Every key issued before there was more
+    /// than one plan has no `plan`, and every one of them was bought as what is
+    /// now called Plus. The same goes for a value this build does not know: a
+    /// plan added later reads as Plus here rather than failing the key, because
+    /// a paid key must never stop working for being newer than the app.
+    ///
+    /// For a subscription, the licence server takes this from what the shop
+    /// says is being paid for right now, so a switch between Plus and Pro shows
+    /// up at the next refresh. A key issued by hand says whatever it was issued
+    /// with (`LicenseTool issue … --plan pro`).
+    public let plan: Plan
+
+    public enum Plan: String, Sendable, Codable, CaseIterable {
+        case plus
+        case pro
+
+        /// For Settings. A name, never a price, for the same reason as
+        /// `Period.label`.
+        public var label: String {
+            switch self {
+            case .plus: return "Plus"
+            case .pro: return "Pro"
+            }
+        }
+    }
+
     public enum Period: String, Sendable, Codable {
         case monthly
         case yearly
 
-        /// What this plan costs, for the surfaces that quote it.
-        ///
-        /// Deliberately NOT stored in the token — see `label` below: prices
-        /// change and a signed licence is forever. This is the price the app
-        /// *offers* today, which is a build-time fact, and it lives here because
-        /// it was previously written out at four call sites. The store URLs had
-        /// the identical problem and the identical comment at each copy claiming
-        /// to be the one true home.
-        ///
-        /// If this ever disagrees with Lemon Squeezy, Lemon Squeezy wins — the
-        /// customer is charged there, not here.
-        public var price: String {
-            switch self {
-            case .monthly: return "€3.99 a month"
-            case .yearly: return "€35.99 a year"
-            }
-        }
+        /// What Plus costs for this period, for the surfaces that name only
+        /// Plus. Deliberately NOT stored in the token (see `label`); every
+        /// price lives in `PlanCatalog`.
+        public var price: String { PlanCatalog.price(.plus, self) }
 
         /// For Settings. Not a price — prices change and a signed licence is
         /// forever, so the token never carries one.
@@ -91,7 +106,7 @@ public struct License: Equatable, Sendable, Codable {
 
     public init(id: String, email: String, product: String, period: Period,
                 issued: Date, renewsAt: Date, checkBy: Date, ref: String? = nil,
-                machine: String? = nil) {
+                machine: String? = nil, plan: Plan = .plus) {
         self.id = id
         self.email = email
         self.product = product
@@ -101,6 +116,31 @@ public struct License: Equatable, Sendable, Codable {
         self.checkBy = checkBy
         self.ref = ref
         self.machine = machine
+        self.plan = plan
+    }
+
+    // Encoding is synthesised from these. Sorted, `plan` lands between
+    // `period` and `product`, which is where the licence server writes it too.
+    private enum CodingKeys: String, CodingKey {
+        case id, email, product, period, issued, renewsAt, checkBy, ref, machine, plan
+    }
+
+    /// Written out only for `plan`: missing, or a name this build does not
+    /// know, is Plus (see `plan`). Every other field decodes exactly as the
+    /// synthesised version did, failures included.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        email = try container.decode(String.self, forKey: .email)
+        product = try container.decode(String.self, forKey: .product)
+        period = try container.decode(Period.self, forKey: .period)
+        issued = try container.decode(Date.self, forKey: .issued)
+        renewsAt = try container.decode(Date.self, forKey: .renewsAt)
+        checkBy = try container.decode(Date.self, forKey: .checkBy)
+        ref = try container.decodeIfPresent(String.self, forKey: .ref)
+        machine = try container.decodeIfPresent(String.self, forKey: .machine)
+        plan = try container.decodeIfPresent(String.self, forKey: .plan)
+            .flatMap(Plan.init(rawValue:)) ?? .plus
     }
 }
 

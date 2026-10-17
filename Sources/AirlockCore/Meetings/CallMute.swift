@@ -19,10 +19,31 @@ public enum CallMuteLabels {
         /// A call in a browser tab: microphone wording only, because a
         /// video's bare "Mute" button can sit on the same page.
         case browser
-        /// A call app of its own (Zoom, Teams, FaceTime, Slack): its plain
+        /// A call app of its own (Zoom, Teams, FaceTime, Slack), or a page
+        /// of a call service inside the browser (`isCallPage`): its plain
         /// "Mute" and "Unmute" too.
         case app
     }
+
+    /// Whether a browser page belongs to a call service, so its buttons can
+    /// be read with the call app's own wording. Zoom's web client says
+    /// "Mute" and "Unmute" on its microphone button, like the Zoom app,
+    /// and that wording is refused on any other page because a video's
+    /// sound button says the same.
+    ///
+    /// Takes the page's address or just its host. Discord is left out: its
+    /// web page is a chat as much as a call, full of other people's videos.
+    public static func isCallPage(_ address: String) -> Bool {
+        let host = (URL(string: address)?.host ?? address).lowercased()
+        guard !host.isEmpty else { return false }
+        if callPageHosts.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) { return true }
+        guard let provider = MeetingLinks.knownProvider(forHost: host) else { return false }
+        return provider != .discord && provider != .unknown
+    }
+
+    /// Call services whose web client lives on a host other than the one
+    /// their invite links use.
+    private static let callPageHosts = ["zoom.com", "teams.cloud.microsoft"]
 
     /// True for muted, false for unmuted, nil for a label that says neither.
     ///
@@ -62,14 +83,18 @@ public enum CallMuteLabels {
     // Pressing it would turn the microphone ON: you are muted.
     private static let micMuted: Set<String> = [
         "turn on microphone", "turn on mic", "unmute microphone", "unmute mic",
+        "unmute my microphone", "unmute my mic",
         "activar microfono", "activar el microfono", "reactivar microfono",
-        "reactivar el microfono", "activar mic",
+        "reactivar el microfono", "activar mic", "activar mi microfono",
+        "reactivar mi microfono",
     ]
     // Pressing it would turn the microphone OFF: you are heard.
     private static let micUnmuted: Set<String> = [
         "turn off microphone", "turn off mic", "mute microphone", "mute mic",
+        "mute my microphone", "mute my mic",
         "desactivar microfono", "desactivar el microfono", "silenciar microfono",
-        "silenciar el microfono", "desactivar mic",
+        "silenciar el microfono", "desactivar mic", "silenciar mi microfono",
+        "desactivar mi microfono",
     ]
     private static let appMuted: Set<String> = [
         "unmute", "unmute audio", "unmute my audio", "unmute myself",

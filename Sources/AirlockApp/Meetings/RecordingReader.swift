@@ -99,7 +99,8 @@ final class RecordingReader {
         let call = OngoingCall.inPerson(at: startedAt)
         var record = MeetingRecord(bundleID: call.bundleID, appName: call.appName, startedAt: startedAt,
                                    languages: picked.map(\.identifier),
-                                   recording: MeetingRecording(fileName: name, seconds: seconds))
+                                   recording: MeetingRecording(fileName: name, seconds: seconds),
+                                   startedOn: CloudNotesService.shared.plan())
         let folder: URL
         do {
             folder = try store.makeFolder(for: record)
@@ -196,7 +197,13 @@ final class RecordingReader {
         guard !stopped else { return removed(folder) }
         do {
             try store.saveNotes(page.page, in: folder)
-            if let writer = page.writer { try store.saveNotesWriter(writer, in: folder) }
+            if let writer = page.writer {
+                try store.saveNotesWriter(writer, in: folder)
+                // Waits for a date: the service looks again then.
+                if writer.waitsForOnline, writer.notBefore != nil {
+                    Task { await CloudNotesService.shared.planNextLook() }
+                }
+            }
         } catch {
             log("recording: notes save FAILED: \(error.localizedDescription)")
             return .failed("Airlock couldn't save the notes in your Meetings folder.")

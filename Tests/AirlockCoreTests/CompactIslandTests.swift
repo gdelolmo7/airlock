@@ -667,6 +667,7 @@ final class CompactIslandCallNotesTests: XCTestCase {
         XCTAssertEqual(CompactSlot.callNotes(.ready(todos: 1)).accessibilityLabel, "Call notes ready, 1 to-do")
         XCTAssertEqual(CompactSlot.callNotes(.ready(todos: 2)).accessibilityLabel, "Call notes ready, 2 to-dos")
         XCTAssertEqual(CompactSlot.callNotes(.tooLittleSaid).accessibilityLabel, "Not enough was said for notes")
+        XCTAssertEqual(CompactSlot.callNotes(.later).accessibilityLabel, "Call saved, notes later")
     }
 
     /// Too little said is the same news as "Notes ready", told the other

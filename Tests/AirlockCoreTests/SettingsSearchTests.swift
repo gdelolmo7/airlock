@@ -47,4 +47,11 @@ final class SettingsSearchTests: XCTestCase {
     func testTheTitlesFirstWordRanksHighest() {
         XCTAssertGreaterThan(score("let")!, score("screen")!)
     }
+
+    /// "pro" is a plan before it is the start of "problem", but a whole
+    /// keyword still never outranks the start of a title word.
+    func testAWholeWordBeatsTheStartOfALongerOne() {
+        XCTAssertGreaterThan(score("pro", keywords: ["pro"])!, score("pro", keywords: ["problem"])!)
+        XCTAssertGreaterThan(score("scr")!, score("sleep")!)
+    }
 }

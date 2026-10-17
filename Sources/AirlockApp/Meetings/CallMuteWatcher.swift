@@ -141,7 +141,9 @@ actor CallMuteReader {
 
     private let pid: pid_t
     private let family: CallMuteLabels.Family
-    private var button: (element: AXUIElement, role: String)?
+    /// The button found, and the wording it was found with: a browser's
+    /// call page reads with the call app's, other pages with the browser's.
+    private var button: (element: AXUIElement, role: String, family: CallMuteLabels.Family)?
     /// After a search that found nothing, the next waits longer, up to 15 s,
     /// so a call app without a known button is not searched all call long.
     private var nextSearch = Date.distantPast
@@ -157,7 +159,7 @@ actor CallMuteReader {
 
     func look() -> Look {
         if let button {
-            if let muted = read(button.element, role: button.role) { return Look(muted: muted) }
+            if let muted = read(button.element, role: button.role, in: button.family) { return Look(muted: muted) }
             // Gone or relabelled past recognition: find it again.
             self.button = nil
         }
@@ -171,12 +173,13 @@ actor CallMuteReader {
         let found = search(app)
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         if let hit = found.hit {
-            button = (hit.element, hit.role)
+            button = (hit.element, hit.role, hit.family)
             backoff = 1
             saidNotFound = false
             defer { foundBefore = true }
+            let page = hit.family == family ? "" : found.callPage.map { " on \($0)" } ?? ""
             return Look(muted: hit.muted,
-                        note: foundBefore ? nil : "found \(hit.role) \"\(hit.label)\" (\(found.looked) elements, \(ms) ms)")
+                        note: foundBefore ? nil : "found \(hit.role) \"\(hit.label)\"\(page) (\(found.looked) elements, \(ms) ms)")
         }
         nextSearch = Date().addingTimeInterval(backoff)
         backoff = min(backoff * 2, 15)
@@ -185,19 +188,23 @@ actor CallMuteReader {
         }
         if !saidNotFound {
             saidNotFound = true
-            return Look(note: "no mute button found (\(found.looked) elements, \(ms) ms)")
+            var place = ""
+            if family == .browser { place = found.callPage.map { ", call page \($0)" } ?? ", no call page" }
+            let near = found.nearMisses.isEmpty ? ""
+                : ", buttons " + found.nearMisses.map { "\"\($0)\"" }.joined(separator: " ")
+            return Look(note: "no mute button found (\(found.looked) elements, \(ms) ms\(place)\(near))")
         }
         return Look()
     }
 
     // MARK: - Reading
 
-    private func read(_ element: AXUIElement, role: String) -> Bool? {
+    private func read(_ element: AXUIElement, role: String, in wording: CallMuteLabels.Family) -> Bool? {
         let values = attributes(of: element, [kAXDescriptionAttribute, kAXTitleAttribute, kAXValueAttribute])
         guard values.count == 3 else { return nil }
         let checked = role == "AXCheckBox" ? (values[2] as? NSNumber).map { $0.intValue == 1 } : nil
         for case let label as String in values.prefix(2) where !label.isEmpty {
-            if let muted = CallMuteLabels.isMuted(label: label, checked: checked, in: family) { return muted }
+            if let muted = CallMuteLabels.isMuted(label: label, checked: checked, in: wording) { return muted }
         }
         return nil
     }
@@ -207,45 +214,92 @@ actor CallMuteReader {
         let role: String
         let label: String
         let muted: Bool
+        let family: CallMuteLabels.Family
+    }
+
+    private struct Search {
+        var hit: Hit?
+        var looked = 0
+        var oddWording: String?
+        /// The host of the call service's page, in a browser.
+        var callPage: String?
+        /// A few buttons that sound like sound but matched no wording, so a
+        /// new label shows in the log instead of a bare "not found".
+        var nearMisses: [String] = []
     }
 
     /// Breadth first through the windows, then the menu bar for an app of
     /// its own (Zoom keeps "Mute audio" there too). Windows first because a
     /// menu's wording can lag until the menu is opened.
-    private func search(_ app: AXUIElement) -> (hit: Hit?, looked: Int, oddWording: String?) {
-        var queue: [AXUIElement] = []
+    ///
+    /// In a browser, each page says where it is from. Below a call
+    /// service's page (Zoom, Teams, Meet in a tab) the call app's wording
+    /// counts, since Zoom's web client says a plain "Mute" like its app;
+    /// anywhere else only the microphone wording does.
+    private func search(_ app: AXUIElement) -> Search {
+        var queue: [(element: AXUIElement, wording: CallMuteLabels.Family)] = []
         if let windows = attributes(of: app, [kAXWindowsAttribute]).first as? [AXUIElement] {
-            queue += windows
+            queue += windows.map { ($0, family) }
         }
         if family == .app, let bar = attributes(of: app, [kAXMenuBarAttribute]).first,
            CFGetTypeID(bar as CFTypeRef) == AXUIElementGetTypeID() {
-            queue.append(bar as! AXUIElement)
+            queue.append((bar as! AXUIElement, .app))
         }
         let deadline = Date().addingTimeInterval(Self.searchBudget)
+        var result = Search()
         var index = 0
-        var oddWording: String?
         while index < queue.count, index < Self.searchLimit, Date() < deadline {
-            let element = queue[index]
+            let (element, inherited) = queue[index]
             index += 1
             AXUIElementSetMessagingTimeout(element, 0.25)
             let values = attributes(of: element, [kAXRoleAttribute, kAXDescriptionAttribute,
                                                   kAXTitleAttribute, kAXValueAttribute, kAXChildrenAttribute])
             guard values.count == 5 else { continue }
             let role = values[0] as? String ?? ""
+            var wording = inherited
+            if family == .browser, role == "AXWebArea", let address = pageAddress(of: element) {
+                let isCall = CallMuteLabels.isCallPage(address)
+                wording = isCall ? .app : .browser
+                if isCall, result.callPage == nil {
+                    result.callPage = URL(string: address)?.host ?? address
+                }
+            }
             if Self.pressable.contains(role) {
                 let checked = role == "AXCheckBox" ? (values[3] as? NSNumber).map { $0.intValue == 1 } : nil
                 for case let label as String in [values[1], values[2]] where !label.isEmpty {
-                    if let muted = CallMuteLabels.isMuted(label: label, checked: checked, in: family) {
-                        return (Hit(element: element, role: role, label: label, muted: muted), index, nil)
+                    if let muted = CallMuteLabels.isMuted(label: label, checked: checked, in: wording) {
+                        result.hit = Hit(element: element, role: role, label: label, muted: muted, family: wording)
+                        result.looked = index
+                        return result
                     }
-                    if family == .browser, CallMuteLabels.looksLikeMeetMicButton(label) { oddWording = label }
+                    if family == .browser, CallMuteLabels.looksLikeMeetMicButton(label) { result.oddWording = label }
+                    if wording == .app { noteNearMiss(label, in: &result) }
                 }
             }
             if let children = values[4] as? [AXUIElement], queue.count < Self.searchLimit * 2 {
-                queue += children
+                queue += children.map { ($0, wording) }
             }
         }
-        return (nil, index, oddWording)
+        result.looked = index
+        return result
+    }
+
+    /// Where a browser page was loaded from, as Chrome and Safari report it.
+    private func pageAddress(of element: AXUIElement) -> String? {
+        switch attributes(of: element, ["AXURL"]).first {
+        case let url as URL: url.absoluteString
+        case let text as String where !text.isEmpty: text
+        default: nil
+        }
+    }
+
+    private static let soundWords = ["mute", "micro", "silenc", "audio"]
+
+    private func noteNearMiss(_ label: String, in result: inout Search) {
+        let lower = label.lowercased()
+        guard result.nearMisses.count < 3, Self.soundWords.contains(where: lower.contains) else { return }
+        let short = label.count > 40 ? String(label.prefix(40)) + "…" : label
+        if !result.nearMisses.contains(short) { result.nearMisses.append(short) }
     }
 
     /// Several attributes in one round trip. A missing one comes back as an

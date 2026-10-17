@@ -2,7 +2,7 @@ import XCTest
 @testable import AirlockApp
 @testable import AirlockCore
 
-/// The dead air between "Continue to payment" and a working app.
+/// The dead air between "Get Plus" and a working app.
 ///
 /// The property that matters is that **closing the window cancels nothing**. A
 /// purchase abandoned by the app while the browser is still open is a payment
@@ -20,9 +20,10 @@ final class PurchaseFlowTests: XCTestCase {
 
     func testBeginningRemembersWhichPlanTheyLeftToBuy() {
         let flow = PurchaseFlow()
-        flow.begin(plan: .monthly, now: t0)
+        flow.begin(.pro, .monthly, now: t0)
         XCTAssertEqual(flow.stage, .waiting(since: t0))
-        XCTAssertEqual(flow.plan, .monthly)
+        XCTAssertEqual(flow.plan, .pro)
+        XCTAssertEqual(flow.period, .monthly)
         XCTAssertTrue(flow.isWaiting)
     }
 
@@ -30,13 +31,13 @@ final class PurchaseFlowTests: XCTestCase {
     /// and neither of those is the window closing.
     func testOnlySuccessOrCancelStopsTheWaiting() {
         let succeeded = PurchaseFlow()
-        succeeded.begin(plan: .yearly, now: t0)
+        succeeded.begin(.plus, .yearly, now: t0)
         succeeded.succeed()
         XCTAssertEqual(succeeded.stage, .activated)
         XCTAssertFalse(succeeded.isWaiting)
 
         let cancelled = PurchaseFlow()
-        cancelled.begin(plan: .yearly, now: t0)
+        cancelled.begin(.plus, .yearly, now: t0)
         cancelled.cancel()
         XCTAssertEqual(cancelled.stage, .idle)
         XCTAssertFalse(cancelled.isWaiting)
@@ -47,7 +48,7 @@ final class PurchaseFlowTests: XCTestCase {
     /// minutes.
     func testStalledIsStillWaiting() {
         let flow = PurchaseFlow()
-        flow.begin(plan: .yearly, now: t0)
+        flow.begin(.plus, .yearly, now: t0)
         flow.stallForTesting()
         XCTAssertEqual(flow.stage, .stalled)
         XCTAssertTrue(flow.isWaiting, "three minutes is a fork, not an ending")
@@ -57,7 +58,7 @@ final class PurchaseFlowTests: XCTestCase {
     /// exit — and it must still land.
     func testAKeyArrivingAfterTheForkStillSucceeds() {
         let flow = PurchaseFlow()
-        flow.begin(plan: .yearly, now: t0)
+        flow.begin(.plus, .yearly, now: t0)
         flow.stallForTesting()
         flow.succeed()
         XCTAssertEqual(flow.stage, .activated)
@@ -74,14 +75,15 @@ final class PurchaseFlowTests: XCTestCase {
     /// so, remembers the plan for "Try again", and never reaches the fork.
     func testAPageThatDidNotOpenStopsTheWaiting() {
         let flow = PurchaseFlow()
-        flow.begin(plan: .monthly, now: t0)
-        flow.failToOpen(plan: .monthly)
+        flow.begin(.pro, .monthly, now: t0)
+        flow.failToOpen(.pro, .monthly)
         XCTAssertEqual(flow.stage, .couldNotOpen)
-        XCTAssertEqual(flow.plan, .monthly)
+        XCTAssertEqual(flow.plan, .pro)
+        XCTAssertEqual(flow.period, .monthly)
         XCTAssertFalse(flow.isWaiting)
         flow.setStalled()
         XCTAssertEqual(flow.stage, .couldNotOpen, "a stall timer must not turn it into 'still waiting'")
-        flow.begin(plan: .yearly, now: t0)
+        flow.begin(.plus, .yearly, now: t0)
         XCTAssertEqual(flow.stage, .waiting(since: t0), "Try again starts over cleanly")
     }
 }

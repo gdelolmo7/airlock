@@ -49,13 +49,16 @@ extension ClipboardHistory {
     /// and a disk budget is a weaker claim than an explicit instruction. If the
     /// pins alone exceed the budget, nothing is dropped — the right failure is
     /// a large directory, not silently discarding what someone asked to keep.
+    ///
+    /// Copies out of sight count, and go first: they are older than any shown.
     public func imageItemsToEvict(sizes: [String: Int],
                                   budget: Int = ClipboardLimits.imageDirectoryBudget) -> [UUID] {
-        let imageItems = items.filter { $0.imageFile != nil }
+        let imageItems = (items + outOfSight).filter { $0.imageFile != nil }
         let total = imageItems.reduce(0) { $0 + (($1.imageFile).flatMap { sizes[$0] } ?? 0) }
         guard total > budget else { return [] }
 
-        // Oldest first — `items` is newest-first, and pins float above both.
+        // Oldest first — `items` is newest-first, pins float above both, and
+        // what is out of sight is older still.
         var remaining = total
         var evicted: [UUID] = []
         for item in imageItems.reversed() where !item.pinned {

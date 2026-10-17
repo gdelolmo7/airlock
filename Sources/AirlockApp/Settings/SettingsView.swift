@@ -2,8 +2,9 @@ import AVFAudio
 import SwiftUI
 import AirlockCore
 
-/// The settings window content, in the notch's look: the island's
-/// near-black, the pages in a column down the left with search at its top.
+/// The Settings side of the Airlock window (`AirlockWindowView`), in the
+/// notch's look: the page chosen in the left column, or what the search at
+/// its top found.
 ///
 /// It was a native sidebar and grouped forms, system light or dark. The owner
 /// asked for Settings to look like the notch it configures: Voice was drawn in
@@ -14,45 +15,29 @@ import AirlockCore
 /// A column rather than tabs across the top: the owner tried both on
 /// 2026-10-07 and chose the column. Nine pages filled the top row, and the
 /// icons make a page easier to spot than a word in a line of words.
-struct SettingsView: View {
+struct SettingsColumn: View {
     @Environment(SettingsModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// What is typed in the search field (card Settings 3).
-    @State private var query = ""
-    /// Bumped by ⌘F, which puts the cursor in the search field.
-    @State private var searchRequest = 0
-    /// The last reveal that was scrolled to (`land`).
-    @State private var landedSerial: UUID?
+    @Binding var query: String
+    /// The last reveal that was scrolled to (`land`). Held by the window,
+    /// which outlives this column: a visit to the calls takes it away, and
+    /// coming back must not scroll to an old link again.
+    @Binding var landedSerial: UUID?
 
     var body: some View {
-        HStack(spacing: 0) {
-            LookSidebar(pages: SettingsPane.sidebar(),
-                        selection: Binding(get: { model.pane.resolved }, set: { model.pane = $0; query = "" }),
-                        query: $query,
-                        focusRequest: searchRequest)
-            ScrollViewReader { proxy in
-                Group {
-                    if !query.trimmingCharacters(in: .whitespaces).isEmpty {
-                        SettingsSearchResults(query: query) { query = "" }
-                    } else {
-                        page
-                    }
+        ScrollViewReader { proxy in
+            Group {
+                if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    SettingsSearchResults(query: query) { query = "" }
+                } else {
+                    page
                 }
-                .padding(.top, 2)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .task(id: model.revealRequest) { await land(model.revealRequest, proxy: proxy) }
             }
+            .padding(.top, 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .task(id: model.revealRequest) { await land(model.revealRequest, proxy: proxy) }
         }
-        .frame(width: 760, height: 600)
-        .background(SettingsLook.ground)
-        .environment(\.colorScheme, .dark)
-        .background {
-            // ⌘F, from anywhere in the window.
-            Button("Search settings") { searchRequest += 1 }
-                .keyboardShortcut("f")
-                .hidden()
-        }
-        .onAppear { model.refresh() }
     }
 
     @ViewBuilder private var page: some View {
@@ -66,7 +51,7 @@ struct SettingsView: View {
         case .voice: DictationPane()
         case .agents: AgentsPane()
         case .permissions: PermissionsPane()
-        case .license: LicensePane()
+        case .license: PlansPane()
         #if AIRLOCK_GUIDE
         case .guide: GuidePane()
         case .privacy: PrivacyPane()
@@ -103,7 +88,7 @@ struct SettingsView: View {
 /// What is shown while something is typed in the search field: matching
 /// settings, best first, each with the page it is on. Choosing one opens that
 /// page on that row.
-private struct SettingsSearchResults: View {
+struct SettingsSearchResults: View {
     let query: String
     var onChoose: () -> Void
     @Environment(SettingsModel.self) private var model
@@ -280,6 +265,10 @@ private struct GeneralPane: View {
             if CrashReporter.shared.isAvailable {
                 CrashReportsSection(isOn: Binding(get: { CrashReporter.shared.isEnabled },
                                                   set: { CrashReporter.shared.isEnabled = $0 }))
+            }
+            if UsageCounts.shared.isAvailable {
+                UsageCountsSection(isOn: Binding(get: { UsageCounts.shared.isEnabled },
+                                                 set: { UsageCounts.shared.choose($0, from: .settings) }))
             }
             #if AIRLOCK_GUIDE
             GuideSettings()
@@ -620,7 +609,10 @@ private struct WidgetRow: View {
                 // effect, so it follows the switch.
                 .disabled(!isOn)
 
-                Toggle(title, isOn: $isOn)
+                Toggle(title, isOn: Binding(get: { isOn }, set: {
+                    isOn = $0
+                    UsageCounts.shared.record(.widgetSwitched(id, on: $0))
+                }))
                     .toggleStyle(LookSwitchStyle())
                     .labelsHidden()
             }
@@ -669,7 +661,10 @@ private struct WidgetRows: View {
                   isOn: Binding(get: { repository.isEnabled }, set: { repository.isEnabled = $0 }))
         // No column: it is gutter chrome, drawn beside the housing on every
         // tab, so there is no slot to place it in.
-        LookToggleRow("Battery", isOn: Binding(get: { battery.isEnabled }, set: { battery.isEnabled = $0 }))
+        LookToggleRow("Battery", isOn: Binding(get: { battery.isEnabled }, set: {
+            battery.isEnabled = $0
+            UsageCounts.shared.record(.widgetSwitched("battery", on: $0))
+        }))
 
         LookToggleRow("Wave follows the audio", subtitle: "The music bars move with the real sound",
                       isOn: Binding(get: { media.reactiveWave }, set: { media.reactiveWave = $0 }))
@@ -700,7 +695,10 @@ private struct WidgetRows: View {
         LookToggleRow(guideOn ? "Developer mode" : "AI agents",
                       subtitle: guideOn ? "For people who use Claude Code or Codex" : "Claude Code and Codex in the notch",
                       isOn: Binding(get: { agents.isEnabled || (!guideOn && agents.basis == .noHooksInstalled) },
-                                    set: { agents.choose($0) }))
+                                    set: {
+                                        agents.choose($0)
+                                        UsageCounts.shared.record(.widgetSwitched("agents", on: $0))
+                                    }))
             .settingsAnchor(.agentsSwitch)
 
         calendarsRow
@@ -905,6 +903,10 @@ private struct AboutDetails: View {
             LookGroupLabel("Crash reports")
             ForEach(CrashReportsSection.notes, id: \.self) { LookNote($0) }
         }
+        if UsageCounts.shared.isAvailable {
+            LookGroupLabel("Usage counts")
+            ForEach(UsageCountsSection.notes, id: \.self) { LookNote($0) }
+        }
 
         // Shown before it is copied, not described afterwards. A button
         // that puts an unseen block of text about your machine on the
@@ -1030,6 +1032,8 @@ struct AgentsPane: View {
     /// with a hold key opens the microphone for as long as you hold it.
     @Environment(DictationModel.self) private var dictation
     @Environment(UsageAlertModel.self) private var usageAlerts
+    /// Optional so the state gallery can draw the page without it.
+    @Environment(LicenseModel.self) private var license: LicenseModel?
     @State private var moreOptions: Bool
 
     init(moreOptions: Bool = false) {
@@ -1062,6 +1066,14 @@ struct AgentsPane: View {
     @ViewBuilder private var agentRows: some View {
         LookGroupLabel("Connected")
         ForEach(model.agents) { row in connectionRows(row) }
+        if license?.entitlement.limits.oneAgentAtATime == true {
+            // Under the agents it limits, tagged, rather than a surprise the
+            // second agent meets in its terminal.
+            LookRow("Answer every agent from the notch",
+                    subtitle: "On Free, the notch answers one coding agent at a time. Others ask in their own terminal.") {
+                PlanTagButton(.plus) { model.reveal(.plans) }
+            }
+        }
 
         answering
 

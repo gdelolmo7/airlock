@@ -40,6 +40,12 @@ enum GalleryIsland {
                           outputTransport: .bluetooth)),
             compact("I9", "Compact: battery critical",
                     input(batteryCritical: true, batteryMinutesRemaining: 12)),
+            compact("I9a", "Compact: battery critical, agents open (scared red face)",
+                    input(agentsEnabled: true, sessionCount: 3,
+                          batteryCritical: true, batteryMinutesRemaining: 12)),
+            compact("I9b", "Compact: battery critical, an agent waiting (orange stays)",
+                    input(agentsEnabled: true, attentionCount: 1, sessionCount: 3,
+                          batteryCritical: true, batteryMinutesRemaining: 12)),
             compact("I10", "Compact: keep awake stopped (cup + \"off\", not a battery)",
                     input(keepingAwake: false, keepAwakeStoppedAt: now, keepAwakeCutoff: 20)),
             compact("I11", "Compact: keeping awake", input(keepingAwake: true)),
@@ -139,7 +145,31 @@ enum GalleryIsland {
                     .environment(NotchUIState())
                     .environment(SystemControlsModel())
             },
+            GalleryState("I27", area, "Bloub's faces: every one, then stressed in blue") {
+                bloubFaces
+            },
         ]
+    }
+
+    /// Every expression in the plain body colour, then `.stressed` again in the
+    /// blue it is meant for. Most faces are reachable only through code that
+    /// picks them, so this is the one place to see them all side by side.
+    private static var bloubFaces: some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 5)
+        let faces = BloubExpression.allCases.map { ($0, nil as Color?) } + [(.stressed, Theme.running)]
+        return LazyVGrid(columns: columns, spacing: 14) {
+            ForEach(faces.indices, id: \.self) { index in
+                let (expression, tint) = faces[index]
+                VStack(spacing: 6) {
+                    BloubView(expression: expression, motion: .still, tint: tint)
+                        .frame(width: 72, height: 60)
+                    Text(tint == nil ? expression.rawValue : "\(expression.rawValue), blue")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+        .padding(.vertical, 12)
     }
 
     /// The Settings section the full-screen and lid-shut rows are about, held
@@ -195,12 +225,14 @@ enum GalleryIsland {
     ///
     /// Internal so other areas' rows (the call notes, K) draw the island the
     /// same way. `notesMark` is what `NotchCompactTrailingView` hands the call
-    /// pill from the notes model, which a row has no copy of. Read when the
+    /// pill from the notes model, which a row has no copy of, and `notesLimit`
+    /// Free's word about the notes' limit beside it. Read when the
     /// row is drawn, not when the list is made, so a countdown in it starts
     /// from the top however late in an export its row comes.
     static func compact(_ id: String, _ name: String, _ input: CompactIslandInput,
                         area: String = GalleryIsland.area, meetingStart: Date? = nil,
-                        notesMark: @escaping @MainActor () -> MeetingNotesFlow.PillMark = { .none })
+                        notesMark: @escaping @MainActor () -> MeetingNotesFlow.PillMark = { .none },
+                        notesLimit: @escaping @MainActor () -> CallNotesLimit? = { nil })
         -> GalleryState {
         let ambient = BloubFace.Ambient(batteryCritical: input.batteryCritical,
                                         meetingSoon: input.meetingSoon, guide: input.guide)
@@ -210,6 +242,7 @@ enum GalleryIsland {
             CompactTrailingGlyph(slot: CompactIsland.trailing(input),
                                  meetingStart: { meetingStart }, waveLevels: { [] })
                 .environment(\.callNotesMark, notesMark())
+                .environment(\.callNotesLimit, notesLimit())
                 .padding(.horizontal, 4)
         }
         state.leading = {

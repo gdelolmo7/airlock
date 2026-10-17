@@ -177,6 +177,18 @@ struct NotchExpandedView: View {
                     .transition(.opacity)
             }
 
+            // The usage-counts question, the same way. The controller puts it
+            // only on a free panel, or in place of the new version's card
+            // after "Got it".
+            if uiState.usageQuestion || uiState.usageQuestionLeaving,
+               uiState.onboarding == nil, uiState.onboardingLeaving == nil,
+               uiState.whatsNew == nil, uiState.whatsNewLeaving == nil,
+               !uiState.crashQuestion, !uiState.crashQuestionLeaving {
+                UsageQuestionCard(onAnswer: uiState.answerUsageQuestion)
+                    .allowsHitTesting(uiState.usageQuestion)
+                    .transition(.opacity)
+            }
+
             // The guide takes the panel the same way, for its first look, its
             // card (layout B) and the sentence it leaves when it stops on its
             // own — and yields to a gate the same way, via `stackContent`.
@@ -211,37 +223,43 @@ struct NotchExpandedView: View {
                     // ScrollView keeps the panel's layout identity stable, so
                     // the transition is a fade rather than a resize.
                     if dictation.showsIndicator { EmptyView() } else {
-                    // Above the widgets, not instead of them — and `.none` for
-                    // every state except the last days of a trial and a
-                    // subscription that is genuinely overdue.
+                    // Above the widgets, never instead of them — and `.none`
+                    // for every state except the last days of an old trial and
+                    // a subscription that is genuinely overdue.
                     LicenseNoticeBanner(notice: notice, tally: model.tally?.tally ?? UsageTally())
                     // Call notes: the ask, the running notes, "Notes ready".
                     // Nothing at all unless the hidden switch is on and a call
                     // is or was just on.
                     MeetingNotesBanner(meetings: model.meetings)
 
-                    // **The widgets ARE gated again**, on the owner's decision
-                    // (2026-08-21). This branch previously drew the stack
-                    // regardless, on the argument that a finished trial should
-                    // not take the clipboard, the shelf, the media card and the
-                    // calendar with it — nine widgets held hostage for a feature
-                    // the person may never have run. That argument is recorded
-                    // in full on `Entitlement.allowsUse`, because it is the case
-                    // for reverting this if the numbers say so.
-                    //
-                    // What has NOT changed is that the panel still opens. The
-                    // paywall goes where the stack goes, beneath a top bar that
-                    // still works, so the app reads as locked rather than as
-                    // broken — an `LSUIElement` whose one surface stops
-                    // responding cannot be told from one that crashed.
-                    if !license.entitlement.allowsUse {
-                        LicenseBlockedView(onSubscribe: { license.showPurchase() },
-                                           onEnterKey: { license.showLicence(keyField: true) },
-                                           surface: LicenseBlockedView.panel,
-                                           subscribedBefore: license.hasSubscribedBefore,
-                                           agentsAsk: model.agentsOn())
+                    // Once, after a trial or a plan ends: what changed, above
+                    // the widgets, which keep working. It took the place of the
+                    // screen that used to lock the panel here.
+                    if let card = license.freeCard {
+                        MovedToFreeCard(card: card,
+                                        macWritesNotes: assistant.availability.isReady,
+                                        onSeePlus: { license.showPlans(from: "free_card") },
+                                        onGotIt: { withAnimation(Motion.close.animation(reduceMotion: reduceMotion)) { license.dismissFreeCard() } })
                             .transition(.opacity)
-                    } else if uiState.isArranging {
+                    }
+                    // Once, after paying for a bigger plan: what unlocked.
+                    // It waits here rather than opening the notch.
+                    if let card = license.welcomeCard {
+                        WelcomeCardSlot(card: card, meetings: model.meetings,
+                                        plan: license.entitlement.snapshot,
+                                        onGotIt: { withAnimation(Motion.close.animation(reduceMotion: reduceMotion)) { license.dismissWelcome() } })
+                            .transition(.opacity)
+                    }
+                    // Free's reminder, at most one a day, only while the panel
+                    // is open, and never beside the two cards above.
+                    if let reminder = license.reminders.card, license.freeCard == nil, license.welcomeCard == nil {
+                        UpgradeReminderCard(reminder: reminder,
+                                            onSeePlus: { license.reminders.seePlus() },
+                                            onNotNow: { withAnimation(Motion.close.animation(reduceMotion: reduceMotion)) { license.reminders.notNow() } })
+                            .transition(.opacity)
+                    }
+
+                    if uiState.isArranging {
                         // REPLACES the stack rather than overlaying it. The
                         // rows being dragged are stand-ins for the blocks, and
                         // showing both would put two of everything on screen
@@ -375,15 +393,14 @@ struct NotchExpandedView: View {
             // transcript that is the only thing you are looking at.
             if uiState.selectedTab == .agents, !dictationOwnsPanel, !assistant.isPresenting,
                !uiState.holdAnswerThroughCollapse, !panelIsTaken,
-               !assistant.isCommandBarOpen, !notice.isBlocking, stackContent != .attentionOnly {
+               !assistant.isCommandBarOpen, stackContent != .attentionOnly {
                 QuickPromptBar().environment(model)
             }
 
             // The typed way into the resolver. Any tab — it is summoned by a
             // hotkey rather than found, so tying it to one tab would mean the
             // hotkey silently did nothing on the other three. Suppressed while
-            // dictating for the reason above, and while a licence blocks use,
-            // since everything it could do is exactly what is blocked.
+            // dictating for the reason above.
             if showsCommandBar {
                 CommandBar()
             }
@@ -484,16 +501,18 @@ struct NotchExpandedView: View {
     /// The typing bar is on screen. One definition, read by the stack rule and
     /// by the bar's own `if`, so the two cannot disagree about an empty notch.
     private var showsCommandBar: Bool {
-        assistant.isCommandBarOpen && !dictationOwnsPanel && !notice.isBlocking
+        assistant.isCommandBarOpen && !dictationOwnsPanel
             && !panelIsTaken
     }
 
-    /// Setup, a new version's card or the crash-reports question owns the
-    /// panel: the widget stack, the guide and the typing bars all stand aside.
+    /// Setup, a new version's card, the crash-reports question or the
+    /// usage-counts question owns the panel: the widget stack, the guide and
+    /// the typing bars all stand aside.
     private var panelIsTaken: Bool {
         uiState.onboarding != nil || uiState.onboardingLeaving != nil
             || uiState.whatsNew != nil || uiState.whatsNewLeaving != nil
             || uiState.crashQuestion || uiState.crashQuestionLeaving
+            || uiState.usageQuestion || uiState.usageQuestionLeaving
     }
 
     private var leadingSections: [(id: String, view: AnyView)] {
@@ -1112,10 +1131,14 @@ struct NotchCompactTrailingView: View {
 
     var body: some View {
         let notesMark = model.meetings.pillMark
+        let limit = model.meetings.limitWord.flatMap { word in
+            model.meetings.limitWordAt.map { CallNotesLimit(word: word, since: $0) }
+        }
         CompactTrailingGlyph(slot: slot,
                              meetingStart: { calendar.glanceEvent?.start },
                              waveLevels: { media.waveLevels })
         .environment(\.callNotesMark, notesMark)
+        .environment(\.callNotesLimit, limit)
         // Keyed off the RESOLVED slot, never off the input: the input carries a
         // `Date` that moves on every redraw, so keying off it would animate
         // continuously. `CompactSlot` changes when something actually changed.
@@ -1632,6 +1655,7 @@ struct EmptyTabView: View {
 struct CallPill: View {
     let call: OngoingCall
     @Environment(\.callNotesMark) private var notesMark
+    @Environment(\.callNotesLimit) private var limit
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -1692,7 +1716,20 @@ struct CallPill: View {
                 timerWord("Paused")
             default:
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    timerWord(call.elapsedLabel(at: context.date))
+                    // Free's limit, for `LimitWord.pillFor` and in place of
+                    // the timer, like Muted: the notes' purple before it
+                    // (amber would say something waits on you, and nothing
+                    // does), grey once they have stopped. The open card
+                    // keeps saying it.
+                    if let limit, limit.shows(at: context.date) {
+                        if limit.word == .stopsSoon {
+                            notesWord(limit.word.pillWord)
+                        } else {
+                            timerWord(limit.word.pillWord)
+                        }
+                    } else {
+                        timerWord(call.elapsedLabel(at: context.date))
+                    }
                 }
             }
         }
@@ -1783,6 +1820,14 @@ struct CallNotesGlanceView: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Theme.textTertiary)
                 Text(CallNotesPanel.tooLittleSaid)
+                    .font(Theme.fixed(11, .semibold))  // see the meeting countdown
+                    .foregroundStyle(Theme.textSecondary)
+            case .later:
+                // No tick either: the notes come later, online.
+                Image(systemName: "clock")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                Text("Notes later")
                     .font(Theme.fixed(11, .semibold))  // see the meeting countdown
                     .foregroundStyle(Theme.textSecondary)
             }

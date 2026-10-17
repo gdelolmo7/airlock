@@ -139,7 +139,7 @@ enum SupportDiagnostics {
     }
 
     /// `hw.model` — "Mac16,7". Which Mac, not whose.
-    private static func hardwareModel() -> String {
+    static func hardwareModel() -> String {
         let model = sysctlString("hw.model")
         return model.isEmpty ? "unknown" : model
     }

@@ -8,6 +8,8 @@ import AirlockCore
 /// legible — not a checkbox called "filter types".
 struct ClipboardPane: View {
     @Environment(ClipboardWidgetModel.self) private var clipboard
+    /// Optional so the state gallery can draw the page without the window.
+    @Environment(SettingsModel.self) private var settings: SettingsModel?
     /// Clear all deletes the saved pictures with the rows and can't be undone,
     /// so it asks first (X21). Clear unpinned keeps what was pinned and doesn't.
     @State private var confirmingClearAll = false
@@ -23,11 +25,21 @@ struct ClipboardPane: View {
             LookToggleRow("Record clipboard history", isOn: $clipboard.isEnabled)
                 .settingsAnchor(.clipboardHistory)
 
+            // What shows on this plan. The choice itself is kept as it was
+            // made, and comes back on a plan that shows it; a plan's limit
+            // is asked of the plan, never written into the setting. A count
+            // the plan doesn't show is there to pick, tagged, and picking it
+            // opens Plans rather than changing anything: nothing is greyed out.
             LookRow("Keep") {
-                LookMenu("\(clipboard.capacity) items") {
-                    Picker("Keep", selection: $clipboard.capacity) {
+                LookMenu("\(clipboard.shownCapacity) items") {
+                    Picker("Keep", selection: Binding(get: { clipboard.shownCapacity },
+                                                      set: { pick($0) })) {
                         ForEach([50, 100, 200, 500, 1000], id: \.self) { count in
-                            Text("\(count) items").tag(count)
+                            if let limit = clipboard.planShows, count > limit {
+                                Text("\(count) items · Plus").tag(count)
+                            } else {
+                                Text("\(count) items").tag(count)
+                            }
                         }
                     }
                     .pickerStyle(.inline)
@@ -42,9 +54,9 @@ struct ClipboardPane: View {
             LookRow("Stored now", subtitle: storedSummary) {
                 HStack(spacing: 6) {
                     LookButton("Clear unpinned") { clipboard.clearUnpinned() }
-                        .disabled(clipboard.history.items.isEmpty)
+                        .disabled(nothingStored)
                     LookButton("Clear all") { confirmingClearAll = true }
-                        .disabled(clipboard.history.items.isEmpty)
+                        .disabled(nothingStored)
                 }
             }
             .confirmationDialog("Delete all clipboard history?", isPresented: $confirmingClearAll) {
@@ -143,6 +155,21 @@ struct ClipboardPane: View {
     /// "146 items · 8 pinned", which is what the two buttons beside it act on.
     /// Size is deliberately absent: it costs a directory walk per redraw and
     /// nobody clears a clipboard to reclaim two megabytes.
+    /// Copies out of sight are stored too, and a clear takes them.
+    private var nothingStored: Bool {
+        clipboard.history.items.isEmpty && clipboard.history.outOfSight.isEmpty
+    }
+
+    /// A count this plan shows is the setting; a bigger one is a question
+    /// about Plus, answered on the Plans page.
+    private func pick(_ count: Int) {
+        if let limit = clipboard.planShows, count > limit {
+            settings?.reveal(.plans)
+        } else {
+            clipboard.capacity = count
+        }
+    }
+
     private var storedSummary: String {
         let items = clipboard.history.items
         let pinned = items.filter(\.pinned).count

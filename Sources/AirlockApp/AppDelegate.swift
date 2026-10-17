@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notch: NotchController?
     private var statusItem: NSStatusItem?
     private var settingsModel: SettingsModel?
-    private var settings: SettingsWindowController?
+    private var appWindow: AirlockWindowController?
     /// Retained here because `UNUserNotificationCenter.delegate` is weak — left
     /// to a local it deallocates immediately and every notification silently
     /// stops being clickable, with nothing to see in either direction.
@@ -47,9 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var repositoryWidget: RepositoryWidgetModel?
     private var updater: UpdaterModel?
     private var license: LicenseModel?
+    /// The limits last passed on by `watchPlanLimits`.
+    private var planLimits: PlanLimits?
     private var systemControls: SystemControlsModel?
     private var tally: UsageTallyStore?
-    private var purchaseWindow: PurchaseWindowController?
 
     /// `airlock://activate?key=…` coming back from a finished checkout.
     ///
@@ -65,11 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let key = urls.lazy.compactMap({ ActivationURL.key(from: $0) }).first,
               let license else { return }
-        // The purchase window hears about a success through
-        // `LicenseModel.onApplied`, like a paste in Settings. A key that failed
-        // to verify leaves it waiting, which is the truth — the browser said
-        // something and it was not a licence.
-        Task { @MainActor in await license.apply(key) }
+        // A key that went in shows Settings › Plans already on the new plan,
+        // where "Finish paying in your browser" has turned into "You're on
+        // Plus". One that failed to verify leaves the page waiting, which is
+        // the truth — the browser said something and it was not a licence.
+        Task { @MainActor [weak self] in
+            if await license.apply(key) { self?.appWindow?.show(pane: .license) }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -107,10 +110,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshStagedHook()
         upgradeInstalledHooks()
 
+        // Nothing here asks the licence whether to work: no plan stops the
+        // app. What a plan leaves out is `PlanLimits`, asked at the moment of
+        // use by whatever it limits. Made before the bridge and the widgets,
+        // so the first gate and the first copy already know the plan; it
+        // starts checking with the server further down, as it always has.
+        let license = LicenseModel()
+        self.license = license
+        // Usage counts, for people who said yes (`UsageCounts`). After the
+        // licence, whose plan every batch carries, and before anything that
+        // counts. A demo run never starts them, so it never sends or touches
+        // the waiting file the installed copy keeps.
+        UsageCounts.shared.context = { [weak license] in
+            UsageCounts.context(plan: license?.entitlement.plan ?? .free)
+        }
+        if !Self.isDemoMode { UsageCounts.shared.launch() }
+
         // A demo listens on a socket of its own; `SocketPath.listening(demo:)`
         // says why.
         let model = AppModel(bridge: BridgeServer(path: SocketPath.listening(demo: Self.isDemoMode)))
         self.model = model
+        model.oneAgentAtATime = license.entitlement.limits.oneAgentAtATime
         model.start()
 
         if Self.isDemoMode { model.seedDemo() }
@@ -185,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let clipboardWidget = ClipboardWidgetModel()
         self.clipboardWidget = clipboardWidget
+        clipboardWidget.plan = { [weak license] in license?.entitlement.limits }
         clipboardWidget.start()
 
         let dictation = DictationModel()
@@ -368,11 +389,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 InstalledApps.open(target)
             })
         assistant.onPerform = { voicePerformer.perform($0) }
-        // The trial-ended action card's "Subscribe": the subscribe window, the
-        // same place every other Subscribe in the notch goes.
-        assistant.onShowLicence = { [weak self] in self?.license?.showPurchase() }
 
-        dictation.onChooseInput = { [weak self] in self?.settings?.show(anchor: .microphoneInput) }
+        dictation.onChooseInput = { [weak self] in self?.appWindow?.show(anchor: .microphoneInput) }
         assistant.onRecordGate = { [weak model] request, outcome, _ in
             // `agent: "voice"` — a free string on `GateRecord`, so the log reads
             // back as what it was without pretending a session existed.
@@ -393,46 +411,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let repositoryWidget = RepositoryWidgetModel()
         self.repositoryWidget = repositoryWidget
 
-        let license = LicenseModel()
-        // Wired here rather than beside the other spoken-action closures because
-        // this is where the licence exists. Only a finished trial says no, and
-        // it says no to everything here: a hold to dictate or to ask is refused
-        // as it starts, and an action is not done. Typed questions get no
-        // answer either: the typing bar is not drawn, and the panel's widgets
-        // give way to the subscribe card (`LicenseBlockedView`). Every other
-        // licence state belongs to somebody who has paid, and none of them is
-        // an outage.
-        dictation.isEntitled = { [weak license] in
-            guard let entitlement = license?.entitlement else { return true }
-            return entitlement.allowsUse
-        }
-        assistant.isEntitled = { [weak license] in
-            guard let entitlement = license?.entitlement else { return true }
-            return entitlement.allowsUse
-        }
-        self.license = license
         license.start()
+        watchPlanLimits()
+        watchPlan()
         // Meeting notes online ask the licence server with the licence's
-        // token, for subscribers only. Does nothing unless switched on by hand.
+        // token, on a plan that writes them (`PlanLimits.writesNotesOnline`).
         let cloudNotes = CloudNotesService.shared
-        cloudNotes.entitlement = { [weak license] in license?.entitlement ?? .free }
+        cloudNotes.plan = { [weak license] in license?.entitlement.snapshot ?? .free }
         cloudNotes.access = { [weak license] in license?.notesAccess }
         cloudNotes.hasServer = { [weak license] in license?.hasServer ?? false }
         cloudNotes.start()
-        // Once the trial has ended, an agent's request goes straight back to
-        // its terminal rather than waiting on a card — see `GateHolding`. The
-        // value it starts from as well as every change: `init` has already
-        // read it.
-        license.onEntitlementChange = { [weak model] in model?.entitlementChanged($0) }
-        model.entitlementChanged(license.entitlement)
 
         // Reads every integration's hook status once, here, rather than from a
         // SwiftUI body — see `AgentsWidgetModel.hookStatuses`.
         // Before the widgets: `AppModel` and `DictationModel` both raise counts
         // through it, and a store handed over after the first approval would
         // start life already wrong.
-        let purchase = PurchaseFlow()
-
         let tally = UsageTallyStore()
         self.tally = tally
         model.tally = tally
@@ -459,23 +453,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WidgetArrangement.applyDashboardLayoutOnce()
         WidgetArrangement.applyHomeSoundLayoutOnce()
         var widgets: [any NotchWidget] = [
-            AgentsWidget(model: model, agents: agentsWidget,
-                         isEntitled: { [weak license] in
-                             guard let entitlement = license?.entitlement else { return true }
-                             return entitlement.allowsUse
-                         },
-                         onOpenSettings: { [weak license] in license?.showPurchase() },
-                         onEnterKey: { [weak license] in license?.showLicence(keyField: true) }),
+            AgentsWidget(model: model, agents: agentsWidget),
             RepositoryWidget(repository: repositoryWidget),
             CalendarWidget(calendar: calendarWidget,
-                           onChooseCalendars: { [weak self] in self?.settings?.show(anchor: .calendars) }),
+                           onChooseCalendars: { [weak self] in self?.appWindow?.show(anchor: .calendars) }),
             CallsWidget(meetings: model.meetings),
         ]
         #if AIRLOCK_GUIDE
         // Above the banner: with the guide on, asking is what Home is for.
         widgets.append(AskWidget(dictation: dictation, assistant: assistant,
                                  onType: { [weak self] in self?.notch?.toggleCommandBar() },
-                                 onOpenSettings: { [weak self] in self?.settings?.show(anchor: .commandBar) }))
+                                 onOpenSettings: { [weak self] in self?.appWindow?.show(anchor: .commandBar) }))
         #endif
         widgets += [
             // Order inside a placement is panel order, and the banner is the
@@ -500,6 +488,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     repository: repositoryWidget, license: license,
                                     registry: registry)
         self.notch = notch
+        // What is set up, for the once-a-day count. Read when it is sent,
+        // never stored.
+        UsageCounts.shared.daySnapshot = { [weak license, weak agentsWidget, weak dictation, weak model] in
+            .dayActive(plan: license?.entitlement.plan ?? .free,
+                       widgetsOn: registry.widgets.filter { $0.isToggleable && $0.isEnabled }.count,
+                       agentsConnected: agentsWidget?.connection.connected.count ?? 0,
+                       dictationOn: dictation?.isEnabled ?? false,
+                       callNotesOn: model?.meetings.isEnabled ?? false,
+                       crashReportsOn: CrashReporter.shared.isEnabled)
+        }
         // Card C4's scripted check, on the packaged app:
         //   open /Applications/Airlock.app --args --frame-loop 200
         // Started after a few seconds so the island has settled from launch.
@@ -540,22 +538,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agentsWidget.onHooksInstalled = { [weak usageConnection, weak appearance] in
             usageConnection?.sync(wantsUsage: appearance?.showsClaudeUsage ?? false)
         }
-        settings = SettingsWindowController(model: settingsModel, media: media,
-                                            sound: sound, appVolume: appVolume,
-                                            calendar: calendarWidget,
-                                            assistant: assistant,
-                                            battery: batteryWidget, system: systemWidget,
-                                            tray: trayWidget, clipboard: clipboardWidget,
-                                            dictation: dictation, appearance: appearance,
-                                            agents: agentsWidget, repository: repositoryWidget,
-                                            license: license, updater: updater,
-                                            usage: usageConnection,
-                                            controls: systemControls,
-                                            usageAlerts: model.usageAlerts)
-        notch.onOpenSettings = { [weak self] in self?.settings?.show() }
-        settings?.islandPreview = { [weak notch] in notch?.preview() ?? AnyView(EmptyView()) }
+        appWindow = AirlockWindowController(model: settingsModel, media: media,
+                                             sound: sound, appVolume: appVolume,
+                                             calendar: calendarWidget,
+                                             assistant: assistant,
+                                             battery: batteryWidget, system: systemWidget,
+                                             tray: trayWidget, clipboard: clipboardWidget,
+                                             dictation: dictation, appearance: appearance,
+                                             agents: agentsWidget, repository: repositoryWidget,
+                                             license: license, updater: updater,
+                                             usage: usageConnection,
+                                             controls: systemControls,
+                                             usageAlerts: model.usageAlerts)
+        // The calls are a page of the same window: the island's "Show",
+        // "Call Notes…" and a call's notification all land there.
+        appWindow?.calls = model.meetings.callsPage
+        notch.onOpenSettings = { [weak self] in self?.appWindow?.show() }
+        appWindow?.islandPreview = { [weak notch] in notch?.preview() ?? AnyView(EmptyView()) }
         #if AIRLOCK_GUIDE
-        self.guide?.onOpenSettings = { [weak self] in self?.settings?.show(pane: .general) }
+        self.guide?.onOpenSettings = { [weak self] in self?.appWindow?.show(pane: .general) }
         #endif
 
         // Clicking a notification lands on the pane that fixes what it reported.
@@ -568,27 +569,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A run with no app bundle has no center, and skips this.
         Notifications.center()?.delegate = notificationRouter
         Notifications.openSettings = { [weak self] pane, anchor in
-            if let anchor { self?.settings?.show(anchor: anchor) } else { self?.settings?.show(pane: pane) }
+            if let anchor { self?.appWindow?.show(anchor: anchor) } else { self?.appWindow?.show(pane: pane) }
         }
         // "Call notes ready" lands on that call's notes.
         Notifications.openCall = { [weak model] folder in model?.meetings.showCall(folder: folder) }
 
-        // Built here, after the settings window, because "I already have a key"
-        // hands off to its licence pane — and pointed at from the gate's
-        // "Subscribe and approve" and the trial card's buttons.
-        let purchaseWindow = PurchaseWindowController(
-            flow: purchase, license: license,
-            tally: { tally.tally },
-            pendingGate: { model.sessions.compactMap(\.pendingPermission?.command).first },
-            openKeyField: { [weak self] in self?.settings?.show(anchor: .licenceKey) })
-        self.purchaseWindow = purchaseWindow
-        license.onShowPurchase = { plan in purchaseWindow.show(plan: plan) }
-        license.onApplied = { purchaseWindow.licenceApplied() }
-        // The Licence page, never "whatever Settings page was open last".
-        license.onShowLicence = { [weak self] keyField in
-            if keyField { self?.settings?.show(anchor: .licenceKey) } else { self?.settings?.show(pane: .license) }
+        // Settings › Plans, never "whatever Settings page was open last": from
+        // the notch's cards, the call notes' plan buttons and the overdue line.
+        license.onShowPlans = { [weak self] keyField in
+            if keyField { self?.appWindow?.show(anchor: .licenceKey) } else { self?.appWindow?.show(pane: .license) }
         }
-        dictation.onSubscribe = { [weak license] in license?.showPurchase() }
+        model.meetings.onShowPlans = { [weak license] in license?.showPlans(from: "call_notes") }
+
+        // Free's reminders hear what the plan let go as it happens, and wait
+        // for the panel to open: never during a call, never over a question.
+        let reminders = license.reminders
+        // Usage counts hear them too, by the name of the row in `PlanLimits`.
+        clipboardWidget.onCopiesLetGo = { [weak reminders] count in
+            reminders?.copiesLetGo(count)
+            UsageCounts.shared.recordOnceADay(.freeLimitHit("clipboard_shows"), key: "clipboard_shows")
+        }
+        model.onPassedOver = { [weak reminders] asking, answering in
+            reminders?.agentAskedInTerminal(asking: asking, answering: answering)
+            UsageCounts.shared.record(.freeLimitHit("one_agent_at_a_time"))
+        }
+        model.meetings.onNotesStopped = { [weak reminders] in
+            reminders?.notesStopped()
+            UsageCounts.shared.record(.freeLimitHit("notes_listen_for"))
+        }
+        reminders.callOn = { [weak model] in
+            guard let model else { return false }
+            return model.calls.call != nil || (model.meetings.isEnabled && model.meetings.inPersonCall != nil)
+        }
+        reminders.agentAsking = { [weak model] in
+            model?.sessions.contains { session in
+                let status = SessionCardText.pillStatus(of: session)
+                return status == .needsAttention || status == .waitingQuestion
+            } ?? false
+        }
+        reminders.listenToTheIsland()
 
         let onboardingModel = OnboardingModel(settings: settingsModel, calendar: calendarWidget,
                                               dictation: dictation, clipboard: clipboardWidget,
@@ -626,14 +645,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the env form never reaches a bundled launch.
         if ProcessInfo.processInfo.environment["AIRLOCK_OPEN_SETTINGS"] != nil
             || ProcessInfo.processInfo.arguments.contains("--settings") {
-            settings?.show()
+            appWindow?.show()
         }
         // After the windows exist, so "Open Settings" has something to open —
         // and before onboarding, which a migrated install will not see anyway.
         presentPermissionNoticeIfNeeded()
         let firstRun = presentOnboardingIfNeeded(settingsModel)
         let whatsNew = presentWhatsNewIfNeeded(isFirstRun: firstRun)
-        presentCrashQuestionIfNeeded(panelTaken: firstRun || whatsNew)
+        let usageQuestion = presentUsageQuestionIfNeeded(panelTaken: firstRun || whatsNew)
+        presentCrashQuestionIfNeeded(panelTaken: firstRun || whatsNew || usageQuestion)
+    }
+
+    /// The question about usage counts, once, for a copy that finished setup
+    /// before counts existed (`UsageCounts.hasQuestionWaiting`); a new copy is
+    /// asked on setup's first screen. Never over setup or a new version's
+    /// card: "Got it" on that card brings it up instead
+    /// (`NotchController.whatsNewGotIt`). Forced with `--args
+    /// --usage-question`, which never marks it asked.
+    /// - Returns: whether the question is now on screen.
+    private func presentUsageQuestionIfNeeded(panelTaken: Bool) -> Bool {
+        guard !Self.isDemoMode, NotchScreen.target != nil else { return false }
+        if ProcessInfo.processInfo.arguments.contains("--usage-question") {
+            notch?.showUsageQuestion(remember: false)
+            return true
+        }
+        guard !panelTaken, UsageCounts.shared.hasQuestionWaiting else { return false }
+        notch?.showUsageQuestion(remember: true)
+        return true
     }
 
     /// The question about crash reports, after a run that ended unexpectedly
@@ -787,6 +825,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // with the external-display fallback off leaves nowhere to draw, and a
         // first run that silently does nothing is the exact failure this
         // function exists to prevent.
+        onboardingModel?.beganFirstRun()
         if let onboardingModel, NotchScreen.target != nil {
             notch?.beginOnboarding(onboardingModel)
         } else {
@@ -873,7 +912,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let notice = PermissionsAgainWindowController()
         permissionsAgain = notice
         notice.show(guideOn: SettingsPane.guideIsOn) { [weak self] in
-            self?.settings?.show(pane: .permissions)
+            self?.appWindow?.show(pane: .permissions)
         }
     }
 
@@ -1132,6 +1171,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.title = reading ? "Reading a Recording…" : "Add Recording…"
     }
 
+    /// A plan change reaches what it limits at once, not at the next launch:
+    /// the clipboard shows or hides its older copies, and the bridge starts or
+    /// stops answering one agent at a time. Neither takes away anything open.
+    ///
+    /// Re-arms itself: `withObservationTracking` fires once per change.
+    private func watchPlanLimits() {
+        guard let license else { return }
+        let limits = withObservationTracking {
+            license.entitlement.limits
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.watchPlanLimits() }
+        }
+        guard limits != planLimits else { return }
+        let first = planLimits == nil
+        planLimits = limits
+        model?.oneAgentAtATime = limits.oneAgentAtATime
+        if !first { clipboardWidget?.planDidChange() }
+    }
+
+    /// The plan at the last look, so usage counts hear a change and not the
+    /// first read at launch.
+    private var countedPlan: AirlockPlan?
+
+    private func watchPlan() {
+        guard let license else { return }
+        let plan = withObservationTracking {
+            license.entitlement.plan
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.watchPlan() }
+        }
+        defer { countedPlan = plan }
+        guard let before = countedPlan, before != plan else { return }
+        UsageCounts.shared.record(.planChanged(from: before, to: plan))
+    }
+
     #if AIRLOCK_GUIDE
     // MARK: - The guide in the menu bar (card 3.08)
 
@@ -1214,7 +1288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if assistant?.commandBarEnabled == true {
             notch?.toggleCommandBar()
         } else {
-            settings?.show(anchor: .commandBar)
+            appWindow?.show(anchor: .commandBar)
         }
     }
 
@@ -1312,16 +1386,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A click on the Dock icon, or Airlock opened again from Finder or
     /// Spotlight while it runs. `hasVisibleWindows` is no help: the notch
     /// panel is always a visible window. So the full windows are asked
-    /// instead, and a minimised one comes back; with none, the click does
-    /// what it always did, which is nothing beyond bringing Airlock forward.
+    /// instead, and a minimised one comes back; with none, the Airlock
+    /// window opens where it was left, calls or a Settings page.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        !DockPresenceController.shared.reopen()
+        if !DockPresenceController.shared.reopen() { appWindow?.showWhereLeft() }
+        return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         // This run ended the way a run should, so the next launch does not
         // ask about crash reports. See `CleanExitMarker`.
         CrashReporter.shared.noteCleanExit()
+        // Counts still waiting go to a file and are sent after the next launch.
+        UsageCounts.shared.willQuit()
         model?.persistNow()
         // Saves are debounced by a second, so a quit inside that second would
         // otherwise lose whatever you last copied — or the last gate answered.
@@ -1330,7 +1407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePanel() { notch?.toggle() }
-    @objc private func openSettings() { settings?.show() }
+    @objc private func openSettings() { appWindow?.show() }
     @objc private func openCallNotes() { model?.meetings.showPastCalls() }
     @objc private func pressNotesButton() { model?.meetings.pressHandButton() }
     @objc private func addRecording() { model?.meetings.addRecording() }

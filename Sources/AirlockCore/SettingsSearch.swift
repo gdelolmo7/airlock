@@ -13,7 +13,8 @@ public enum SettingsSearch {
     /// the page name — so adding a word narrows the list the way people expect.
     /// Case, accents and word order do not matter. A word counts when a word of
     /// the setting starts with it, so "short" finds "shortcut" while "cut"
-    /// does not find it.
+    /// does not find it. In the same place, the whole word beats the start of
+    /// a longer one: "pro" is the Pro plan before it is "problem".
     public static func score(query: String, title: String, keywords: [String], page: String) -> Int? {
         let words = Self.words(query)
         guard !words.isEmpty else { return nil }
@@ -22,14 +23,18 @@ public enum SettingsSearch {
         let pageWords = Self.words(page)
         var total = 0
         for word in words {
-            if titleWords.first?.hasPrefix(word) == true {
-                total += 4
-            } else if titleWords.contains(where: { $0.hasPrefix(word) }) {
-                total += 3
-            } else if keywordWords.contains(where: { $0.hasPrefix(word) }) {
-                total += 2
-            } else if pageWords.contains(where: { $0.hasPrefix(word) }) {
-                total += 1
+            // Each place is worth two, and a whole word one more, so the
+            // whole word never lifts a match above the next place up.
+            let starts = { (candidate: String) in candidate.hasPrefix(word) }
+            let whole = { (candidates: [String]) in candidates.contains(word) ? 1 : 0 }
+            if let first = titleWords.first, starts(first) {
+                total += 8 + (first == word ? 1 : 0)
+            } else if titleWords.contains(where: starts) {
+                total += 6 + whole(titleWords)
+            } else if keywordWords.contains(where: starts) {
+                total += 4 + whole(keywordWords)
+            } else if pageWords.contains(where: starts) {
+                total += 2 + whole(pageWords)
             } else {
                 return nil
             }

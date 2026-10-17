@@ -34,6 +34,10 @@ enum GalleryClipboard {
             panel("C11", "Image file gone (the row says so; picking it leaves the clipboard alone)",
                   .init(history: ClipboardHistory(items: [missingImage] + textOnly),
                         missingPictures: ["state-gallery-deleted.png"], pictureGoneNotice: true)),
+            // Free at its limit: the newest copy pushed the oldest out, and a
+            // quiet line under the list says what Plus keeps. Never a sound.
+            panel("C12", "Free, full at \(PlanLimits.freeClipboard): the line under the list",
+                  .init(history: ClipboardHistory(items: fullOnFree), planShows: PlanLimits.freeClipboard)),
         ]
     }
 
@@ -52,13 +56,14 @@ enum GalleryClipboard {
         var history = ClipboardHistory(items: GalleryClipboard.items)
         var missingPictures: Set<String> = []
         var pictureGoneNotice = false
+        var planShows: Int?
 
         func model() -> ClipboardWidgetModel {
             ClipboardWidgetModel(previewing: history, filter: filter, query: query,
                                  isEnabled: isEnabled, pastesAutomatically: pastesAutomatically,
                                  pasteTrusted: pasteTrusted, lastSkip: lastSkip,
                                  hotkeyError: hotkeyError, missingPictures: missingPictures,
-                                 pictureGoneNotice: pictureGoneNotice)
+                                 pictureGoneNotice: pictureGoneNotice, planShows: planShows)
         }
     }
 
@@ -114,4 +119,13 @@ enum GalleryClipboard {
         sourceAppName: "Preview")
 
     static let items: [ClipboardItem] = [textOnly[0], textOnly[1], image, textOnly[2], file, textOnly[3]]
+
+    /// Free's whole history: the pinned address, then exactly as many copies
+    /// as Free keeps, the made-up ones first and older notes behind them.
+    private static let fullOnFree: [ClipboardItem] = {
+        let older = (0..<(PlanLimits.freeClipboard - items.count + 1)).map {
+            text("Meeting note \($0 + 1)", from: "Notes", minutesAgo: 30 + Double($0) * 7)
+        }
+        return items + older
+    }()
 }

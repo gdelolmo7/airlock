@@ -33,6 +33,10 @@ public enum DictationHoldNotice: Equatable, Sendable {
     case nothingCaught
     /// Nothing in front could take text, so the words went to the clipboard.
     case copiedNowhereToType
+    /// A key or a click came while the person was talking. The hold kept
+    /// listening, and the words went to the clipboard rather than to wherever
+    /// that key or click left the cursor (`HoldInterruption`).
+    case copiedAfterKeyOrClick
     /// The hold reached `HoldGesture.maximumHold` and was typed up to there.
     case reachedLimit
     /// Tidying up failed or was refused, so the words went in as spoken.
@@ -41,11 +45,6 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// which is why this hold took a second to open. `holder` is that app's
     /// name when it can be found.
     case secureInput(holder: String?)
-    /// The trial is over (or the subscription ended), so the hold was refused
-    /// before the microphone opened. It used to open the notch on a bare
-    /// "Tidying up…" strip, or on nothing at all, and the only sentence about
-    /// it was in Settings.
-    case noSubscription
 
     /// The one thing the card's button does, when it has one.
     public enum Fix: Equatable, Sendable {
@@ -53,14 +52,11 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case openMicrophoneSettings
         /// Settings › Dictation, at the input picker.
         case chooseInput
-        /// The subscribe window, which also takes a key somebody already has.
-        case subscribe
 
         public var button: String {
             switch self {
             case .openMicrophoneSettings: return "Open System Settings"
             case .chooseInput: return "Choose input…"
-            case .subscribe: return "Subscribe"
             }
         }
     }
@@ -94,6 +90,8 @@ public enum DictationHoldNotice: Equatable, Sendable {
             return "Didn't catch anything. Hold the key and try again."
         case .copiedNowhereToType:
             return "There was nowhere to type, so your words are on the clipboard."
+        case .copiedAfterKeyOrClick:
+            return "You pressed a key or clicked while talking, so your words are on the clipboard."
         case .reachedLimit:
             return "Dictation stops at two minutes. Everything before that was typed."
         case .tidyingFailed:
@@ -101,8 +99,6 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case .secureInput(let holder):
             return "\(holder ?? "Another app") is keeping your typing private, "
                 + "so the notch waits a second before it opens."
-        case .noSubscription:
-            return Self.noSubscriptionSentence
         }
     }
 
@@ -110,18 +106,16 @@ public enum DictationHoldNotice: Equatable, Sendable {
         switch self {
         case .microphoneDenied: return .openMicrophoneSettings
         case .microphoneFailedToStart: return .chooseInput
-        case .noSubscription: return .subscribe
         default: return nil
         }
     }
 
     public var tone: Tone {
         switch self {
-        case .microphoneDenied, .noSpeechModel, .notBundled, .microphoneFailedToStart,
-             .noSubscription:
+        case .microphoneDenied, .noSpeechModel, .notBundled, .microphoneFailedToStart:
             return .problem
-        case .microphoneAllowed, .nothingCaught, .copiedNowhereToType, .reachedLimit,
-             .tidyingFailed, .secureInput:
+        case .microphoneAllowed, .nothingCaught, .copiedNowhereToType, .copiedAfterKeyOrClick,
+             .reachedLimit, .tidyingFailed, .secureInput:
             return .note
         }
     }
@@ -136,11 +130,10 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case .microphoneFailedToStart: return "mic.badge.xmark"
         case .microphoneAllowed: return "mic"
         case .nothingCaught: return "ear"
-        case .copiedNowhereToType: return "doc.on.clipboard"
+        case .copiedNowhereToType, .copiedAfterKeyOrClick: return "doc.on.clipboard"
         case .reachedLimit: return "timer"
         case .tidyingFailed: return "wand.and.stars"
         case .secureInput: return "lock"
-        case .noSubscription: return "clock.badge.xmark"
         }
     }
 
@@ -173,21 +166,18 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// One at a time, so where the words went comes first: a sentence that
     /// was not typed matters more than one typed at two minutes or typed
     /// untidied, and saying "everything before that was typed" over words
-    /// that went to the clipboard would be false.
-    public static func afterDelivery(copied: Bool, reachedLimit: Bool,
+    /// that went to the clipboard would be false. `afterKeyOrClick` says why
+    /// they were copied, when they were.
+    public static func afterDelivery(copied: Bool, afterKeyOrClick: Bool = false,
+                                     reachedLimit: Bool,
                                      tidyingFailed: Bool) -> DictationHoldNotice? {
-        if copied { return .copiedNowhereToType }
+        if copied { return afterKeyOrClick ? .copiedAfterKeyOrClick : .copiedNowhereToType }
         if reachedLimit { return .reachedLimit }
         if tidyingFailed { return .tidyingFailed }
         return nil
     }
 
     // MARK: - Sentences shared with Settings
-
-    /// Shared with `DictationModel.statusMessage`, which Settings › Voice
-    /// shows. Says what stopped, not whose fault it is — true for a trial that
-    /// ran out and for a subscription that ended.
-    public static let noSubscriptionSentence = "Dictation and asking need a subscription."
 
     /// Shared with `DictationReadiness.Blocker.message`, so the notch and
     /// Settings never word it two ways.

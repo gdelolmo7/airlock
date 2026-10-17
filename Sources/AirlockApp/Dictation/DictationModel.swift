@@ -461,9 +461,6 @@ final class DictationModel {
 
     // MARK: - The notice card
 
-    /// Opens the subscribe window. Wired by whoever owns the licence.
-    @ObservationIgnored var onSubscribe: (() -> Void)?
-
     /// The notice card's one button.
     func fixHoldNotice() {
         guard let fix = holdNotice?.fix else { return }
@@ -475,8 +472,6 @@ final class DictationModel {
             NSWorkspace.shared.open(url)
         case .chooseInput:
             chooseInput()
-        case .subscribe:
-            onSubscribe?()
         }
     }
 
@@ -580,7 +575,12 @@ final class DictationModel {
     }
 
     /// What cleanup can and cannot do on this Mac.
-    var cleanupAvailability: ModelAvailability { cleanup.availability }
+    var cleanupAvailability: ModelAvailability { previewCleanupAvailability ?? cleanup.availability }
+
+    /// What `cleanupAvailability` says instead of asking the system. State
+    /// gallery only, like `AssistantModel.previewAvailability`: nil
+    /// everywhere else.
+    @ObservationIgnored var previewCleanupAvailability: ModelAvailability?
     private(set) var availableLocales: [Locale] = []
     private(set) var readiness = DictationReadiness(blocker: .disabled, canType: false,
                                                     canWatchHoldKey: true)
@@ -614,6 +614,10 @@ final class DictationModel {
     @ObservationIgnored private let capture = AudioCapture()
     @ObservationIgnored private let session = SpeechSession()
     @ObservationIgnored private var gesture = HoldGesture()
+    /// Scrolls, keys and clicks during the hold in progress — see
+    /// `HoldInterruption`. Reset when a hold starts, and handed to the
+    /// delivery by value, since the next hold may start before it runs.
+    @ObservationIgnored private var interruptions = HoldInterruptions()
     /// Bumped whenever a hold is abandoned out from under itself — see
     /// `recoverFromStall`. A teardown that finally returns compares the number
     /// it started with and stays out of the way if the world has moved on.
@@ -801,12 +805,9 @@ final class DictationModel {
                 dictationLog("hold UP")
                 self?.handle(.keyUp(at: Date()))
             },
-            onCancel: { [weak self] in
-                self?.handle(.cancel)
+            onInterrupt: { [weak self] input in
+                self?.interrupted(by: input, on: "hold") ?? true
             })
-        holdMonitor.onCancelReason = { reason in
-            dictationLog("hold CANCELLED — \(reason)")
-        }
         dictationLog("holdMonitor(\(holdKey.displayName)) → \(ok ? "ok" : "FAILED")")
 
         // The ask key is a second tap on a different modifier. Both feed ONE
@@ -824,12 +825,9 @@ final class DictationModel {
                     dictationLog("ask UP")
                     self?.handle(.keyUp(at: Date()))
                 },
-                onCancel: { [weak self] in
-                    self?.handle(.cancel)
+                onInterrupt: { [weak self] input in
+                    self?.interrupted(by: input, on: "ask") ?? true
                 })
-            askMonitor.onCancelReason = { reason in
-                dictationLog("ask CANCELLED — \(reason)")
-            }
             dictationLog("askMonitor(\(askKey.displayName)) → \(askOK ? "ok" : "FAILED")")
         }
 
@@ -905,16 +903,6 @@ final class DictationModel {
         }
     }
 
-    /// Start a hold with a stated intent, or ignore it if one is already live.
-    ///
-    /// The guard is what makes two taps safe: holding both modifiers cannot open
-    /// a second `AudioCapture` on the same microphone, and whichever key went
-    /// down first owns the hold.
-    /// Whether voice is paid up. Voice is the second paid surface — see
-    /// `Entitlement.allowsUse` — and unlike the agent surface it has no
-    /// card of its own to put a message on, because a hold happens while you are
-    /// looking at another app entirely.
-    @ObservationIgnored var isEntitled: (() -> Bool)?
     /// Lifetime counts for the trial's last-day card — see `UsageTally`.
     @ObservationIgnored var tally: UsageTallyStore?
 
@@ -938,24 +926,14 @@ final class DictationModel {
         return .secureInput(holder: holder)
     }
 
+    /// Start a hold with a stated intent, or ignore it if one is already live.
+    ///
+    /// The guard is what makes two taps safe: holding both modifiers cannot open
+    /// a second `AudioCapture` on the same microphone, and whichever key went
+    /// down first owns the hold.
     private func beginHold(_ intent: DictationIntent) {
         let secureInput = noteSecureInputIfHeld()
         let blind = secureInput != nil
-        // Refused at the START of the gesture, not at delivery. Transcribing a
-        // sentence and then throwing it away would spend the microphone, the
-        // model and your breath before saying no — and the status line is the
-        // only surface a refused hold has.
-        //
-        // Said in the notch, once the hold has lasted long enough to be one —
-        // a tap is not a request. It used to open the panel on a bare strip
-        // that read like a hang, with the only sentence in Settings.
-        guard isEntitled?() ?? true else {
-            statusMessage = DictationHoldNotice.noSubscriptionSentence
-            dictationLog("  \(intent.rawValue) refused — no subscription")
-            showNotice(.noSubscription, notBefore: Date().addingTimeInterval(
-                blind ? HoldGesture.blindHold : HoldGesture.minimumHold))
-            return
-        }
         if isListening {
             // Listening with a STOPPED microphone is not a state any gesture can
             // reach — every teardown stops the engine first and clears the flag
@@ -1015,6 +993,7 @@ final class DictationModel {
         // showing the panel — moves.
         if !gesture.isRecording {
             gesture = HoldGesture(floor: blind ? HoldGesture.blindHold : HoldGesture.minimumHold)
+            interruptions = HoldInterruptions()
         }
         // Immediately. A 120ms grace was tried here to keep a fast ⌥⌫ from ever
         // opening the microphone, and it clipped the first syllable of anyone
@@ -1023,6 +1002,36 @@ final class DictationModel {
         // indicator is a cosmetic annoyance, and the chord cancel in
         // `HoldKeyMonitor` is what actually stops chords becoming dictations.
         handle(.keyDown(at: Date()))
+    }
+
+    /// A scroll, key, click or second modifier while the hold key is down.
+    /// Returns true when it ended the hold.
+    ///
+    /// Words heard so far decide it (`HoldInterruption`): before any, a key or
+    /// click is a shortcut and the hold is called off as it always was; after
+    /// some, nothing the other hand does throws them away.
+    private func interrupted(by input: HoldInterruption, on key: String) -> Bool {
+        // Not recording: a blocked hold waiting to show its notice, or one
+        // already finished at the limit. The cancel still calls off the
+        // notice, which is all it ever did here.
+        guard gesture.isRecording else {
+            handle(.cancel)
+            return true
+        }
+        let heardWords = !session.transcript.display
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        switch interruptions.note(input, heardWords: heardWords) {
+        case .carryOn:
+            dictationLog("\(key) \(input.rawValue) — still listening")
+            return false
+        case .carryOnThenCopy:
+            dictationLog("\(key) \(input.rawValue) after words — still listening; they'll be copied, not typed")
+            return false
+        case .discard:
+            dictationLog("\(key) CANCELLED — \(input.rawValue) before any words")
+            handle(.cancel)
+            return true
+        }
     }
 
     private func handle(_ event: HoldGesture.Event) {
@@ -1043,7 +1052,9 @@ final class DictationModel {
             enqueue { await self.beginListening() }
         case .finish(let reason):
             dictationLog("  effect=finish(\(reason)) (queued)")
-            enqueue { await self.finishListening(reason) }
+            // Now, not inside the queued work: a new hold resets it.
+            let interruptions = self.interruptions
+            enqueue { await self.finishListening(reason, interruptions: interruptions) }
         case .discard(let reason):
             dictationLog("  effect=discard(\(reason)) (queued)")
             enqueue { await self.discardListening(reason) }
@@ -1150,7 +1161,8 @@ final class DictationModel {
         }
     }
 
-    private func finishListening(_ reason: HoldGesture.Finish) async {
+    private func finishListening(_ reason: HoldGesture.Finish,
+                                 interruptions: HoldInterruptions) async {
         let generation = holdGeneration
         stopTimers()
         // MUST come first: `finalizeAndFinishThroughEndOfInput` waits on the
@@ -1195,12 +1207,13 @@ final class DictationModel {
         // The microphone and the analyzer are finished with by this point;
         // cleanup and typing need only the text. So they run outside, and the
         // chain is free for the next hold immediately.
-        deliver(heard, peak: peak, listenedFor: listenedFor, reason: reason)
+        deliver(heard, peak: peak, listenedFor: listenedFor, reason: reason,
+                interruptions: interruptions)
     }
 
     /// Cleanup, then keystrokes. Runs off the gesture chain — see `finishListening`.
     private func deliver(_ heard: String, peak: Float, listenedFor: TimeInterval,
-                         reason: HoldGesture.Finish) {
+                         reason: HoldGesture.Finish, interruptions: HoldInterruptions) {
         let previous = deliveryTask
         deliveryTask = Task { @MainActor [weak self] in
             // Still serialised against ITSELF: two transcripts typing into the
@@ -1210,6 +1223,13 @@ final class DictationModel {
 
             dictationLog("heard \(DictationDiagnostics.redact(heard)) peak=\(peak)")
             guard let spoken = DictationText.prepared(heard) else {
+                // A hold that only scrolled — ⌃-scroll zooming the screen —
+                // was never dictation, so it gets no card.
+                if interruptions.endsQuietlyWhenSilent {
+                    self.statusMessage = nil
+                    self.setIndicator(false)
+                    return
+                }
                 // Peak level is what separates "you said nothing" from "no
                 // audio arrived at all" — identical outcomes otherwise, and only
                 // one is the user's doing. A live level with no words means the
@@ -1249,7 +1269,8 @@ final class DictationModel {
                 assistant.ask(spoken)
                 return
             }
-            await self.typeOut(spoken, reason: reason)
+            await self.typeOut(spoken, reason: reason,
+                               copyInstead: interruptions.copiesInstead)
         }
     }
 
@@ -1312,7 +1333,11 @@ final class DictationModel {
     /// Cleanup, then keystrokes — or the clipboard when there is nowhere to
     /// type. The tail of every dictation, and of an ask the card sent back to
     /// be typed after all.
-    private func typeOut(_ spoken: String, reason: HoldGesture.Finish) async {
+    ///
+    /// `copyInstead`: a key or click came while the person was talking, so the
+    /// cursor may not be where it was — the words go to the clipboard.
+    private func typeOut(_ spoken: String, reason: HoldGesture.Finish,
+                         copyInstead: Bool = false) async {
         // Between transcription and typing, never after: the text that
         // reaches the document and the text recorded as "last dictation"
         // have to be the same thing, or the recovery path shows something
@@ -1339,7 +1364,7 @@ final class DictationModel {
         // clipboard instead — recoverable, visible, and inert until pasted.
         // One decision, in Core, tested — see `DictationDelivery`. Written as
         // two separate `if`s here, the second one lost the transcript.
-        let settled = self.settledRoute()
+        let settled = copyInstead ? .copy : self.settledRoute()
         let delivery = DictationDelivery.decide(route: settled,
                                                 isAccessibilityTrusted: TypeService.isTrusted)
         let copies = delivery == .copy && settled == .copy
@@ -1348,6 +1373,7 @@ final class DictationModel {
         // to say about this hold, which takes the panel's place instead of
         // closing it and opening it again a moment later.
         if let notice = DictationHoldNotice.afterDelivery(copied: copies,
+                                                          afterKeyOrClick: copyInstead,
                                                           reachedLimit: reason == .reachedLimit,
                                                           tidyingFailed: tidyingFailed) {
             self.showNotice(notice)
@@ -1356,9 +1382,12 @@ final class DictationModel {
         }
 
         if copies {
-            dictationLog("copying \(DictationDiagnostics.redact(text)) — nowhere to type")
+            dictationLog("copying \(DictationDiagnostics.redact(text)) — "
+                         + (copyInstead ? "a key or click came while talking" : "nowhere to type"))
             self.onCopyTranscript?(text)
-            self.statusMessage = "Nothing to type into — copied to your clipboard."
+            self.statusMessage = copyInstead
+                ? "You pressed a key or clicked while talking — copied to your clipboard."
+                : "Nothing to type into — copied to your clipboard."
             return
         }
 
@@ -1414,6 +1443,7 @@ final class DictationModel {
         // ended: a transcript that failed to type is not a dictation the
         // app did for you, and the trial card must not claim it.
         self.tally?.recordDictation()
+        UsageCounts.shared.record(.used(.dictation))
         self.statusMessage = reason == .reachedLimit
             ? "Stopped at the two-minute limit." : nil
     }

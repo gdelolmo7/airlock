@@ -269,15 +269,33 @@ struct AssistantView: View {
     /// `ModelAvailability` already knows which of the two it is; the second
     /// sentence is the part that matters and is the same either way.
     private var noModelMessage: String {
-        let cause = assistant.availability == .deviceNotEligible
-            ? "This Mac can't run Apple's on-device model, so there is nothing to answer with."
-            : "Apple Intelligence isn't available on this Mac, so there is no on-device model to answer with."
-        return cause + " Asking still works — it just has to go to Claude Code."
+        if assistant.availability == .needsAppleIntelligence {
+            // Switched off, so it can be switched on: the button beside it
+            // goes straight there. No plan answers online instead.
+            return "Asking needs Apple Intelligence, which is switched off on this Mac. "
+                + "It stays on your Mac on every plan."
+        }
+        return "This Mac can't run Apple's on-device model, so there is nothing to answer with. "
+            + "Asking still works — it just has to go to Claude Code."
+    }
+
+    /// Apple Intelligence is off, not missing: the one fix is a switch in
+    /// System Settings, so the answer offers the way there first.
+    private var canTurnOnModel: Bool {
+        assistant.failure != nil && assistant.availability == .needsAppleIntelligence
     }
 
     @ViewBuilder
     private var actions: some View {
         HStack(spacing: 6) {
+            if canTurnOnModel, let url = AppleIntelligenceSetup.Button.openSystemSettings.url {
+                action(AppleIntelligenceSetup.Button.openSystemSettings.title,
+                       symbol: "gearshape", prominent: true) {
+                    NSWorkspace.shared.open(url)
+                    assistant.dismiss()
+                }
+            }
+
             if !assistant.isStreaming, !assistant.answer.isEmpty {
                 action(copied ? "Copied" : "Copy",
                        symbol: copied ? "checkmark" : "doc.on.doc") {
@@ -292,7 +310,8 @@ struct AssistantView: View {
             // answer from the calls: Claude Code would take the question off
             // the Mac, and it cannot hear the calls anyway.
             if assistant.offersAgentHandOff(), !assistant.answersFromCalls {
-                action("Ask Claude Code", symbol: "terminal", prominent: assistant.failure != nil) {
+                action(canTurnOnModel ? "Ask Claude Code instead" : "Ask Claude Code", symbol: "terminal",
+                       prominent: assistant.failure != nil && !canTurnOnModel) {
                     assistant.escalate()
                 }
             }
@@ -317,7 +336,7 @@ struct AssistantView: View {
             // so switching asking off costs nothing you are currently getting.
             // Without this line "Turn asking off" reads as switching off the
             // hold-to-talk key people actually rely on.
-            Text("dictation still types")
+            Text("Dictation still types wherever you are.")
                 .font(Theme.chrome(10))
                 .foregroundStyle(Theme.textTertiary)
         }

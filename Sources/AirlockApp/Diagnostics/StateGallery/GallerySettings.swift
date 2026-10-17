@@ -15,8 +15,13 @@ enum GallerySettings {
 
     static var states: [GalleryState] {
         [
-            GalleryState("X1", area, "Window: pages down the side, Voice open", ground: .window, width: 760) {
+            GalleryState("X1", area, "Window: Calls, then the pages down the side, Voice open", ground: .window,
+                         width: AirlockWindowView.firstSize.width) {
                 window
+            },
+            GalleryState("X1a", area, "Window: Calls chosen, a call's notes beside the list", ground: .window,
+                         width: AirlockWindowView.firstSize.width) {
+                callsWindow
             },
             .notYet("X2", area, "Search: nothing found / results",
                     why: "What is typed in the search box is the window's private state; there is no way to set it."),
@@ -33,6 +38,16 @@ enum GallerySettings {
                     CrashReportsSection(isOn: .constant(false))
                     LookGroupLabel("Crash reports")
                     ForEach(CrashReportsSection.notes, id: \.self) { LookNote($0) }
+                }
+            },
+            GalleryState("X4b", area, "General: Share usage counts, and what a count is", ground: .window,
+                         width: paneWidth) {
+                // Off as it ships, then the notes under More options. Only a
+                // build with somewhere to send shows it.
+                LookColumn {
+                    UsageCountsSection(isOn: .constant(false))
+                    LookGroupLabel("Usage counts")
+                    ForEach(UsageCountsSection.notes, id: \.self) { LookNote($0) }
                 }
             },
             GalleryState("X5", area, "General: Health", ground: .window, width: paneWidth) {
@@ -68,6 +83,16 @@ enum GallerySettings {
                          ground: .window, width: paneWidth) {
                 voice(moreOptions: true, height: 2300, store: catalanCallsStore, callListeners: catalanListeners)
             },
+            // Dictation types either way; only the tidy-up and asking are
+            // out of reach, and each says so with the way to turn it on.
+            GalleryState("X15b", area, "Voice: Apple Intelligence switched off, tidying and asking say so",
+                         ground: .window, width: paneWidth) {
+                voice(moreOptions: true, height: 2200, model: .needsAppleIntelligence)
+            },
+            GalleryState("X15c", area, "Voice: a Mac that can't run Apple Intelligence",
+                         ground: .window, width: paneWidth) {
+                voice(moreOptions: false, height: 560, model: .deviceNotEligible)
+            },
             .notYet("X16", area, "Voice: Input Monitoring stale",
                     why: "The hold key's fault is private to the dictation model; the row is the same Fix as X34, drawn there."),
             GalleryState("X17", area, "Voice: more options open", ground: .window, width: paneWidth) {
@@ -91,6 +116,10 @@ enum GallerySettings {
             },
             GalleryState("X24", area, "Agents: connected / not", ground: .window, width: paneWidth) {
                 agents(mixed)
+            },
+            GalleryState("X24a", area, "Agents: on Free, every agent from the notch carries a Plus tag",
+                         ground: .window, width: paneWidth) {
+                agents(mixed, license: LicenseModel(previewing: .free))
             },
             GalleryState("X25", area, "Agents: conflict", ground: .window, width: paneWidth) {
                 agents(conflicted)
@@ -164,6 +193,11 @@ enum GallerySettings {
                 voice(moreOptions: false, height: 740, store: callNotesStore,
                       knownWords: ["Brightwell", "Velaroja", "Quintela", "Rosamar Ortiz", "Zentrix CRM"])
             },
+            GalleryState("X41b", area, "Voice: on Free, notes written online carry a Plus tag", ground: .window,
+                         width: paneWidth) {
+                voice(moreOptions: false, height: 760, store: callNotesStore,
+                      license: LicenseModel(previewing: .free))
+            },
         ]
     }
 
@@ -192,7 +226,8 @@ enum GallerySettings {
 
     // MARK: - Fixtures
 
-    /// `SettingsView`'s detail column: its 780pt frame less the 204pt sidebar.
+    /// About the width a page is given in the Airlock window: `LookPage`
+    /// stops growing at 560.
     private static let paneWidth: CGFloat = 576
 
     private static let mixed: [SettingsModel.AgentRow] = [
@@ -284,10 +319,12 @@ enum GallerySettings {
             .frame(height: moreOptions ? 1900 : 1100)
     }
 
+    /// With no `license` the page is drawn the way it was before plans: no tag.
     private static func agents(_ rows: [SettingsModel.AgentRow], policy: SettingsModel.PolicyInfo = noPolicy,
-                               advanced: Bool = false) -> some View {
+                               advanced: Bool = false, license: LicenseModel? = nil) -> some View {
         AgentsPane(moreOptions: advanced)
             .environment(SettingsModel(previewing: rows, policy: policy))
+            .environment(license)
             .environment(AgentsWidgetModel(previewing: .hooksInstalled))
             .environment(DictationModel())
             .environment(UsageAlertModel())
@@ -319,11 +356,18 @@ enum GallerySettings {
     /// back to the front, and neither happens in an export.
     /// `knownWords` stands in for the saved list, so no picture shows this
     /// Mac's own words.
+    /// `model` stands in for what Apple's on-device model can do here.
     private static func voice(moreOptions: Bool, height: CGFloat, store: UserDefaults = plainStore,
-                              callListeners: CallListeners? = nil, knownWords: [String] = []) -> some View {
-        DictationPane(moreOptions: moreOptions, callListeners: callListeners, knownWords: knownWords)
-            .environment(DictationModel())
-            .environment(AssistantModel())
+                              callListeners: CallListeners? = nil, knownWords: [String] = [],
+                              model: ModelAvailability? = nil, license: LicenseModel? = nil) -> some View {
+        let dictation = DictationModel()
+        dictation.previewCleanupAvailability = model
+        let assistant = AssistantModel()
+        assistant.previewAvailability = model
+        return DictationPane(moreOptions: moreOptions, callListeners: callListeners, knownWords: knownWords)
+            .environment(dictation)
+            .environment(assistant)
+            .environment(license)
             .environment(SettingsModel(previewing: []))
             .defaultAppStorage(store)
             .frame(height: height)
@@ -343,21 +387,36 @@ enum GallerySettings {
         speech: ["en_GB", "en_US", "es_ES", "fr_FR", "it_IT"],
         dictation: ["ca_ES", "en_GB", "en_US", "es_ES", "eu_ES", "fr_FR", "gl_ES", "it_IT"])
 
-    /// The whole window: every page the guide build shows (the most there
-    /// can be) down the side, and the Voice page beside them. Drawn here
-    /// rather than taken from `SettingsView`, whose pages read live models;
-    /// the pieces are the same ones.
+    /// The whole window, the first time it opens: Calls, then every page
+    /// the guide build shows (the most there can be) down the side, and the
+    /// Voice page beside them. Drawn here rather than taken from
+    /// `AirlockWindowView`, whose pages read live models; the pieces are the
+    /// same ones.
     private static var window: some View {
         HStack(alignment: .top, spacing: 0) {
-            LookSidebar(pages: SettingsPane.sidebar(guideOn: true, free: false),
-                        selection: .constant(.voice), query: .constant(""))
-            voice(moreOptions: false, height: 570)
+            LookSidebar(pages: SettingsPane.sidebar(guideOn: true),
+                        selection: .constant(.voice), calls: .constant(false), query: .constant(""))
+            voice(moreOptions: false, height: AirlockWindowView.firstSize.height - 30)
                 .padding(.top, 2)
+                .frame(maxWidth: .infinity)
         }
         // The real window's title bar, which the page and column sit under.
         .safeAreaPadding(.top, 28)
-        .frame(width: 760, height: 600)
+        .frame(width: AirlockWindowView.firstSize.width, height: AirlockWindowView.firstSize.height)
         .background(SettingsLook.ground)
+    }
+
+    /// The window on Calls: the real one this time, since the calls read
+    /// no live model, with sample calls and no disk.
+    private static var callsWindow: some View {
+        let model = SettingsModel(previewing: [])
+        model.showsCalls = true
+        return AirlockWindowView()
+            .environment(model)
+            .environment(GalleryMeetings.sampleLibrary())
+            .defaultAppStorage(plainStore)
+            .safeAreaPadding(.top, 28)
+            .frame(width: AirlockWindowView.firstSize.width, height: AirlockWindowView.firstSize.height)
     }
 
     #if AIRLOCK_GUIDE

@@ -139,7 +139,7 @@ final class VoiceShortcutTests: XCTestCase {
 
         // And the card must not offer a button that would write one.
         guard case .ask(_, let always) = VoiceActionOutcome.resolve(
-            verdict: verdict, for: request, isEntitled: true) else { return XCTFail("expected ask") }
+            verdict: verdict, for: request) else { return XCTFail("expected ask") }
         XCTAssertNil(always, "Always was offered on a Shortcut")
     }
 

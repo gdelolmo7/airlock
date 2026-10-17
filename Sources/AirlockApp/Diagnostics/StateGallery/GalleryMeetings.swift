@@ -146,6 +146,53 @@ enum GalleryMeetings {
                 window(CallNotesLibrary(previewing: calls, tab: .transcript, copied: true))
             },
 
+            // Plans: who wrote the notes, said at their foot, and what each
+            // plan offers beside them. Free sees every offer, tagged.
+            GalleryState("K80", area, "Window: Free, the first 30 minutes, written on the Mac",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .free, .mac(at: budgetEnd, why: .plan, plan: PlanSnapshot(plan: .free, isPaid: false)),
+                              stopped: true))
+            },
+            GalleryState("K81", area, "Window: Plus, written online", ground: .window, width: size.width) {
+                wholePage(budget(on: .plus, .online(model: "google/gemini-3.8-flash", at: budgetEnd,
+                                                 plan: PlanSnapshot(plan: .plus, isPaid: true))))
+            },
+            GalleryState("K82", area, "Window: Pro, written online", ground: .window, width: size.width) {
+                wholePage(budget(on: .pro, .online(model: "openai/gpt-6.1-sol", at: budgetEnd,
+                                                plan: PlanSnapshot(plan: .pro, isPaid: true))))
+            },
+            GalleryState("K83", area, "Window: Plus, this month's online notes used up, the Mac wrote these",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .plus, .mac(at: budgetEnd, why: .allowanceUsed,
+                                              plan: PlanSnapshot(plan: .plus, isPaid: true),
+                                              backOn: monthAhead),
+                              online: .init(exists: true, settingOn: true, blocked: true)))
+            },
+            GalleryState("K84", area, "Window: Pro, the online service didn't answer, the Mac wrote these",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .pro, .mac(at: budgetEnd, why: .serviceDown,
+                                             plan: PlanSnapshot(plan: .pro, isPaid: true))))
+            },
+            GalleryState("K85", area, "Window: Free, Apple Intelligence switched off",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .free, .mac(at: budgetEnd, why: .plan, plan: PlanSnapshot(plan: .free, isPaid: false)),
+                              written: false, noModel: .needsAppleIntelligence))
+            },
+            GalleryState("K86", area, "Window: Free, a Mac that can't write notes",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .free, .mac(at: budgetEnd, why: .plan, plan: PlanSnapshot(plan: .free, isPaid: false)),
+                              written: false, noModel: .deviceNotEligible))
+            },
+            GalleryState("K87", area, "Window: Plus, notes online were off, redo pressed while offline",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .plus, .mac(at: budgetEnd, why: .setting, plan: PlanSnapshot(plan: .plus, isPaid: true)),
+                              redone: CallNotesLibrary.said(.offline, plan: PlanSnapshot(plan: .plus, isPaid: true))))
+            },
+            GalleryState("K88", area, "What each plan writes: one example call, three plans",
+                         ground: .window, width: 1000) {
+                NotesComparisonView(close: {}, showPlans: {}).frame(width: 1000, height: 720)
+            },
+
             onCall("K5", "Compact: call starts, \"Notes?\" for 10 s") { .ask },
             onCall("K6", "Compact: notes still on offer (grey dot)") { .offer },
             onCall("K7", "Compact: \"Always\" counting down to the notes") {
@@ -170,22 +217,42 @@ enum GalleryMeetings {
             GalleryIsland.compact("K38", "Compact: taking notes of a meeting in the room",
                                   CompactIslandInput(now: now, call: .inPerson(at: now.addingTimeInterval(-1_240))),
                                   area: area, notesMark: { .recording }),
+            // Free's notes listen for 30 minutes. The words take the timer's
+            // place for 30 s, so the closed notch never grows for them.
+            onCall("K89", "Compact: Free, 25 min in, \"notes stop at 30 min\"", minutes: 25,
+                   limit: { CallNotesLimit(word: .stopsSoon, since: Date()) }) { .recording },
+            onCall("K90", "Compact: Free, 30 min in, \"notes stopped\"", minutes: 30,
+                   limit: { CallNotesLimit(word: .stopped, since: Date()) }) { .none },
         ]
     }
 
-    /// A FaceTime call twelve minutes in, with the notes' `mark` on its pill.
-    private static func onCall(_ id: String, _ name: String,
+    /// A FaceTime call twelve minutes in (or `minutes`), with the notes'
+    /// `mark` on its pill and Free's `limit` word, if any, beside it.
+    private static func onCall(_ id: String, _ name: String, minutes: Double = 734 / 60,
+                               limit: @escaping @MainActor () -> CallNotesLimit? = { nil },
                                mark: @escaping @MainActor () -> MeetingNotesFlow.PillMark) -> GalleryState {
         let call = OngoingCall(bundleID: "com.apple.FaceTime", appName: "FaceTime",
-                               startedAt: now.addingTimeInterval(-734))
+                               startedAt: now.addingTimeInterval(-minutes * 60))
         return GalleryIsland.compact(id, name, CompactIslandInput(now: now, call: call),
-                                     area: area, notesMark: mark)
+                                     area: area, notesMark: mark, notesLimit: limit)
     }
 
     static let size = CGSize(width: 780, height: 560)
 
+    /// Sample calls on their notes, for the Airlock window's picture in the
+    /// Settings rows.
+    static func sampleLibrary() -> CallNotesLibrary {
+        CallNotesLibrary(previewing: calls, tab: .notes)
+    }
+
     private static func window(_ library: CallNotesLibrary) -> some View {
         CallNotesView().environment(library).frame(width: size.width, height: size.height)
+    }
+
+    /// The window tall enough for a whole page of notes, down to what is
+    /// offered under its last line, which a window of `size` scrolls to.
+    private static func wholePage(_ library: CallNotesLibrary) -> some View {
+        CallNotesView().environment(library).frame(width: size.width, height: 1_000)
     }
 
     private static let now = Date()
@@ -424,6 +491,59 @@ enum GalleryMeetings {
         // Its own name, so the list does not read the same meeting twice.
         record.event = MeetingEvent(title: "Design review", start: record.startedAt)
         return CallNotesLibrary.Call(folder: URL(fileURLWithPath: "/var/empty/just-now"), record: record, page: nil)
+    }
+
+    // MARK: - Plans
+
+    /// When the budget review below ended.
+    private static var budgetEnd: Date { budgetStart.addingTimeInterval(42 * 60) }
+    private static var budgetStart: Date {
+        Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: now.addingTimeInterval(-86_400)) ?? now
+    }
+    private static var monthAhead: Date {
+        Calendar.current.date(byAdding: .day, value: 12, to: now) ?? now
+    }
+
+    /// Yesterday's 42-minute budget review, the example call, with notes
+    /// `writer` wrote on `plan`: from the first 30 minutes when `stopped`,
+    /// none when not `written`, and the offers the window would make.
+    private static func budget(on plan: AirlockPlan, _ writer: MeetingNotesWriter, stopped: Bool = false,
+                               written: Bool = true, noModel: ModelAvailability? = nil, redone: String? = nil,
+                               online: CallNotesOffers.Online = .init(exists: true, settingOn: true, blocked: false))
+        -> CallNotesLibrary {
+        var record = stopped ? NotesComparisonSample.freeRecord : NotesComparisonSample.record
+        record.startedAt = budgetStart
+        record.endedAt = budgetEnd
+        record.event?.start = budgetStart
+        record.notesWriter = writer
+        let page = MeetingFiles.notesPage(for: record, notes: written ? budgetNotes(whole: !stopped) : nil,
+                                          writer: writer, noModel: noModel)
+        let call = CallNotesLibrary.Call(folder: URL(fileURLWithPath: "/var/empty/budget"), record: record, page: page)
+        let offers = CallNotesOffers.of(record, page: page, plan: PlanSnapshot(plan: plan, isPaid: plan != .free),
+                                        online: online)
+        return CallNotesLibrary(previewing: [call] + calls, tab: .notes, offers: offers, redone: redone)
+    }
+
+    /// Notes of the budget review: its first 30 minutes, or all of it.
+    private static func budgetNotes(whole: Bool) -> MeetingNotes {
+        var todos: [MeetingNotes.Item] = [
+            .init(text: "Ask the agency about the September invoice", owner: "Joan", at: 145),
+            .init(text: "Send the revised numbers", owner: "Marta", at: 383),
+        ]
+        var decisions: [MeetingNotes.Item] = [
+            .init(text: "Travel is halved for the quarter to cover marketing.", at: 276),
+        ]
+        var questions: [MeetingNotes.Item] = []
+        if whole {
+            todos += [.init(text: "Move the offsite to January and call the hotel", owner: "You", at: 1_891),
+                      .init(text: "Get legal to approve the agency terms before 1 November", owner: "Joan", at: 2_112)]
+            decisions += [.init(text: "The December offsite moves to January.", at: 1_891)]
+            questions += [.init(text: "Does the travel cut include the client visit in Lisbon?", at: 2_280)]
+        }
+        let summary = whole
+            ? "Marketing is €18k over, mostly from the autumn campaign; halving travel covers it. Joan checks a possibly double-billed agency invoice and Marta sends revised numbers by Friday. The offsite moves from December to January, and the agency's new terms need legal before 1 November."
+            : "Marketing is €18k over, mostly from the autumn campaign; halving travel covers it. Joan checks a possibly double-billed agency invoice and Marta sends revised numbers by Friday."
+        return MeetingNotes(summary: summary, todos: todos, decisions: decisions, questions: questions)
     }
 
     // MARK: - A recording added afterwards

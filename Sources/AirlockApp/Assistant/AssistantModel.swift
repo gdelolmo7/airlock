@@ -380,13 +380,8 @@ final class AssistantModel {
     /// rather than swallowing — a card that says "done" over nothing happening
     /// is worse than no card.
     var onPerform: ((VoiceEffect) -> Bool)?
-    /// False only for a finished trial. Every other licence state allows use.
-    var isEntitled: (() -> Bool)?
     /// Records the decision in the gate log, exactly like an agent's.
     var onRecordGate: ((PermissionRequest, GateOutcome, String?) -> Void)?
-    /// Opens Settings at the licence pane. Set by whoever owns both windows —
-    /// the card cannot reach a window controller, and should not.
-    var onShowLicence: (() -> Void)?
     /// Writes an allow rule when Always is clicked.
     var onAlwaysAllow: ((String) -> Void)?
 
@@ -484,6 +479,8 @@ final class AssistantModel {
             startIdleTimer()
             return
         }
+        // That a question was asked, never the question.
+        UsageCounts.shared.record(.used(.askedAQuestion))
 
         stream?.cancel()
         question = trimmed
@@ -767,7 +764,6 @@ final class AssistantModel {
         // Only a microphone may be granted standing permission, because only a
         // microphone is what a `Voice.` rule claims on its face.
         let outcome = VoiceActionOutcome.resolve(verdict: verdict, for: request,
-                                                 isEntitled: isEntitled?() ?? true,
                                                  offersStandingPermission: origin == .spoken)
         dictationLog("  proposal \(proposal.toolName)(\(proposal.subject)) → \(outcome)")
 
@@ -843,14 +839,6 @@ final class AssistantModel {
         case .answer:
             answerNow(question)
         }
-    }
-
-    /// The way out of a `.blocked` card. Dismisses first: the panel is about to
-    /// lose focus to another window, and leaving a dead card behind it is how a
-    /// stale proposal gets answered on the way back.
-    func showLicence() {
-        dismiss()
-        onShowLicence?()
     }
 
     /// Approve, deny, or approve and write a rule.
