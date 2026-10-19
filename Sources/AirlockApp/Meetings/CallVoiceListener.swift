@@ -47,8 +47,9 @@ enum CallVoiceModel {
         ("pre_encode_proj_t.bin", 2_097_152, "eb15b89e7af9813331a7d8db02e83e30bf97463d272c748e72086bafd4e81c60"),
     ]
 
-    /// The person's switch. Unset means on once the model is here: today
-    /// the only way it gets here is being put here on purpose.
+    /// The person's switch. Unset means on once the model is here, and it
+    /// only gets here on Plus or Pro, which download it by themselves
+    /// (`CallVoiceDownload`).
     static let enabledKey = "meetings.voices.enabled"
 
     /// Every file present at its size. Cheap; the hashes are `verified`.
@@ -64,7 +65,20 @@ enum CallVoiceModel {
 
     /// `isOn`, with the switch read from `settings`.
     static func isOn(in settings: UserDefaults) -> Bool {
-        (settings.object(forKey: enabledKey) as? Bool ?? true) && isInstalled
+        isSwitchedOn(in: settings) && isInstalled
+    }
+
+    /// `isOn`, for a call that runs under `plan` (`PlanSnapshot.kept`). On
+    /// Free the other side stays one "Them", even with the model here from
+    /// a plan before: the plan decides when it is used, never when it was
+    /// saved (`PlanLimits`).
+    static func isOn(for plan: PlanSnapshot, in settings: UserDefaults = .standard) -> Bool {
+        plan.limits.tellsVoicesApart && isOn(in: settings)
+    }
+
+    /// The person's switch alone, whether or not the model is here yet.
+    static func isSwitchedOn(in settings: UserDefaults = .standard) -> Bool {
+        settings.object(forKey: enabledKey) as? Bool ?? true
     }
 
     /// Whether every file matches its hash, read once per launch: a model
@@ -82,6 +96,13 @@ enum CallVoiceModel {
         }.value
         await VerifiedOnce.shared.set(ok)
         return ok
+    }
+
+    /// A download that just checked every hash itself, so the first call
+    /// after it does not read the model again, and a "no" from a broken copy
+    /// earlier in this launch no longer stands.
+    static func markVerified() async {
+        await VerifiedOnce.shared.set(true)
     }
 
     private actor VerifiedOnce {

@@ -69,17 +69,24 @@ public struct PlanLimits: Equatable, Sendable {
     /// in time actually listened, so a clock change cannot stretch it.
     public let notesListenFor: TimeInterval?
 
+    /// Whether a call's other side is told apart by voice, Person 1, Person 2…
+    /// (`CallVoiceModel`), rather than all of it being "Them". Goes by the plan
+    /// alone, like the clipboard: it runs on the Mac and costs nothing per call.
+    public let tellsVoicesApart: Bool
+
     /// What Free keeps of the clipboard.
     public static let freeClipboard = 100
     /// How long Free's call notes listen.
     public static let freeNotesListen: TimeInterval = 30 * 60
 
     public init(writesNotesOnline: Bool, clipboardShows: Int? = nil,
-                oneAgentAtATime: Bool = false, notesListenFor: TimeInterval? = nil) {
+                oneAgentAtATime: Bool = false, notesListenFor: TimeInterval? = nil,
+                tellsVoicesApart: Bool = true) {
         self.writesNotesOnline = writesNotesOnline
         self.clipboardShows = clipboardShows
         self.oneAgentAtATime = oneAgentAtATime
         self.notesListenFor = notesListenFor
+        self.tellsVoicesApart = tellsVoicesApart
     }
 
     /// One thing a plan does that another does not, in words for people.
@@ -90,6 +97,10 @@ public struct PlanLimits: Equatable, Sendable {
         case oneAgentAtATime
         /// Notes listened to the whole call; now to its first part.
         case shorterCallNotes
+        /// The other side is one "Them". Said as what Free does and what Plus
+        /// adds, never as something taken away: telling voices apart has only
+        /// ever been on Plus and Pro, so no copy of Airlock had it for free.
+        case voicesTogether
         /// Notes were written online and are now written on the Mac.
         case notesOnTheMac
 
@@ -105,6 +116,8 @@ public struct PlanLimits: Equatable, Sendable {
                 "The notch answers one coding agent at a time. Others ask in their own terminal."
             case .shorterCallNotes:
                 "Call notes cover the first \(Int(PlanLimits.freeNotesListen / 60)) minutes of each call."
+            case .voicesTogether:
+                "Everyone on the other side of a call is \u{201C}Them\u{201D}. Telling voices apart comes with Plus."
             case .notesOnTheMac:
                 macWritesNotes
                     ? "Call notes are written on this Mac, not online."
@@ -118,6 +131,7 @@ public struct PlanLimits: Equatable, Sendable {
             case .shorterClipboard: "doc.on.clipboard"
             case .oneAgentAtATime: "terminal"
             case .shorterCallNotes: "timer"
+            case .voicesTogether: "person.2"
             case .notesOnTheMac: "text.bubble"
             }
         }
@@ -134,6 +148,7 @@ public struct PlanLimits: Equatable, Sendable {
         if let listens = smaller.notesListenFor, notesListenFor.map({ $0 > listens }) ?? true {
             lost.append(.shorterCallNotes)
         }
+        if tellsVoicesApart, !smaller.tellsVoicesApart { lost.append(.voicesTogether) }
         if writesNotesOnline, !smaller.writesNotesOnline { lost.append(.notesOnTheMac) }
         return lost
     }
@@ -164,7 +179,8 @@ public struct PlanSnapshot: Codable, Equatable, Sendable {
         return PlanLimits(writesNotesOnline: !free && isPaid,
                           clipboardShows: free ? PlanLimits.freeClipboard : nil,
                           oneAgentAtATime: free,
-                          notesListenFor: free ? PlanLimits.freeNotesListen : nil)
+                          notesListenFor: free ? PlanLimits.freeNotesListen : nil,
+                          tellsVoicesApart: !free)
     }
 
     /// The plan a task that started on `startedOn` runs under now: never less

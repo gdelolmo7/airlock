@@ -179,6 +179,9 @@ final class PlansPageTests: XCTestCase {
         XCTAssertEqual(cards[2].bullets.count, 2)
         XCTAssertTrue(cards[1].bullets.contains("A set number of online notes each month"),
                       "Plus says it has a monthly number, so Pro's \"twice as many\" has something to double")
+        XCTAssertTrue(cards[1].bullets.contains { $0.hasPrefix("Tells the voices on a call apart") },
+                      "Plus says it tells voices apart, which Free doesn't")
+        XCTAssertFalse(cards[0].bullets.contains { $0.contains("voices") })
     }
 
     func testOnlyRealButtonsAct() {

@@ -58,12 +58,17 @@ public struct CallNotesOffers: Equatable, Sendable {
     public var seePro: Bool
     public var redo: Redo?
     public var empty: Empty?
+    /// "Plus tells each voice apart", in "Who's who": on a plan that
+    /// doesn't, where everyone on the other side is one voice.
+    public var voicesOnPlus: Bool
 
-    public init(seePlus: Bool = false, seePro: Bool = false, redo: Redo? = nil, empty: Empty? = nil) {
+    public init(seePlus: Bool = false, seePro: Bool = false, redo: Redo? = nil, empty: Empty? = nil,
+                voicesOnPlus: Bool = false) {
         self.seePlus = seePlus
         self.seePro = seePro
         self.redo = redo
         self.empty = empty
+        self.voicesOnPlus = voicesOnPlus
     }
 
     /// Whether the redo button carries the Plus tag: only where it opens
@@ -76,6 +81,22 @@ public struct CallNotesOffers: Equatable, Sendable {
     /// a button the server would refuse.
     public static func of(_ record: MeetingRecord, page: String?, plan: PlanSnapshot,
                           online: Online) -> CallNotesOffers {
+        var offers = notes(of: record, page: page, plan: plan, online: online)
+        offers.voicesOnPlus = voicesOnPlus(record, plan: plan)
+        return offers
+    }
+
+    /// Whether "Who's who" says Plus would have told `record`'s voices
+    /// apart: on a plan that doesn't, once it is over, when every line from
+    /// the other side (or the room) is one voice. Not when the calendar says
+    /// it was one person, nor on a call from a paid plan that numbered them.
+    static func voicesOnPlus(_ record: MeetingRecord, plan: PlanSnapshot) -> Bool {
+        !plan.limits.tellsVoicesApart && record.endedAt != nil && record.otherName == nil
+            && record.voices == [MeetingRecord.otherSide]
+    }
+
+    private static func notes(of record: MeetingRecord, page: String?, plan: PlanSnapshot,
+                              online: Online) -> CallNotesOffers {
         guard let page else { return CallNotesOffers() }
         let writer = record.notesWriter
         let hasNotes = MeetingFiles.hasNotes(page)

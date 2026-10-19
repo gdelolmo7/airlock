@@ -20,7 +20,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     case agentsSwitch, calendars, shelf
     // Voice
     case holdToDictate, holdToAsk, microphoneInput, language, callNotes, callLanguages, pastCalls, notesOnline,
-         knownWords, cleanup, pauseMusic
+         tellVoicesApart, knownWords, cleanup, pauseMusic
     case commandBar
     // Clipboard
     case clipboardHistory, neverRecorded, clipboardShortcut, autoPaste
@@ -47,7 +47,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
              .keepAwakeAgents, .keepAwakeCutoff, .keepAwakeScreen, .keepAwakeShortcut,
              .agentsSwitch, .calendars, .shelf: return .appearance
         case .holdToDictate, .holdToAsk, .microphoneInput, .language, .callNotes, .callLanguages, .pastCalls,
-             .notesOnline, .knownWords, .cleanup, .pauseMusic, .commandBar: return .voice
+             .notesOnline, .tellVoicesApart, .knownWords, .cleanup, .pauseMusic, .commandBar: return .voice
         case .clipboardHistory, .neverRecorded, .clipboardShortcut, .autoPaste: return .clipboard
         case .developerMode, .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return .agents
         case .permissionCalendar, .permissionMicrophone, .permissionInputMonitoring,
@@ -90,6 +90,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .callLanguages: return "Language on calls"
         case .pastCalls: return "Past calls"
         case .notesOnline: return "Write notes online"
+        case .tellVoicesApart: return "Tell voices apart"
         case .knownWords: return "Words to know"
         case .cleanup: return "Tidy up what I said"
         case .pauseMusic: return "Pause music while speaking"
@@ -159,6 +160,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .pastCalls: return ["past", "calls", "meetings", "transcript", "history", "open"]
         case .notesOnline: return ["online", "cloud", "internet", "server", "gemini", "better", "notes",
                                    "meetings", "calls", "summary"]
+        case .tellVoicesApart: return ["voices", "speakers", "people", "person", "who said", "who spoke",
+                                       "participants", "diarization", "meetings", "calls"]
         case .knownWords: return ["words", "names", "spelling", "vocabulary", "transcript", "meetings", "calls"]
         case .cleanup: return ["cleanup", "punctuation", "filler", "tidy"]
         case .pauseMusic: return ["music", "pause", "speaking"]
@@ -210,7 +213,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         // Only a build that could send one shows the switch.
         case .crashReports: return CrashReporter.bundleDSN != nil
         case .usageCounts: return UsageCounts.bundleEndpoint != nil
-        case .callLanguages, .pastCalls, .knownWords: return callNotesOn
+        case .callLanguages, .pastCalls, .tellVoicesApart, .knownWords: return callNotesOn
         case .notesOnline: return callNotesOn && notesOnlineOn
         default: return true
         }

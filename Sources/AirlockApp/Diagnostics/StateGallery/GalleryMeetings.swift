@@ -77,6 +77,13 @@ enum GalleryMeetings {
                                                                   MeetingVoiceName(voice: 2, name: "Marc")])] + calls,
                                         tab: .notes, naming: true))
             },
+            // On Free the stand-up's other side is one voice, "Them":
+            // "Who's who" says Plus would have told them apart.
+            GalleryState("K44a", area, "Window: \"Who's who\" on Free, the other side one voice, See Plus",
+                         ground: .window, width: size.width) {
+                window(CallNotesLibrary(previewing: calls, tab: .notes, naming: true,
+                                        offers: CallNotesOffers(voicesOnPlus: true)))
+            },
             GalleryState("K45", area, "Window: the notes once everyone is named", ground: .window, width: size.width) {
                 window(CallNotesLibrary(previewing: [room(named: everyone)] + calls, tab: .notes))
             },

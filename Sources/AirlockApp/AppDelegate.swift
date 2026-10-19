@@ -422,6 +422,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudNotes.access = { [weak license] in license?.notesAccess }
         cloudNotes.hasServer = { [weak license] in license?.hasServer ?? false }
         cloudNotes.start()
+        // Plus and Pro download the voice model by themselves
+        // (`CallVoiceDownload`, started from `watchPlanLimits`), never while a
+        // call is being written down.
+        CallVoiceDownload.shared.isBusy = { [weak model] in model?.meetings.takingNotes != nil }
 
         // Reads every integration's hook status once, here, rather than from a
         // SwiftUI body — see `AgentsWidgetModel.hookStatuses`.
@@ -1173,8 +1177,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// A plan change reaches what it limits at once, not at the next launch:
-    /// the clipboard shows or hides its older copies, and the bridge starts or
-    /// stops answering one agent at a time. Neither takes away anything open.
+    /// the clipboard shows or hides its older copies, the bridge starts or
+    /// stops answering one agent at a time, and Plus or Pro fetch the voice
+    /// model if it isn't here. None of it takes away anything open.
     ///
     /// Re-arms itself: `withObservationTracking` fires once per change.
     private func watchPlanLimits() {
@@ -1189,6 +1194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         planLimits = limits
         model?.oneAgentAtATime = limits.oneAgentAtATime
         if !first { clipboardWidget?.planDidChange() }
+        if limits.tellsVoicesApart, !Self.isDemoMode { CallVoiceDownload.shared.startSoon() }
     }
 
     /// The plan at the last look, so usage counts hear a change and not the

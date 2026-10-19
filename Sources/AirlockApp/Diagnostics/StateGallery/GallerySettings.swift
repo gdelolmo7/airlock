@@ -198,6 +198,21 @@ enum GallerySettings {
                 voice(moreOptions: false, height: 760, store: callNotesStore,
                       license: LicenseModel(previewing: .free))
             },
+            GalleryState("X41c", area, "Voice: on Plus, the voice model downloading", ground: .window,
+                         width: paneWidth) {
+                voice(moreOptions: false, height: 800, store: callNotesStore,
+                      license: LicenseModel(previewing: .licensed(plusLicence)), voiceDownload: .downloading(0.42))
+            },
+            GalleryState("X41d", area, "Voice: on Plus, the voice model didn't download", ground: .window,
+                         width: paneWidth) {
+                voice(moreOptions: false, height: 800, store: callNotesStore,
+                      license: LicenseModel(previewing: .licensed(plusLicence)), voiceDownload: .failed)
+            },
+            GalleryState("X41e", area, "Voice: on Plus, voices told apart", ground: .window,
+                         width: paneWidth) {
+                voice(moreOptions: false, height: 800, store: callNotesStore,
+                      license: LicenseModel(previewing: .licensed(plusLicence)), voiceDownload: .ready)
+            },
         ]
     }
 
@@ -271,6 +286,14 @@ enum GallerySettings {
         let store = UserDefaults(suiteName: "com.airlock.state-gallery.call-notes") ?? .standard
         store.register(defaults: [MeetingNotesModel.enabledKey: true])
         return store
+    }()
+
+    /// A yearly Plus, for the rows only a paid plan shows.
+    private static let plusLicence: License = {
+        let renews = Date(timeIntervalSince1970: 1_822_000_000) // late Sep 2027
+        return License(id: "lic_gallery", email: "someone@example.com", product: "airlock",
+                       period: .yearly, issued: renews.addingTimeInterval(-365 * 86_400),
+                       renewsAt: renews, checkBy: renews.addingTimeInterval(14 * 86_400), ref: "gallery")
     }()
 
     private static var clipboardItems: [ClipboardItem] {
@@ -357,14 +380,18 @@ enum GallerySettings {
     /// `knownWords` stands in for the saved list, so no picture shows this
     /// Mac's own words.
     /// `model` stands in for what Apple's on-device model can do here.
+    /// `voiceDownload` stands in for the voice model's download, which no
+    /// picture starts: before it is here, a fresh Mac's.
     private static func voice(moreOptions: Bool, height: CGFloat, store: UserDefaults = plainStore,
                               callListeners: CallListeners? = nil, knownWords: [String] = [],
-                              model: ModelAvailability? = nil, license: LicenseModel? = nil) -> some View {
+                              model: ModelAvailability? = nil, license: LicenseModel? = nil,
+                              voiceDownload: CallVoiceDownload.State = .idle) -> some View {
         let dictation = DictationModel()
         dictation.previewCleanupAvailability = model
         let assistant = AssistantModel()
         assistant.previewAvailability = model
-        return DictationPane(moreOptions: moreOptions, callListeners: callListeners, knownWords: knownWords)
+        return DictationPane(moreOptions: moreOptions, callListeners: callListeners, knownWords: knownWords,
+                             voiceDownload: voiceDownload)
             .environment(dictation)
             .environment(assistant)
             .environment(license)

@@ -37,25 +37,33 @@ public enum NotesComparisonSample {
         })
     }
 
-    /// The call as Free hears it: notes stopped at 30 minutes and the call
-    /// went on without them.
+    /// The call as Free hears it: Marta and Joan are one "Them", since
+    /// telling voices apart is Plus's, and notes stopped at 30 minutes and
+    /// the call went on without them.
     public static var freeRecord: MeetingRecord {
-        var heard = call(record.segments.filter { $0.start < freeListened })
+        var heard = call(record.segments.filter { $0.start < freeListened }.map { line in
+            var line = line
+            line.person = nil
+            return line
+        }, names: [])
         heard.stoppedAtLimit = freeListened
         return heard
     }
 
-    private static func call(_ segments: [MeetingSegment]) -> MeetingRecord {
+    private static func call(_ segments: [MeetingSegment],
+                             names: [MeetingVoiceName] = [MeetingVoiceName(voice: martaVoice, name: "Marta"),
+                                                          MeetingVoiceName(voice: joanVoice, name: "Joan")])
+        -> MeetingRecord {
         MeetingRecord(bundleID: "us.zoom.xos", appName: "Zoom", startedAt: startedAt,
                       endedAt: startedAt + TimeInterval(minutes * 60), languages: ["en_US"],
                       segments: segments,
                       event: MeetingEvent(title: "Budget review", start: startedAt, attendees: ["Marta", "Joan"]),
-                      names: [MeetingVoiceName(voice: martaVoice, name: "Marta"),
-                              MeetingVoiceName(voice: joanVoice, name: "Joan")])
+                      names: names)
     }
 
-    /// The page each plan wrote, as it was written: the writers read
-    /// "Person 2", never a name (`MeetingRecord.voiceLabel(for:)`).
+    /// The page each plan wrote, as it was written: Plus's and Pro's
+    /// writers read "Person 2", never a name (`MeetingRecord.voiceLabel(for:)`),
+    /// and Free's read one "Them".
     public static func written(_ plan: AirlockPlan) -> String {
         switch plan {
         case .free: NotesComparisonPages.free

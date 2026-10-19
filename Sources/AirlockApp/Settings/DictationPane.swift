@@ -21,7 +21,8 @@ struct DictationPane: View {
     @AppStorage(MeetingNotesModel.enabledKey) private var callNotesOn = MeetingNotesModel.onByDefault
     @AppStorage(CallLanguage.primaryKey) private var callLocale = ""
     @AppStorage(CallLanguage.secondaryKey) private var callSecondaryLocale = ""
-    /// On unless turned off, once the voice model is on this Mac.
+    /// On unless turned off. On Plus and Pro the voice model downloads by
+    /// itself while it is on (`CallVoiceDownload`).
     @AppStorage(CallVoiceModel.enabledKey) private var callVoicesOn = true
     /// Notes online: on unless the hidden switch says false. Their row shows
     /// only then, and only for a subscriber.
@@ -58,12 +59,17 @@ struct DictationPane: View {
     /// Stands in for the words typed under "Words to know", for the state
     /// gallery's pictures.
     private let knownWords: [String]?
+    /// Stands in for the voice model's download, for the state gallery's
+    /// pictures, which never start one.
+    private let voiceDownload: CallVoiceDownload.State?
 
-    init(moreOptions: Bool = false, callListeners: CallListeners? = nil, knownWords: [String]? = nil) {
+    init(moreOptions: Bool = false, callListeners: CallListeners? = nil, knownWords: [String]? = nil,
+         voiceDownload: CallVoiceDownload.State? = nil) {
         _moreOptions = State(initialValue: moreOptions)
         _callListeners = State(initialValue: callListeners ?? .none)
         asksCallListeners = callListeners == nil
         self.knownWords = knownWords
+        self.voiceDownload = voiceDownload
     }
 
     var body: some View {
@@ -81,7 +87,7 @@ struct DictationPane: View {
                     if offersNotesOnline { notesOnlineRow } else if showsNotesOnlineTag { notesOnlineTagRow }
                     KnownWordsRow(words: knownWords)
                         .settingsAnchor(.knownWords)
-                    if CallVoiceModel.isInstalled { callVoicesRow }
+                    callVoicesRows
                 }
                 tidyRow
                 LookToggleRow("Pause music while I talk", isOn: Bindable(dictation).pausesMusic)
@@ -317,13 +323,73 @@ struct DictationPane: View {
             .settingsAnchor(.notesOnline)
     }
 
-    /// Only once the voice model is here: until it can be downloaded, the
-    /// trial is the only way it arrives.
+    /// "Tell voices apart": on Free, the row with a Plus tag, so what Plus
+    /// adds is seen where it would be set. On Plus and Pro, the switch, with
+    /// the model's download in its place while it comes.
+    @ViewBuilder private var callVoicesRows: some View {
+        Group {
+            if license.map({ !$0.entitlement.limits.tellsVoicesApart }) ?? false {
+                callVoicesTagRow
+            } else {
+                switch voiceDownload ?? CallVoiceDownload.shared.state {
+                case let .downloading(fraction) where callVoicesOn:
+                    callVoicesDownloadingRow(fraction)
+                case .failed where callVoicesOn:
+                    callVoicesFailedRow
+                default:
+                    callVoicesRow
+                }
+            }
+        }
+        .settingsAnchor(.tellVoicesApart)
+        .onChange(of: callVoicesOn) { _, on in
+            if on { startVoiceDownload() }
+        }
+        .task { startVoiceDownload() }
+    }
+
+    /// Opening the page, or turning the switch on, starts a download that
+    /// is due, rather than waiting for the next look.
+    private func startVoiceDownload() {
+        guard voiceDownload == nil else { return }
+        CallVoiceDownload.shared.startIfWanted()
+    }
+
+    private static let callVoicesLine = "Numbers the other side Person 1, Person 2\u{2026} by sound, on your Mac. "
+        + "Never names anyone, and remembers no voice after the call"
+
     private var callVoicesRow: some View {
         LookToggleRow("Tell voices apart",
-                      subtitle: "Numbers the other side Person 1, Person 2\u{2026} by sound, on your Mac. "
-                          + "Never names anyone, and remembers no voice after the call",
+                      subtitle: Self.callVoicesLine + (CallVoiceModel.isInstalled || voiceDownload == .ready ? ""
+                          : ". Its model, about \(CallVoiceDownload.megabytes) MB, downloads by itself once"),
                       isOn: $callVoicesOn)
+    }
+
+    private func callVoicesDownloadingRow(_ fraction: Double) -> some View {
+        LookRow("Tell voices apart",
+                subtitle: "Getting the voice model ready: \(Int(fraction * 100))% of about "
+                    + "\(CallVoiceDownload.megabytes) MB, downloaded once from useairlock.app") {
+            RecordingProgressBar(fraction: fraction)
+                .frame(width: 90)
+        }
+    }
+
+    private var callVoicesFailedRow: some View {
+        LookRow("Tell voices apart",
+                subtitle: "The voice model didn't download. Airlock tries again by itself within the hour") {
+            LookButton("Try again") {
+                guard voiceDownload == nil else { return }
+                CallVoiceDownload.shared.startIfWanted(asked: true)
+            }
+        }
+    }
+
+    private var callVoicesTagRow: some View {
+        LookRow("Tell voices apart",
+                subtitle: "Numbers the other side of a call Person 1, Person 2\u{2026} by sound, on your Mac. "
+                    + "On Free, everyone on the other side is \u{201C}Them\u{201D}.") {
+            PlanTagButton(.plus) { settings?.reveal(.plans) }
+        }
     }
 
     @ViewBuilder private var tidyRow: some View {

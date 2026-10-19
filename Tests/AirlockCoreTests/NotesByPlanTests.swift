@@ -395,13 +395,19 @@ final class NotesByPlanTests: XCTestCase {
     }
 
     /// Free's page is what the Mac's model wrote of the first 30 minutes,
-    /// said at the top and the foot, with Marta and Joan by name.
+    /// said at the top and the foot, from a call whose other side is one
+    /// "Them": telling voices apart is Plus's, and Free's example never
+    /// shows it.
     func testFreesExamplePageIsTheMacsFromTheFirstThirtyMinutes() throws {
         let page = NotesComparisonSample.page(.free)
         XCTAssertTrue(page.contains("_These notes cover the first 30 minutes of a 42-minute call._"))
         XCTAssertTrue(page.contains("_\(MeetingFiles.basicModelFooter). "))
-        XCTAssertFalse(page.contains("Person "), "names are put in, as on a saved page")
-        XCTAssertTrue(NotesComparisonSample.written(.free).contains("Person "), "the writer read voices, not names")
+        XCTAssertFalse(page.contains("Person "), "no voice told apart")
+        XCTAssertTrue(NotesComparisonSample.freeRecord.segments.allSatisfy { $0.person == nil },
+                      "Free hears the other side as one voice")
+        XCTAssertTrue(NotesComparisonSample.freeRecord.names.isEmpty)
+        XCTAssertTrue(NotesComparisonSample.record.segments.contains { $0.person != nil },
+                      "Plus and Pro tell Marta and Joan apart")
         try assertEverythingSaidBefore(PlanLimits.freeNotesListen, in: page)
         let sections = NotesComparisonSample.sections(.free)
         XCTAssertEqual(sections.first?.heading, MeetingFiles.summaryHeading)
@@ -421,6 +427,48 @@ final class NotesByPlanTests: XCTestCase {
             XCTAssertEqual(NotesComparisonSample.sections(plan).first?.heading, MeetingFiles.summaryHeading,
                            plan.label)
         }
+    }
+
+    // MARK: - Telling voices apart
+
+    /// A finished call with two others on the calendar, heard as Free hears
+    /// it: everything from the other side one voice, "Them".
+    private func heardAsOne(attendees: [String] = ["Ana", "Tom"], person: Int? = nil,
+                            bundleID: String = "us.zoom.xos", ended: Bool = true,
+                            theySpoke: Bool = true) -> MeetingRecord {
+        let started = NotesComparisonSample.record.startedAt
+        return MeetingRecord(
+            bundleID: bundleID, appName: "Zoom", startedAt: started,
+            endedAt: ended ? started.addingTimeInterval(600) : nil,
+            segments: [MeetingSegment(speaker: .me, start: 1, end: 4, text: "Morning, both.")]
+                + (theySpoke ? [MeetingSegment(speaker: .them, start: 5, end: 9, text: "Morning!", person: person)]
+                             : []),
+            event: MeetingEvent(title: "Stand-up", start: started, attendees: attendees))
+    }
+
+    /// "Who's who" on Free says Plus would have told the other side apart,
+    /// where it is one voice and could be several people.
+    func testWhosWhoOnFreeOffersPlusForTellingVoicesApart() {
+        let call = heardAsOne()
+        let page = NotesComparisonSample.page(.free)
+        XCTAssertTrue(CallNotesOffers.of(call, page: page, plan: .free, online: online).voicesOnPlus)
+        XCTAssertTrue(CallNotesOffers.of(call, page: nil, plan: .free, online: .none).voicesOnPlus,
+                      "about the voices, not the notes: no page needed")
+        XCTAssertTrue(CallNotesOffers.voicesOnPlus(heardAsOne(bundleID: OngoingCall.inPersonBundleID), plan: .free),
+                      "a room heard as one voice too")
+        for (name, plan) in Self.plans where name != "Free" {
+            XCTAssertFalse(CallNotesOffers.voicesOnPlus(call, plan: plan), name)
+        }
+    }
+
+    func testNoPlusLineWhereItWouldNotHelp() {
+        XCTAssertFalse(CallNotesOffers.voicesOnPlus(heardAsOne(attendees: ["Mariana"]), plan: .free),
+                       "the calendar says it was one person")
+        XCTAssertFalse(CallNotesOffers.voicesOnPlus(heardAsOne(person: 1), plan: .free),
+                       "a call from a paid plan already told them apart")
+        XCTAssertFalse(CallNotesOffers.voicesOnPlus(heardAsOne(ended: false), plan: .free), "still going")
+        XCTAssertFalse(CallNotesOffers.voicesOnPlus(heardAsOne(theySpoke: false), plan: .free),
+                       "nobody on the other side spoke")
     }
 
     /// Every time on the page ("· 25:02") is before `limit`.

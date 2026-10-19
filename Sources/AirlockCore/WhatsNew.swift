@@ -54,6 +54,14 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.0.25", title: "Who said what on calls", items: [
+            Item("person.2", "On Plus and Pro, call notes tell the voices apart: Person 1, Person 2… Name them after."),
+            // The privacy page promises a new outbound request is in the notes
+            // of the version that adds it.
+            Item("arrow.down.circle", "For that, Airlock downloads a voice model once, about 100 MB. Nothing about you is sent."),
+            Item("lock.shield", "Voices are told apart on your Mac, and no voice is remembered after the call."),
+            Item("square.stack.3d.up", "On Free, the other side stays \u{201C}Them\u{201D}. Settings › Voice shows what Plus adds."),
+        ]),
         Notes(version: "1.0.24", title: "Discord calls, and plainer words", items: [
             Item("headphones", "Discord calls are noticed now, so Airlock offers to take notes as it does for other calls."),
             Item("macwindow", "The call notes window no longer goes black partway through a long call."),

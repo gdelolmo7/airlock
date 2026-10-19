@@ -85,6 +85,7 @@ public enum PlanCatalog {
             return ["Clipboard keeps up to \(thousands(ClipboardHistory.capacityRange.upperBound))",
                     "Answer every agent from the notch",
                     "The whole call, with notes written online by a better model",
+                    "Tells the voices on a call apart: Person 1, Person 2\u{2026}",
                     "A set number of online notes each month",
                     "Redo the notes of past calls",
                     "Works on every Mac, with or without Apple Intelligence"]

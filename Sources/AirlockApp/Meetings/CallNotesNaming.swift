@@ -71,6 +71,11 @@ struct CallNotesWhosWho: View {
                 .padding(.top, 10)
                 .padding(.bottom, 2)
             }
+            if let offering = library.offering, library.offers(call).voicesOnPlus {
+                voicesOnPlus { offering.showPlans() }
+                    .padding(.top, 10)
+                    .padding(.bottom, 2)
+            }
             footer
                 .padding(.top, 14)
         }
@@ -83,6 +88,33 @@ struct CallNotesWhosWho: View {
         .shadow(color: .black.opacity(0.6), radius: 30, y: 12)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
+    }
+
+    /// On Free, where the whole other side is one voice: Plus would have
+    /// told them apart (`CallNotesOffers.voicesOnPlus`).
+    private func voicesOnPlus(_ showPlans: @escaping () -> Void) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "person.2")
+                .font(.system(size: 11, weight: .medium))
+                .accessibilityHidden(true)
+            Text((call.record.isInPerson ? "More than one person in the room?" : "More than one person on the other side?")
+                 + " Plus tells each voice apart: Person 1, Person 2\u{2026}")
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(action: showPlans) {
+                HStack(spacing: 3) {
+                    Text("See Plus")
+                    Image(systemName: "chevron.right").font(.system(size: 9.5, weight: .bold))
+                }
+                .font(Theme.chrome(12, .semibold))
+                .foregroundStyle(PlanTag.plusText)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+        }
+        .font(Theme.chrome(11.5))
+        .foregroundStyle(Theme.textSecondary)
     }
 
     private func rows(_ sketches: [MeetingNaming.Sketch]) -> some View {

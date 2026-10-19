@@ -1533,10 +1533,13 @@ final class MeetingNotesModel {
 
     /// Starts the voice model on the other side's audio, unless this call
     /// is a one-to-one with a known name or the other side was named as one
-    /// person (nothing to tell apart), or the model is off or not here.
+    /// person (nothing to tell apart), the model is off or not here, or the
+    /// call runs on Free (`PlanLimits.tellsVoicesApart`).
     private func listenForVoices(on track: MeetingTrack) {
-        guard voices == nil, CallVoiceModel.isOn, let record, record.otherName == nil,
-              !CallVoices.isNamedAsOne(record) else { return }
+        guard voices == nil, let record,
+              CallVoiceModel.isOn(for: PlanSnapshot.kept(startedOn: record.startedOn,
+                                                         now: CloudNotesService.shared.plan())),
+              record.otherName == nil, !CallVoices.isNamedAsOne(record) else { return }
         let (stream, offset) = track.voiceInput()
         let listener = CallVoiceListener(offset: offset)
         voices = listener

@@ -40,7 +40,8 @@ final class PlansTests: XCTestCase {
 
     func testWhatIsLostGoingToFree() {
         let free = PlanSnapshot.free.limits
-        let limits: [PlanLimits.Difference] = [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes]
+        let limits: [PlanLimits.Difference] = [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes,
+                                               .voicesTogether]
         XCTAssertEqual(plus.limits.lost(goingTo: free), limits + [.notesOnTheMac])
         XCTAssertEqual(pro.limits.lost(goingTo: free), limits + [.notesOnTheMac])
         XCTAssertEqual(trial.limits.lost(goingTo: free), limits, "a trial never wrote notes online")
@@ -54,10 +55,13 @@ final class PlansTests: XCTestCase {
         XCTAssertEqual(free.clipboardShows, 100)
         XCTAssertTrue(free.oneAgentAtATime)
         XCTAssertEqual(free.notesListenFor, 30 * 60)
-        for paid in [plus, pro, trial, PlanSnapshot(plan: .plus, isPaid: false)] {
+        XCTAssertFalse(free.tellsVoicesApart)
+        XCTAssertFalse(PlanSnapshot(plan: .free, isPaid: true).limits.tellsVoicesApart)
+        for paid in [plus, pro, trial, PlanSnapshot(plan: .pro, isPaid: false)] {
             XCTAssertNil(paid.limits.clipboardShows)
             XCTAssertFalse(paid.limits.oneAgentAtATime)
             XCTAssertNil(paid.limits.notesListenFor)
+            XCTAssertTrue(paid.limits.tellsVoicesApart, "on the Mac, so it goes by the plan alone")
         }
     }
 
@@ -68,7 +72,10 @@ final class PlansTests: XCTestCase {
                        "The notch answers one coding agent at a time. Others ask in their own terminal.")
         XCTAssertEqual(PlanLimits.Difference.shorterCallNotes.sentence(macWritesNotes: false),
                        "Call notes cover the first 30 minutes of each call.")
-        for change in [PlanLimits.Difference.shorterClipboard, .oneAgentAtATime, .shorterCallNotes] {
+        XCTAssertEqual(PlanLimits.Difference.voicesTogether.sentence(macWritesNotes: true),
+                       "Everyone on the other side of a call is \u{201C}Them\u{201D}. Telling voices apart comes with Plus.")
+        for change in [PlanLimits.Difference.shorterClipboard, .oneAgentAtATime, .shorterCallNotes,
+                       .voicesTogether] {
             XCTAssertFalse(change.symbol.isEmpty)
         }
     }
@@ -174,11 +181,12 @@ final class PlansTests: XCTestCase {
         let afterTrial = try XCTUnwrap(FreeCard.due(entitlement: .free,
                                                     before: PlanBefore(plan: trial, ending: .trial, endedOn: ended),
                                                     seen: false))
-        XCTAssertEqual(afterTrial.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes])
+        XCTAssertEqual(afterTrial.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether])
         let afterPro = try XCTUnwrap(FreeCard.due(entitlement: .free,
                                                   before: PlanBefore(plan: pro, ending: .subscription, endedOn: ended),
                                                   seen: false))
-        XCTAssertEqual(afterPro.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .notesOnTheMac])
+        XCTAssertEqual(afterPro.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether,
+                                           .notesOnTheMac])
     }
 
     private func message(_ before: PlanBefore, now: Date) -> String {

@@ -11,41 +11,43 @@ enum NotesComparisonPages {
 
         ## Summary
 
-        Discuss budget and staffing changes. Decided to halve travel for the rest of the quarter, update forecasts, and prepare for hiring.
+        Quarterly budget and expenses review Travel is halved for the rest of the quarter, software is revised to be two thousand under due to a design tool renewal, and salaries are on plan.
 
         ## To-dos
 
-        - [ ] Update the forecast with that — Person 1 · 5:43
-        - [ ] Tell my team not to book anything new until the rules are written down — Person 2 · 5:50
-        - [ ] Send the revised numbers to both of us by Friday · 6:02
+        - [ ] Halve travel January · 4:31
+        - [ ] Update the forecast with that · 5:43
+        - [ ] Tell my team not to book anything new until the rules are written down · 5:43
+        - [ ] Send the revised numbers to both of us by Friday · 6:23
         - [ ] Leave the coffee machine for January · 7:55
-        - [ ] I'll send an invite — Person 1 · 11:03
-        - [ ] I'll chase them tomorrow morning — Person 2 · 15:42
-        - [ ] Write the note — Person 2 · 16:31
-        - [ ] Prepare the deck · 23:40
+        - [ ] Set up the monthly check Every first Monday · 10:58
+        - [ ] Write the note — You · 16:31
+        - [ ] Prepare the deck for the board meeting · 17:40
+        - [ ] Move the design tool renewal into the first quarter forecast · 25:02
 
         ## Decisions
 
         - Travel is halved for the rest of the quarter · 5:33
         - Software is two thousand under, because the design tool renewal moved to January · 6:49
         - Salaries are on plan · 8:15
+        - Revenue is three percent above plan, mostly from the two renewals in August · 8:32
         - Let's talk about how we stop this from happening again · 10:20
-        - Go ahead · 13:00
+        - I'll talk to the head of sales myself · 11:45
         - Agreed. We decide the April hire in March · 14:26
-        - That's it. Plus whatever comes back from the agency on the invoice · 15:34
+        - That's it. Plus whatever comes back from the agency on the invoice. I'll chase them tomorrow morning · 15:34
 
         ## Open questions
 
         - Was the second wave approved? · 1:22
-        - Is that a real saving or just a later invoice? · 7:10
-        - Do we tell the whole team about the travel cut, or only the managers? · 23:40
+        - Is that a real saving or just a later invoice? · 7:04
+        - What about the coffee machine? · 7:40
 
         ## Key points
 
-        - Marketing is eighteen thousand euros over plan · 0:52
-        - Travel is budgeted at thirty-six thousand · 4:20
-        - Campaigns · 9:07
-        - Hiring · 14:08
+        - Quarter's budget · 0:04
+        - Marketing · 0:52
+        - Office costs · 7:22
+        - Campaign overspend · 9:07
 
         ---
 

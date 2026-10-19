@@ -83,7 +83,7 @@ final class RecordingReader {
         let recorded = await Self.recordedAt(url)
         let startedAt = given ?? RecordingImport.startedAt(recorded: recorded, modified: modified,
                                                            seconds: seconds, now: Date())
-        let tellsVoices = CallVoiceModel.isOn(in: settings)
+        let tellsVoices = CallVoiceModel.isOn(for: CloudNotesService.shared.plan(), in: settings)
         progress = RecordingImport.Progress(fileName: name, seconds: seconds, tellsVoices: tellsVoices,
                                             speed: speed)
         onProgress(progress)

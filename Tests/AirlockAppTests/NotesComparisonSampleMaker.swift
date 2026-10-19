@@ -9,6 +9,9 @@ import XCTest
 ///
 ///     AIRLOCK_MAKE_NOTES_SAMPLE=1 swift test --filter NotesComparisonSampleMaker
 ///
+/// `AIRLOCK_MAKE_NOTES_SAMPLE=free` writes Free's page alone: nothing is
+/// sent and nothing is spent, and Plus's and Pro's pages are kept.
+///
 /// Free: Apple's on-device model on THIS Mac, from the first 30 minutes, as
 /// Free writes them. Plus and Pro: the models the licence server uses for
 /// each plan, asked the way it asks them (the same instructions, prompt,
@@ -24,7 +27,10 @@ import XCTest
 /// committing them: they are what people are shown as each plan's notes.
 @MainActor
 final class NotesComparisonSampleMaker: XCTestCase {
-    private static let enabled = ProcessInfo.processInfo.environment["AIRLOCK_MAKE_NOTES_SAMPLE"] == "1"
+    private static let asked = ProcessInfo.processInfo.environment["AIRLOCK_MAKE_NOTES_SAMPLE"]
+    private static let enabled = asked == "1" || asked == "free"
+    /// Free's page alone, written on this Mac: no request leaves it.
+    private static let freeOnly = asked == "free"
 
     /// The licence server's models (worker/wrangler.toml), with their price
     /// per million tokens: no route dearer than that is taken.
@@ -47,7 +53,7 @@ final class NotesComparisonSampleMaker: XCTestCase {
             writer: .mac(at: Self.writtenAt(free), why: .plan, plan: .free),
             locale: Locale(identifier: "en_US"), timeZone: NotesComparisonSample.timeZone)
 
-        let key = try? Self.key()
+        let key = Self.freeOnly ? nil : try? Self.key()
         let record = NotesComparisonSample.record
         let prompt = CallNotesPrompts.cloud(for: record, language: CallLanguage.check(record).decision?.name)
         var spent = 0.0
@@ -78,7 +84,7 @@ final class NotesComparisonSampleMaker: XCTestCase {
             print("\n===== \(plan.label) =====\n" + (pages[plan] ?? ""))
         }
         try Self.save(pages)
-        if !notAsked.isEmpty {
+        if !notAsked.isEmpty, !Self.freeOnly {
             throw XCTSkip("Not asked: \(notAsked.joined(separator: ", ")). "
                           + (key == nil ? "No OpenRouter key in the keychain." : "Its model refused; see above."))
         }
