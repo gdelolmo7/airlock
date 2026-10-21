@@ -54,6 +54,12 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.0.26", title: "Call notes by topic", items: [
+            Item("list.bullet.rectangle", "On Plus and Pro, call notes go topic by topic, with to-dos by person and words to check."),
+            Item("tray.and.arrow.down", "Files dragged onto the island now land in the tray on a monitor too."),
+            Item("doc.on.clipboard", "What you copy from Airlock itself, like a call's notes, now shows in clipboard history."),
+            Item("questionmark.circle", "Settings › Plans is simpler, and Settings pages link to help on the website."),
+        ]),
         Notes(version: "1.0.25", title: "Who said what on calls", items: [
             Item("person.2", "On Plus and Pro, call notes tell the voices apart: Person 1, Person 2… Name them after."),
             // The privacy page promises a new outbound request is in the notes

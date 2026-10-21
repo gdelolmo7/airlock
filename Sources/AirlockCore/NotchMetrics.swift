@@ -53,9 +53,9 @@ public struct NotchMetrics: Equatable, Sendable {
         notchWidth = cutout.width
     }
 
-    /// A PHYSICAL cutout. False for a stand-in, whatever its size, so nothing
-    /// that needs real hardware to sit over — the drop catcher — can ever take
-    /// one for a notch.
+    /// A PHYSICAL cutout. False for a stand-in, whatever its size, so anything
+    /// that must tell the two apart can — the drop catcher stays put over
+    /// hardware, but over a stand-in only while the island is drawn.
     public var hasNotch: Bool { !isStandIn && notchHeight > 0 && notchWidth > 0 }
 
     /// What the island is drawn around on this display: the camera housing

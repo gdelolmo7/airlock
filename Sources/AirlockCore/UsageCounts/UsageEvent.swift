@@ -169,6 +169,23 @@ public struct UsageEvent: Equatable, Sendable {
         UsageEvent("plan_changed", ["from": .word(from.rawValue), "to": .word(to.rawValue)])
     }
 
+    /// One of Free's reminders came on screen in the notch. With
+    /// `plansOpened`, `checkoutOpened` and `planChanged`, the whole way from
+    /// seeing Plus to paying for it.
+    public static func reminderShown(_ kind: UpgradeReminder.Kind) -> UsageEvent {
+        UsageEvent("reminder_shown", ["kind": .word(kind.rawValue)])
+    }
+
+    /// "Not now" on one of Free's reminders.
+    public static func reminderNotNow(_ kind: UpgradeReminder.Kind) -> UsageEvent {
+        UsageEvent("reminder_not_now", ["kind": .word(kind.rawValue)])
+    }
+
+    /// The shop's checkout was sent to the browser, for this plan and period.
+    public static func checkoutOpened(_ plan: AirlockPlan, _ period: License.Period) -> UsageEvent {
+        UsageEvent("checkout_opened", ["plan": .word(plan.rawValue), "period": .word(period.rawValue)])
+    }
+
     // MARK: - Problems
 
     /// Something in the way that the person can see, like a permission

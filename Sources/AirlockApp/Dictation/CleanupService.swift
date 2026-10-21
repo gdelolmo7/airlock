@@ -27,7 +27,13 @@ final class CleanupService {
 
     private(set) var lastRejection: String?
 
+    /// The Mac's own answer, unless Airlock was started pretending Apple
+    /// Intelligence is switched off (`OutageDrill`).
     var availability: ModelAvailability {
+        OutageDrill.availability(systemAvailability, hidden: PretendOutage.hidesAppleIntelligence)
+    }
+
+    private var systemAvailability: ModelAvailability {
         switch SystemLanguageModel.default.availability {
         case .available:
             return .ready

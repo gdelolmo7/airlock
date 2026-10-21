@@ -19,8 +19,7 @@ import DynamicNotchKit
 /// `NSScreen.screens`, which a test process cannot arrange, and because the two
 /// choices are made in different files — the panel through `NotchScreen.target`
 /// (also handed to the kit as its `screenProvider`, so its self-directed
-/// rebuilds land in the same place), the catcher through `NotchScreen.catching`
-/// and its own `hasNotch` guard.
+/// rebuilds land in the same place), the catcher through `NotchScreen.catching`.
 final class NotchScreenChoiceTests: XCTestCase {
     /// Stand-ins for `NSScreen`, which cannot be constructed. The rule never
     /// looks inside a screen — only at which one it is — so identity is all a
@@ -85,12 +84,13 @@ final class NotchScreenChoiceTests: XCTestCase {
 
     /// Following the main display (the default): a monitor set as main in
     /// System Settings takes the island even with the lid open, and the
-    /// catcher stands down, since the notch it would sit over has no island.
-    func testFollowingTheMainDisplayPutsTheIslandOnItAndTheCatcherAway() {
+    /// catcher goes with it. It used to stand down there, which left a
+    /// monitor-as-main taking no drops at all (2026-10-18).
+    func testFollowingTheMainDisplayPutsTheIslandAndTheCatcherOnIt() {
         XCTAssertEqual(NotchScreenChoice.presenting(physicallyNotched: laptop, primary: external,
                                                     followsMain: true, allowsExternalWhenClosed: false), external)
-        XCTAssertNil(NotchScreenChoice.catching(physicallyNotched: laptop, primary: external,
-                                                followsMain: true, allowsExternalWhenClosed: false))
+        XCTAssertEqual(NotchScreenChoice.catching(physicallyNotched: laptop, primary: external,
+                                                  followsMain: true, allowsExternalWhenClosed: false), external)
         // The laptop as main: nothing changes, the catcher included.
         XCTAssertEqual(NotchScreenChoice.presenting(physicallyNotched: laptop, primary: laptop,
                                                     followsMain: true, allowsExternalWhenClosed: false), laptop)
@@ -135,15 +135,42 @@ final class NotchScreenChoiceTests: XCTestCase {
                      "opted in with no screen at all is still nowhere")
     }
 
-    /// The catcher needs something to sit over and has no fallback: it is the
-    /// notched screen or nothing, whatever the preference says.
-    func testTheCatcherHasNoFallback() {
+    /// The catcher goes wherever the island goes, a monitor's stand-in
+    /// included, and nowhere the island is not.
+    func testTheCatcherFollowsTheIsland() {
         XCTAssertEqual(NotchScreenChoice.catching(physicallyNotched: laptop, primary: external,
                                                   allowsExternalWhenClosed: true), laptop)
+        // Lid shut, opted in: the monitor.
+        XCTAssertEqual(NotchScreenChoice.catching(physicallyNotched: String?.none, primary: external,
+                                                  allowsExternalWhenClosed: true), external)
+        XCTAssertEqual(NotchScreenChoice.catching(physicallyNotched: String?.none, primary: external,
+                                                  followsMain: true, allowsExternalWhenClosed: false), external)
+        // Lid shut, not opted in: no island, so no catcher.
         XCTAssertNil(NotchScreenChoice.catching(physicallyNotched: String?.none, primary: external,
-                                                allowsExternalWhenClosed: true))
-        XCTAssertNil(NotchScreenChoice.catching(physicallyNotched: String?.none, primary: external,
-                                                followsMain: true, allowsExternalWhenClosed: true))
+                                                allowsExternalWhenClosed: false))
+    }
+
+    /// The stronger form of the invariant above, now that the catcher has no
+    /// rule of its own: wherever the panel presents, the catcher is there too.
+    /// A catcher that stands down on some screen is a tray nobody can drag to.
+    func testWhereverThePanelPresentsTheCatcherIsThere() {
+        for notched in [laptop, nil] {
+            for primary in [laptop, external, nil] {
+                for follows in [true, false] {
+                    for policy in [true, false] {
+                        let panel = NotchScreenChoice.presenting(
+                            physicallyNotched: notched, primary: primary, followsMain: follows,
+                            allowsExternalWhenClosed: policy)
+                        let catcher = NotchScreenChoice.catching(
+                            physicallyNotched: notched, primary: primary, followsMain: follows,
+                            allowsExternalWhenClosed: policy)
+                        XCTAssertEqual(panel, catcher,
+                                       "notched=\(notched ?? "-") primary=\(primary ?? "-") "
+                                       + "follows=\(follows) policy=\(policy)")
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Lid shut, and the layout's screen

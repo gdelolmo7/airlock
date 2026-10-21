@@ -345,6 +345,7 @@ final class CallVoiceDownload {
         configuration.allowsConstrainedNetworkAccess = allowsMetered
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 15 * 60
+        PretendOutage.apply(to: configuration)
         let fetcher = PieceFetcher(onBytes: onBytes)
         let session = URLSession(configuration: configuration, delegate: fetcher, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }

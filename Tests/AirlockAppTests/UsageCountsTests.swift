@@ -171,6 +171,76 @@ final class UsageCountsTests: XCTestCase {
         XCTAssertEqual(posts.count, 1, "only the one from before the no")
     }
 
+    // MARK: - The owner's mark
+
+    private var ownerFile: URL { scratch.file(OwnerMark.fileName) }
+    private let mark = "0123456789abcdef0123456789abcdef"
+
+    private func owner(_ body: Data) throws -> String? {
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        return json["owner"] as? String
+    }
+
+    func testAMacWithoutTheMarkSendsNone() async throws {
+        store.defaults.set(true, forKey: UsageCounts.enabledKey)
+        let usage = counts(endpoint: endpoint)
+        usage.launch()
+        await usage.send()
+        let posts = await network.bodies
+        XCTAssertNil(try owner(XCTUnwrap(posts.first)))
+        XCTAssertNil(usage.ownerMark)
+    }
+
+    func testAKeptMarkGoesWithEveryBatch() async throws {
+        store.defaults.set(true, forKey: UsageCounts.enabledKey)
+        let usage = counts(endpoint: endpoint)
+        XCTAssertTrue(usage.keepOwnerMark(mark.uppercased()))
+        XCTAssertEqual(usage.ownerMark, mark)
+        usage.launch()
+        await usage.send()
+        let posts = await network.bodies
+        XCTAssertEqual(try owner(XCTUnwrap(posts.first)), mark)
+    }
+
+    /// Another copy on the Mac kept it: the file is read at the send.
+    func testAMarkKeptElsewhereCountsAtTheNextSend() async throws {
+        store.defaults.set(true, forKey: UsageCounts.enabledKey)
+        let usage = counts(endpoint: endpoint)
+        usage.launch()
+        try Data("\(mark)\n".utf8).write(to: ownerFile)
+        await usage.send()
+        let posts = await network.bodies
+        XCTAssertEqual(try owner(XCTUnwrap(posts.first)), mark)
+    }
+
+    func testAMalformedFileIsNoMark() async throws {
+        try Data("lic_2e8a0d03".utf8).write(to: ownerFile)
+        XCTAssertNil(counts(endpoint: endpoint).ownerMark)
+        XCTAssertFalse(counts(endpoint: endpoint).keepOwnerMark("not a mark"))
+    }
+
+    /// Off throws away the install id, and the mark says whose Mac it is,
+    /// so it stays for the next yes.
+    func testSwitchingCountsOffKeepsTheMark() async throws {
+        let usage = counts(endpoint: endpoint)
+        usage.launch()
+        usage.choose(true, from: .settings)
+        usage.keepOwnerMark(mark)
+        usage.choose(false, from: .settings)
+        XCTAssertEqual(usage.ownerMark, mark)
+        usage.choose(true, from: .settings)
+        await usage.send()
+        let posts = await network.bodies
+        XCTAssertEqual(try owner(XCTUnwrap(posts.last)), mark)
+    }
+
+    /// A build that cannot send keeps it too: the installed copy reads it.
+    func testABuildWithoutAnEndpointStillKeepsTheMark() {
+        let usage = counts(endpoint: nil)
+        XCTAssertTrue(usage.keepOwnerMark(mark))
+        XCTAssertEqual(counts(endpoint: endpoint).ownerMark, mark)
+    }
+
     func testANewYesGetsANewID() async throws {
         let usage = counts(endpoint: endpoint)
         usage.launch()

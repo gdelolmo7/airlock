@@ -63,10 +63,11 @@ enum NotchDisplayPolicy {
     /// do not see.
     ///
     /// The price is the same as the lid-shut fallback's: on a monitor the
-    /// island rests around a stand-in, only while that menu bar shows, and
-    /// files cannot be dragged onto it (`catching` is nil there). Off: the
-    /// MacBook's notch outranks everything, as it did before, and
-    /// `showsOnExternalWhenClosed` decides the lid-shut case.
+    /// island rests around a stand-in, only while that menu bar shows. Files
+    /// can be dragged onto it there too — the catcher follows the island (see
+    /// `NotchScreenChoice.catching`). Off: the MacBook's notch outranks
+    /// everything, as it did before, and `showsOnExternalWhenClosed` decides
+    /// the lid-shut case.
     ///
     /// Read as absent-means-on, so existing installs follow the main display
     /// after the update.
@@ -93,8 +94,8 @@ enum NotchDisplayPolicy {
     /// product but not the same one. Better to opt into it than discover it at
     /// a desk.
     ///
-    /// Note the tray stays unreachable by drag either way: the catcher needs
-    /// real hardware to sit over, and a stand-in never counts as a notch.
+    /// The tray takes drags on the stand-in as well, while the island is
+    /// drawn there — see `NotchDropCatcher.islandShown`.
     static var showsOnExternalWhenClosed: Bool {
         get { UserDefaults.standard.bool(forKey: externalWhenClosedKey) }
         set {
@@ -117,16 +118,16 @@ extension Notification.Name {
 /// windows and is otherwise untestable: `swift test` cannot arrange
 /// `NSScreen.screens`, and the panel and the drop catcher pick their screens in
 /// different files — the panel through `NotchScreen.target`, the catcher through
-/// `NotchScreen.notched` plus a `hasNotch` guard, which is `physicallyNotched`
-/// spelled differently. The AirDrop hit test compares a point in one window's
+/// `NotchScreen.catching`. The AirDrop hit test compares a point in one window's
 /// coordinates against a box laid out in the other's with no screen conversion
 /// (`NotchController.isOverRail`), and `DynamicNotchOverlay.windowFrame`
 /// only makes their rectangles identical when the SCREEN is identical too.
 ///
-/// So: the catcher exists only on the screen the panel presents on. With the
-/// island following the main display that may be a monitor while the laptop
-/// is open, and then the catcher stands down rather than sit over a notch the
-/// island is not on. Pinned by `NotchScreenChoiceTests`.
+/// So: the catcher exists only on the screen the panel presents on, and on
+/// every such screen — a monitor included. It used to need a camera housing,
+/// which once the island started following the main display (2026-09-30)
+/// meant a monitor-as-main had no catcher at all and a file dragged onto the
+/// island went nowhere (2026-10-18). Pinned by `NotchScreenChoiceTests`.
 ///
 /// With the lid shut the fallback is the PRIMARY display — the one System
 /// Settings calls the main display, `NSScreen.screens.first` — and never
@@ -161,18 +162,19 @@ enum NotchScreenChoice {
             ?? main ?? primary
     }
 
-    /// Where the drop catcher can install, or nil — it needs a cutout to sit
-    /// over, so it is the notched screen and never a fallback, and only while
-    /// the island is on it.
-    static func catching<Screen: Equatable>(physicallyNotched: Screen?,
-                                            primary: Screen?,
-                                            followsMain: Bool = false,
-                                            allowsExternalWhenClosed: Bool) -> Screen? {
-        guard let physicallyNotched,
-              presenting(physicallyNotched: physicallyNotched, primary: primary, followsMain: followsMain,
-                         allowsExternalWhenClosed: allowsExternalWhenClosed) == physicallyNotched
-        else { return nil }
-        return physicallyNotched
+    /// Where the drop catcher installs, or nil: wherever the island is, notch
+    /// or stand-in. On a stand-in it only shows while the island is drawn —
+    /// that half is `NotchDropCatcher.islandShown`, because it depends on the
+    /// menu bar, not on which screen.
+    ///
+    /// Spelled out as its own rule, identical to `presenting`, so the relation
+    /// the AirDrop hit test depends on has a name the tests can hold it to.
+    static func catching<Screen>(physicallyNotched: Screen?,
+                                 primary: Screen?,
+                                 followsMain: Bool = false,
+                                 allowsExternalWhenClosed: Bool) -> Screen? {
+        presenting(physicallyNotched: physicallyNotched, primary: primary, followsMain: followsMain,
+                   allowsExternalWhenClosed: allowsExternalWhenClosed)
     }
 }
 
@@ -226,10 +228,8 @@ enum NotchScreen {
             allowsExternalWhenClosed: NotchDisplayPolicy.showsOnExternalWhenClosed)
     }
 
-    /// The display the drop catcher installs on, or nil when no screen has a
-    /// cutout. `NotchDropCatcher.place()` spells the same thing as `notched`
-    /// plus a `hasNotch` guard; both resolve to `physicallyNotched`, and
-    /// `NotchScreenChoice` is where they are stated as one rule.
+    /// The display the drop catcher installs on: the one the island presents
+    /// on, or nil when it presents nowhere. See `NotchScreenChoice.catching`.
     static var catching: NSScreen? {
         NotchScreenChoice.catching(
             physicallyNotched: physicallyNotched,

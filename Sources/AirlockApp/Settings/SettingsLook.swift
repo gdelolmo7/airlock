@@ -1,4 +1,5 @@
 import SwiftUI
+import AirlockCore
 
 /// Settings in the notch's look: black, rounded rows, one line per
 /// setting, the long explanations behind "More options".
@@ -29,17 +30,23 @@ enum SettingsLook {
 
 // MARK: - Page
 
-/// Title and one sentence saying what the page is for.
+/// Title and one sentence saying what the page is for, and "Learn more" at
+/// the end of the title's line when the website has a page about it.
 struct LookPageHeader: View {
     let title: String
     let subtitle: String
+    var learnMore: [FeaturePage] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(Theme.chrome(15, .semibold))
-                .foregroundStyle(Theme.textPrimary)
-                .accessibilityAddTraits(.isHeader)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(Theme.chrome(15, .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                LookLearnMore(pages: learnMore)
+            }
             Text(subtitle)
                 .font(Theme.chrome(12))
                 .foregroundStyle(Theme.textSecondary)
@@ -72,6 +79,8 @@ struct LookGroupLabel: View {
 struct LookPage<Rows: View, More: View>: View {
     let title: String
     let subtitle: String
+    /// The website's pages about what this page sets up (`LookLearnMore`).
+    var learnMore: [FeaturePage] = []
     @Binding var moreOptions: Bool
     /// Rows that live behind "More options": a link to one opens them first,
     /// or it would scroll to a row that is not there.
@@ -82,11 +91,12 @@ struct LookPage<Rows: View, More: View>: View {
     /// Optional so the state gallery can draw a page without the window.
     @Environment(SettingsModel.self) private var settings: SettingsModel?
 
-    init(_ title: String, subtitle: String, moreOptions: Binding<Bool>,
+    init(_ title: String, subtitle: String, learnMore: [FeaturePage] = [], moreOptions: Binding<Bool>,
          anchorsInMoreOptions: Set<SettingsAnchor> = [],
          @ViewBuilder rows: @escaping () -> Rows, @ViewBuilder more: @escaping () -> More) {
         self.title = title
         self.subtitle = subtitle
+        self.learnMore = learnMore
         _moreOptions = moreOptions
         self.anchorsInMoreOptions = anchorsInMoreOptions
         self.rows = rows
@@ -96,7 +106,7 @@ struct LookPage<Rows: View, More: View>: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
-                LookPageHeader(title: title, subtitle: subtitle)
+                LookPageHeader(title: title, subtitle: subtitle, learnMore: learnMore)
                     .padding(.horizontal, 4)
                     .padding(.bottom, 8)
                 rows()
@@ -133,8 +143,59 @@ struct LookPage<Rows: View, More: View>: View {
 
 extension LookPage where More == EmptyView {
     /// A page short enough to have nothing behind "More options".
-    init(_ title: String, subtitle: String, @ViewBuilder rows: @escaping () -> Rows) {
-        self.init(title, subtitle: subtitle, moreOptions: .constant(false), rows: rows, more: { EmptyView() })
+    init(_ title: String, subtitle: String, learnMore: [FeaturePage] = [],
+         @ViewBuilder rows: @escaping () -> Rows) {
+        self.init(title, subtitle: subtitle, learnMore: learnMore, moreOptions: .constant(false),
+                  rows: rows, more: { EmptyView() })
+    }
+}
+
+/// "Learn more ↗": the website's page about what a Settings page sets up,
+/// opened in the browser. A page that sets up several things ("The notch")
+/// offers their pages in a menu instead.
+///
+/// Quiet on purpose, in the colour and size of "More options": it is there
+/// for whoever wonders what a page is for, not a call to action. Nothing is
+/// fetched to draw it; the page opens only on a click, so it sends nothing
+/// the app did not send before.
+struct LookLearnMore: View {
+    let pages: [FeaturePage]
+
+    var body: some View {
+        if pages.count == 1, let page = pages.first {
+            Button { NSWorkspace.shared.open(page.url) } label: { label(arrow: "arrow.up.right") }
+                .buttonStyle(.plain)
+                .clickable()
+                .fixedSize()
+                .help("Opens \u{201c}\(page.title)\u{201d} on useairlock.app, in your browser.")
+                .accessibilityLabel("Learn more about \(page.title), on the website")
+        } else if !pages.isEmpty {
+            Menu {
+                ForEach(pages, id: \.self) { page in
+                    Button(page.title) { NSWorkspace.shared.open(page.url) }
+                }
+            } label: {
+                label(arrow: "chevron.down")
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .clickable()
+            .help("Pages on useairlock.app about what this page sets up. They open in your browser.")
+            .accessibilityLabel("Learn more on the website")
+        }
+    }
+
+    private func label(arrow: String) -> some View {
+        HStack(spacing: 3) {
+            Text("Learn more")
+            Image(systemName: arrow)
+                .font(.system(size: 8.5, weight: .semibold))
+        }
+        .font(Theme.chrome(11.5))
+        .foregroundStyle(Theme.textSecondary)
+        .contentShape(.rect)
     }
 }
 

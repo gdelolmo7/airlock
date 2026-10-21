@@ -27,6 +27,10 @@ enum CallsLook {
     static let decisions = Theme.done
     static let keyPoints = rgb(0x4A9BFF)
     static let questions = rgb(0x4FC3D9)
+    /// The topics of notes written online: where the key points were.
+    static let topics = keyPoints
+    /// "Check these words": an amber that asks for a look, not an alarm.
+    static let words = rgb(0xF2C14E)
     /// A recording added afterwards and its reading: its tile, the bar, the
     /// words that count it.
     static let recording = rgb(0x4FC3D9)

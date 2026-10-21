@@ -56,6 +56,15 @@ enum GalleryCallNotesPanel {
                 return banner(.ready(folder: "/var/empty/weekly", call: call),
                               record: record(of: call, event: weekly, said: opening), notes: weeklyNotes)
             },
+            // The online service didn't answer, and the Mac can't write
+            // notes: the transcript is kept and the notes come later.
+            GalleryState("K96", area, "Panel: call saved, notes later") {
+                let call = meet(since: 1_860)
+                var record = record(of: call, event: weekly, said: opening)
+                record.notesWriter = .noNotes(.failed, at: Date(),
+                                              notBefore: Date().addingTimeInterval(CloudNotesRedo.retryWaits[0]))
+                return banner(.ready(folder: "/var/empty/weekly", call: call), record: record)
+            },
             GalleryState("K22", area, "Panel: notes ready, too little said") {
                 let call = faceTime(since: 70)
                 return banner(.ready(folder: "/var/empty/short", call: call),

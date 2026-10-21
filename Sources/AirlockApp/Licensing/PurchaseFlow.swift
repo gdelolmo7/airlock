@@ -52,8 +52,13 @@ final class PurchaseFlow {
 
     @ObservationIgnored private var timer: Task<Void, Never>?
 
+    /// Each checkout sent to the browser, for usage counts. Set on the app's
+    /// own licence only, so the state gallery's pages count nothing.
+    @ObservationIgnored var onBegin: (AirlockPlan, License.Period) -> Void = { _, _ in }
+
     /// They have left for the browser.
     func begin(_ plan: AirlockPlan, _ period: License.Period, now: Date = Date()) {
+        onBegin(plan, period)
         self.plan = plan
         self.period = period
         stage = .waiting(since: now)

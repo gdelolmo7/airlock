@@ -20,6 +20,18 @@ public enum CloudNotes {
     public static let questionLimit = 8
     public static let keyPointLimit = 5
 
+    /// The same, for notes written by topic (`Draft.byTopic`): every to-do
+    /// is asked for, so more are let through.
+    public static let topicLimit = 10
+    public static let pointLimit = 6
+    public static let topicTodoLimit = 25
+    public static let wordLimit = 5
+
+    /// What the server is asked for when the app wants notes by topic. A
+    /// server from before topics ignores it and answers in the old shape,
+    /// which `parse` still reads.
+    public static let topicsShape = "topics"
+
     /// The most the server takes, in UTF-16 units (what it counts):
     /// 10,000 for the instructions and 400,000 for the prompt. A meeting
     /// is sent only when its prompt is within `promptLimit`, kept a little
@@ -54,19 +66,69 @@ public enum CloudNotes {
 
     /// The model's answer, read but not yet checked.
     public struct Draft: Equatable, Sendable {
+        /// One subject talked about, as the model wrote it.
+        public struct Topic: Equatable, Sendable {
+            public var title: String
+            public var gist: String
+            public var points: [Point]
+
+            public init(title: String, gist: String = "", points: [Point]) {
+                self.title = title
+                self.gist = gist
+                self.points = points
+            }
+        }
+
+        public struct Point: Equatable, Sendable {
+            public var text: String
+            /// Whether the model marked it as something decided.
+            public var decision: Bool
+            public var sources: [String]
+
+            public init(text: String, decision: Bool = false, sources: [String]) {
+                self.text = text
+                self.decision = decision
+                self.sources = sources
+            }
+        }
+
+        /// A name or figure the transcript may have heard wrong.
+        public struct Word: Equatable, Sendable {
+            /// The ways the transcript has it.
+            public var heard: [String]
+            /// What it most likely is.
+            public var best: String
+            public var sources: [String]
+
+            public init(heard: [String], best: String, sources: [String]) {
+                self.heard = heard
+                self.best = best
+                self.sources = sources
+            }
+        }
+
         public var summary: String
-        /// Decisions, to-dos and open questions; no topics.
+        /// Decisions, to-dos and open questions; no topics. Notes by topic
+        /// have no decisions here: they are points marked `decision`.
         public var lines: MeetingDraft
         public var keyPoints: [MeetingDraft.Fact]
         /// The meeting's name as written, not yet cleaned.
         public var title: String
+        /// Whether the answer is in the shape by topic (it has "topics").
+        public var byTopic: Bool
+        public var topics: [Topic]
+        public var words: [Word]
 
         public init(summary: String = "", lines: MeetingDraft = MeetingDraft(),
-                    keyPoints: [MeetingDraft.Fact] = [], title: String = "") {
+                    keyPoints: [MeetingDraft.Fact] = [], title: String = "", byTopic: Bool = false,
+                    topics: [Topic] = [], words: [Word] = []) {
             self.summary = summary
             self.lines = lines
             self.keyPoints = keyPoints
             self.title = title
+            self.byTopic = byTopic
+            self.topics = topics
+            self.words = words
         }
     }
 
@@ -79,25 +141,47 @@ public enum CloudNotes {
     /// as the line's whole prefix ("[S12 4:05 You]") or as a bare number
     /// (12, or "12"), sources as one string, a missing list, a null owner.
     /// Only the line number of a source is read (`NumberedTranscript.id`).
+    ///
+    /// Both shapes are read: the one before topics (decisions, key points,
+    /// one owner a to-do) and the one by topic (topics of points, owners a
+    /// to-do, words to check), told apart by "topics".
     public static func parse(_ text: String) -> Draft? {
         guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end,
               let data = String(text[start...end]).data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
-        let known = ["summary", "decisions", "todos", "questions", "keyPoints", "key_points"]
+        let known = ["summary", "decisions", "todos", "questions", "keyPoints", "key_points", "topics",
+                     "wordsToCheck"]
         guard known.contains(where: { object[$0] != nil }) else { return nil }
 
         let todos = list(object["todos"]).compactMap { entry -> MeetingDraft.Todo? in
             guard let item = entry as? [String: Any] else { return nil }
             let task = string(item["task"]) ?? string(item["text"]) ?? ""
-            return MeetingDraft.Todo(task: task, owner: string(item["owner"]) ?? "",
+            return MeetingDraft.Todo(task: task, owner: string(item["owner"]) ?? "", owners: names(item["owners"]),
                                      due: string(item["due"]) ?? "", sources: sources(item["sources"]))
+        }
+        let topics = list(object["topics"]).compactMap { entry -> Draft.Topic? in
+            guard let item = entry as? [String: Any] else { return nil }
+            let points = list(item["points"]).compactMap { entry -> Draft.Point? in
+                if let text = entry as? String { return Draft.Point(text: text, sources: []) }
+                guard let point = entry as? [String: Any] else { return nil }
+                return Draft.Point(text: string(point["text"]) ?? "", decision: point["decision"] as? Bool ?? false,
+                                   sources: sources(point["sources"]))
+            }
+            return Draft.Topic(title: string(item["title"]) ?? "", gist: string(item["gist"]) ?? "",
+                               points: points)
+        }
+        let words = list(object["wordsToCheck"] ?? object["words_to_check"]).compactMap { entry -> Draft.Word? in
+            guard let item = entry as? [String: Any] else { return nil }
+            return Draft.Word(heard: names(item["heard"]), best: string(item["best"]) ?? "",
+                              sources: sources(item["sources"]))
         }
         return Draft(summary: string(object["summary"]) ?? "",
                      lines: MeetingDraft(decisions: facts(object["decisions"]), todos: todos,
                                          questions: facts(object["questions"])),
                      keyPoints: facts(object["keyPoints"] ?? object["key_points"]),
-                     title: string(object["title"]) ?? "")
+                     title: string(object["title"]) ?? "",
+                     byTopic: object["topics"] != nil, topics: topics, words: words)
     }
 
     private static func list(_ value: Any?) -> [Any] {
@@ -108,8 +192,18 @@ public enum CloudNotes {
         list(value).compactMap { entry in
             if let text = entry as? String { return MeetingDraft.Fact(text: text, sources: []) }
             guard let item = entry as? [String: Any] else { return nil }
-            return MeetingDraft.Fact(text: string(item["text"]) ?? "", sources: sources(item["sources"]))
+            return MeetingDraft.Fact(text: string(item["text"]) ?? "", sources: sources(item["sources"]),
+                                     context: string(item["context"]) ?? "")
         }
+    }
+
+    /// Names or words as a list: a list of strings, or one string that may
+    /// hold several ("You, Ana").
+    private static func names(_ value: Any?) -> [String] {
+        if let one = string(value) {
+            return one.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+        return list(value).compactMap(string)
     }
 
     /// A string, or a number written as one; nil for null and anything else.
@@ -140,6 +234,7 @@ public enum CloudNotes {
     /// (`MeetingLedger.saysAgain`). The summary is cut to three sentences.
     public static func notes(from draft: Draft, record: MeetingRecord)
         -> (notes: MeetingNotes, tally: MeetingLedger.Tally) {
+        if draft.byTopic { return topicNotes(from: draft, record: record) }
         var ledger = MeetingLedger(record: record)
         let shown = Set(ledger.transcript.turns.map(\.id))
         let lines = MeetingDraft(decisions: Array(draft.lines.decisions.prefix(decisionLimit)),
@@ -169,13 +264,40 @@ public enum CloudNotes {
         return (notes, tally)
     }
 
+    /// Notes written by topic, checked as the rest are: every to-do,
+    /// question and point must cite a line, owners must be somebody heard
+    /// near it (or "Everyone"), and a word to check must be one the
+    /// transcript has there. No key points and no decisions of their own:
+    /// the topics say what was talked about, and a decision is a point
+    /// marked as one. To-dos go person by person (`MeetingOwners.ordered`).
+    private static func topicNotes(from draft: Draft, record: MeetingRecord)
+        -> (notes: MeetingNotes, tally: MeetingLedger.Tally) {
+        var ledger = MeetingLedger(record: record)
+        let shown = Set(ledger.transcript.turns.map(\.id))
+        let lines = MeetingDraft(todos: Array(draft.lines.todos.prefix(topicTodoLimit)),
+                                 questions: Array(draft.lines.questions.prefix(questionLimit)))
+        var tally = ledger.add(lines, shown: shown)
+        tally.dropped += draft.lines.decisions.count + draft.lines.todos.count + draft.lines.questions.count
+            - lines.todos.count - lines.questions.count
+        let topics = ledger.checked(draft.topics, shown: shown, limit: topicLimit, pointLimit: pointLimit)
+        tally.kept += topics.tally.kept
+        tally.dropped += topics.tally.dropped
+        let words = ledger.checked(draft.words, shown: shown, limit: wordLimit)
+        var notes = ledger.notes(summary: draft.summary, keyPoints: [], topics: topics.topics, words: words)
+        notes.todos = MeetingOwners.ordered(notes.todos, owner: \.owner)
+        notes.title = draft.title
+        return (notes, tally)
+    }
+
     // MARK: - The server
 
-    /// What is sent: the token, the rules and the question. Never a key.
-    public static func requestBody(token: String, instructions: String, prompt: String) -> Data {
-        (try? JSONSerialization.data(withJSONObject: ["token": token, "instructions": instructions,
-                                                      "prompt": prompt],
-                                     options: [.sortedKeys])) ?? Data()
+    /// What is sent: the token, the rules and the question, and the shape
+    /// of answer wanted when it is not the first one. Never a key.
+    public static func requestBody(token: String, instructions: String, prompt: String,
+                                   shape: String? = nil) -> Data {
+        var body = ["token": token, "instructions": instructions, "prompt": prompt]
+        if let shape { body["shape"] = shape }
+        return (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data()
     }
 
     /// What the server said, read from its status and body.

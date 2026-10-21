@@ -128,6 +128,33 @@ public struct MeetingStore: Sendable {
                   to: folder.appendingPathComponent(MeetingFiles.notesName))
     }
 
+    /// A word on "Check these words" answered for the call in `folder`
+    /// (`MeetingWordCheck`): its line comes off the list in both notes
+    /// files, and with `use` every way it was heard reads `best`, in them
+    /// and in the transcript. `record` is the one in hand when the app
+    /// holds it, else the one on disk. Returns the record as saved.
+    @discardableResult
+    public func checkWord(_ best: String, heard: [String], use: Bool, in folder: URL,
+                          record held: MeetingRecord? = nil,
+                          timeZone: TimeZone = .current) throws -> MeetingRecord? {
+        var record = held ?? loadRecord(in: folder)
+        if use, var changed = record, MeetingWordCheck.use(best, for: heard, in: &changed) > 0 {
+            if changed.notesWriter == nil || changed.topic == nil, let saved = loadRecord(in: folder) {
+                changed.notesWriter = changed.notesWriter ?? saved.notesWriter
+                changed.topic = changed.topic ?? saved.topic
+            }
+            try saveTranscript(changed, in: folder, timeZone: timeZone)
+            record = changed
+        }
+        for name in [Self.notesAsWrittenName, MeetingFiles.notesName] {
+            let file = folder.appendingPathComponent(name)
+            guard let page = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            let answered = MeetingWordCheck.answer(page, best: best, heard: heard, use: use)
+            if answered != page { try write(Data(answered.utf8), to: file) }
+        }
+        return record
+    }
+
     /// The record in a folder, or nil when it is missing or unreadable.
     public func loadRecord(in folder: URL) -> MeetingRecord? {
         guard let data = try? Data(contentsOf: folder.appendingPathComponent(MeetingFiles.recordName))

@@ -87,6 +87,13 @@ public enum NotesComparisonSample {
         return CallNotesNotice.split(MeetingPage.sections(placed).sections).sections
     }
 
+    /// How many to-dos `plan`'s notes found, for the window's plan tiles.
+    public static func todos(_ plan: AirlockPlan) -> Int {
+        sections(plan).first { $0.heading == "To-dos" }?.lines.filter { line in
+            if case .item = line.block { true } else { false }
+        }.count ?? 0
+    }
+
     // MARK: - What was said
 
     private struct Line {

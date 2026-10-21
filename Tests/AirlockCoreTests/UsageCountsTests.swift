@@ -49,6 +49,10 @@ final class UsageEventTests: XCTestCase {
             .callEnded(minutes: 31, notes: .online, inPerson: false),
             .planChanged(from: .free, to: .plus),
         ]
+        events += UpgradeReminder.Kind.allCases.flatMap { [UsageEvent.reminderShown($0), .reminderNotNow($0)] }
+        for plan in AirlockPlan.allCases {
+            events += [.checkoutOpened(plan, .monthly), .checkoutOpened(plan, .yearly)]
+        }
         events += OnboardingPlan.Step.allCases.map { .setupStep($0, position: 1, secondsBefore: 3) }
         events += UsageEvent.Feature.allCases.map { .used($0) }
         events += UsageEvent.Origin.allCases.map { .countsStarted(from: $0) }
@@ -63,6 +67,17 @@ final class UsageEventTests: XCTestCase {
                 if case .word(let word) = value { XCTAssertEqual(UsageEvent.word(word), word, event.name) }
             }
         }
+    }
+
+    /// The steps between seeing Plus and paying, by name.
+    func testTheWayToPlusIsCountedStepByStep() {
+        XCTAssertEqual(UsageEvent.reminderShown(.week).name, "reminder_shown")
+        XCTAssertEqual(UsageEvent.reminderShown(.week).properties, ["kind": .word("week")])
+        XCTAssertEqual(UsageEvent.reminderNotNow(.agents).name, "reminder_not_now")
+        XCTAssertEqual(UsageEvent.reminderNotNow(.agents).properties, ["kind": .word("agents")])
+        XCTAssertEqual(UsageEvent.checkoutOpened(.pro, .yearly).name, "checkout_opened")
+        XCTAssertEqual(UsageEvent.checkoutOpened(.pro, .yearly).properties,
+                       ["plan": .word("pro"), "period": .word("yearly")])
     }
 
     func testTimesAreNeverNegative() {

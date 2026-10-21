@@ -28,6 +28,10 @@ protocol UsageTransport: Sendable {
 /// still waiting at quit go to a file and are sent after the next launch.
 /// The server forwards them to the counting service without the Mac's
 /// address.
+///
+/// On the owner's own Macs every batch also carries the owner's mark
+/// (`OwnerMark`), kept in a file beside the waiting one, so their own use
+/// can be left out of the numbers. Switching counts off leaves it there.
 @MainActor
 @Observable
 final class UsageCounts {
@@ -72,6 +76,8 @@ final class UsageCounts {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let transport: UsageTransport
     @ObservationIgnored private let queueFile: URL
+    /// Beside the waiting file: the app's own folder, or a test's.
+    @ObservationIgnored private let ownerFile: URL
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let roundEvery: Duration?
     @ObservationIgnored private var queue = UsageQueue()
@@ -90,6 +96,7 @@ final class UsageCounts {
         self.defaults = defaults
         self.transport = transport
         self.queueFile = queueFile
+        ownerFile = queueFile.deletingLastPathComponent().appendingPathComponent(OwnerMark.fileName)
         self.now = now
         self.roundEvery = roundEvery
         isAvailable = endpoint != nil
@@ -233,7 +240,8 @@ final class UsageCounts {
             queue.remove([], now: at)
             return
         }
-        guard let body = try? UsageWire.body(install: installID, context: context(), records: batch)
+        guard let body = try? UsageWire.body(install: installID, context: context(), records: batch,
+                                             owner: ownerMark)
         else { return }
         sending = true
         lastTry = at
@@ -250,6 +258,30 @@ final class UsageCounts {
     /// How many are waiting. For the tests.
     var waitingCount: Int { queue.count }
 
+    // MARK: - The owner's mark
+
+    /// The owner's mark, if this Mac has one. Read from the file at every
+    /// send, so a mark another copy kept counts at once.
+    var ownerMark: String? {
+        (try? String(contentsOf: ownerFile, encoding: .utf8)).flatMap(OwnerMark.valid)
+    }
+
+    /// Keeps `mark` as this Mac's, once the person has said yes to it. Kept
+    /// whether or not counts are on, and in a build that cannot send: the
+    /// file is the one every copy on the Mac reads.
+    @discardableResult
+    func keepOwnerMark(_ mark: String) -> Bool {
+        guard let mark = OwnerMark.valid(mark) else { return false }
+        do {
+            try FileManager.default.createDirectory(at: ownerFile.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("\(mark)\n".utf8).write(to: ownerFile, options: [.atomic])
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Private
 
     /// This copy's id, made the first time it is needed.
@@ -260,7 +292,8 @@ final class UsageCounts {
         return id
     }
 
-    /// Off: nothing waiting, no id, no file, no rounds.
+    /// Off: nothing waiting, no id, no file, no rounds. The owner's mark
+    /// stays: it says whose Mac this is, not anything it did.
     private func forget() {
         loop?.cancel()
         loop = nil
@@ -298,6 +331,7 @@ struct URLSessionUsageTransport: UsageTransport {
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = Self.timeout
         configuration.timeoutIntervalForResource = Self.timeout
+        PretendOutage.apply(to: configuration)
         let session = URLSession(configuration: configuration)
         defer { session.finishTasksAndInvalidate() }
         guard let (_, response) = try? await session.data(for: request) else { return nil }

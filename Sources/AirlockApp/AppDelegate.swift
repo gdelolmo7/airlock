@@ -63,7 +63,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// only ever reaches `LicenseModel.apply`, which verifies before it stores.
     /// A URL we do not recognise is ignored in silence rather than reported: it
     /// was not addressed to us in any meaningful sense.
+    ///
+    /// `airlock://this-mac-is-mine?mark=…` comes from the owner's numbers page
+    /// and is asked about before anything is kept (`OwnerMarkQuestion`), on
+    /// the next turn so a link that launched the app finishes the launch first.
     func application(_ application: NSApplication, open urls: [URL]) {
+        if let mark = urls.lazy.compactMap({ OwnerMark.mark(from: $0) }).first {
+            Task { @MainActor in OwnerMarkQuestion.ask(keeping: mark, in: UsageCounts.shared) }
+            return
+        }
         guard let key = urls.lazy.compactMap({ ActivationURL.key(from: $0) }).first,
               let license else { return }
         // A key that went in shows Settings › Plans already on the new plan,
@@ -98,6 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // one of those would see an empty new-identity world if the copy had
         // not already happened.
         migrateFromLegacyIdentity()
+        // Nothing unless started with `--outage` or `--no-apple-intelligence`.
+        PretendOutage.announce()
         // Right after the preferences are where they belong, since the answer
         // is one of them, and as early as that allows: a crash later in this
         // launch is one worth a report. Does nothing in a build without a DSN
@@ -207,6 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.clipboardWidget = clipboardWidget
         clipboardWidget.plan = { [weak license] in license?.entitlement.limits }
         clipboardWidget.start()
+        AirlockCopy.history = clipboardWidget
 
         let dictation = DictationModel()
         dictation.media = media
@@ -255,13 +266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let model else { return }
             Task { await model.submitQuickPrompt(question) }
         }
-        // A dictation with nowhere to land. Same write path as the assistant's
-        // Copy, so history suppression is defined once.
-        dictation.onCopyTranscript = { [weak clipboardWidget] text in
-            clipboardWidget?.suppressNextCopy(of: text)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-        }
+        // A dictation with nowhere to land: on the clipboard, and kept in its
+        // history like every copy Airlock makes for the person.
+        dictation.onCopyTranscript = { text in AirlockCopy.put(text) }
         // Questions about past calls are answered from them while call notes
         // are on, and a source under the answer opens the call at that moment.
         assistant.callNotesEnabled = { [weak model] in model?.meetings.isEnabled ?? false }
@@ -273,13 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         assistant.onRunInTerminal = { [weak model] command in
             model?.runInTerminal(command)
         }
-        assistant.onCopy = { [weak clipboardWidget] text in
-            // Tell history to ignore this write BEFORE making it — the poll can
-            // fire either side of it.
-            clipboardWidget?.suppressNextCopy(of: text)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-        }
+        assistant.onCopy = { text in AirlockCopy.put(text) }
 
         // Spoken actions. Assembled here because Core may not reach into the
         // widget models, and the widget models are the only things that know
@@ -585,6 +586,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if keyField { self?.appWindow?.show(anchor: .licenceKey) } else { self?.appWindow?.show(pane: .license) }
         }
         model.meetings.onShowPlans = { [weak license] in license?.showPlans(from: "call_notes") }
+        license.purchase.onBegin = { plan, period in
+            UsageCounts.shared.record(.checkoutOpened(plan, period))
+        }
 
         // Free's reminders hear what the plan let go as it happens, and wait
         // for the panel to open: never during a call, never over a question.
@@ -612,6 +616,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return status == .needsAttention || status == .waitingQuestion
             } ?? false
         }
+        reminders.uses = { [weak model, weak agentsWidget, weak clipboardWidget] in
+            var uses: Set<UpgradeReminder.Use> = []
+            if model?.meetings.isEnabled == true { uses.insert(.callNotes) }
+            if (agentsWidget?.connection.connected.count ?? 0) > 0 { uses.insert(.agents) }
+            if let clipboardWidget, clipboardWidget.isEnabled, !clipboardWidget.items.isEmpty {
+                uses.insert(.clipboard)
+            }
+            return uses
+        }
+        reminders.onShown = { UsageCounts.shared.record(.reminderShown($0)) }
+        reminders.onNotNow = { UsageCounts.shared.record(.reminderNotNow($0)) }
         reminders.listenToTheIsland()
 
         let onboardingModel = OnboardingModel(settings: settingsModel, calendar: calendarWidget,
@@ -1110,10 +1125,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let addRecording = makeItem("Add Recording…", #selector(addRecording), "")
         addRecording.tag = Self.addRecordingMenuTag
         menu.addItem(addRecording)
+        // On Free, the one way to Plus that is always there: the reminders
+        // and the notes window's buttons show only after a limit is met.
+        // Under the call rows, so "Call Notes…" keeps its place after
+        // Settings; with call notes off it is the row after Settings.
+        // Shown only on Free (`menuNeedsUpdate`).
+        let upgrade = makeItem("Upgrade to Plus…", #selector(openPlans), "")
+        upgrade.tag = Self.upgradeMenuTag
+        menu.addItem(upgrade)
         // Findable again on purpose: "walk me through it" is the first thing
         // anyone asks for support, and re-running setup should not require
         // deleting a preference key.
         menu.addItem(makeItem("Setup Guide…", #selector(openOnboarding), ""))
+        // The menu bar's Help menu is drawn only while a window is open, and
+        // this menu is the one that is always there.
+        let help = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        help.submenu = makeHelpMenu()
+        menu.addItem(help)
         // Only in a real bundle: `swift run` has nothing to update, and a menu
         // item that cannot work is worse than one that is not there.
         if updater?.isAvailable == true {
@@ -1174,6 +1202,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let item = menu.items.first(where: { $0.tag == addRecordingMenuTag }) else { return }
         item.isHidden = !on
         item.title = reading ? "Reading a Recording…" : "Add Recording…"
+    }
+
+    /// Marks "Upgrade to Plus…", for `menuNeedsUpdate`.
+    static let upgradeMenuTag = 5
+
+    /// Shows "Upgrade to Plus…" only on Free. Plus and Pro change plan in
+    /// Settings › Plans, like everybody, without a row asking them to.
+    static func showUpgrade(in menu: NSMenu, onFree: Bool) {
+        menu.items.first { $0.tag == upgradeMenuTag }?.isHidden = !onFree
     }
 
     /// A plan change reaches what it limits at once, not at the next launch:
@@ -1302,6 +1339,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func stopGuide() { guide?.stop() }
     #endif
 
+    /// Help: the website, the list of what Airlock does, and the address
+    /// that reaches a person. Built twice, for the status item's menu and
+    /// the menu bar, because a menu can belong to only one parent.
+    ///
+    /// Each row opens the browser or the mail app when chosen, and nothing
+    /// is fetched before that.
+    func makeHelpMenu() -> NSMenu {
+        let help = NSMenu(title: "Help")
+        help.addItem(makeItem("Airlock Website", #selector(openWebsite), ""))
+        // The home page's tiles, one per feature with a page of its own.
+        help.addItem(makeItem("What Airlock Can Do", #selector(openAllFeatures), ""))
+        help.addItem(.separator())
+        help.addItem(makeItem("Email \(HelpLinks.email)", #selector(emailUs), ""))
+        // For mail written in a browser: without a mail app set up, the row
+        // above opens Mail's account setup instead.
+        help.addItem(makeItem("Copy Email Address", #selector(copyEmailAddress), ""))
+        return help
+    }
+
+    @objc private func openWebsite() { NSWorkspace.shared.open(HelpLinks.website) }
+    @objc private func openAllFeatures() { NSWorkspace.shared.open(HelpLinks.allFeatures) }
+    @objc private func emailUs() { NSWorkspace.shared.open(HelpLinks.emailURL) }
+
+    @objc private func copyEmailAddress() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(HelpLinks.email, forType: .string)
+    }
+
     private func makeItem(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
@@ -1374,11 +1439,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                   action: #selector(NSWindow.performMiniaturize(_:)),
                                   keyEquivalent: "m"))
         windowItem.submenu = window
-        main.addItem(windowItem)
-
         // Not handed to AppKit as `windowsMenu`: that would have it keep a list
         // of our windows in there, and the notch panel is not a window anyone
         // should be offered by name. The two shortcuts are the whole point.
+        main.addItem(windowItem)
+
+        // Handed to AppKit as `helpMenu`, unlike Window: it sits last and gets
+        // the search field every Mac app's Help menu has.
+        let helpItem = NSMenuItem()
+        let help = makeHelpMenu()
+        helpItem.submenu = help
+        main.addItem(helpItem)
+        NSApp.helpMenu = help
+
         NSApp.mainMenu = main
     }
 
@@ -1415,6 +1488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePanel() { notch?.toggle() }
     @objc private func openSettings() { appWindow?.show() }
+    @objc private func openPlans() { license?.showPlans(from: "menu_bar") }
     @objc private func openCallNotes() { model?.meetings.showPastCalls() }
     @objc private func pressNotesButton() { model?.meetings.pressHandButton() }
     @objc private func addRecording() { model?.meetings.addRecording() }
@@ -1451,6 +1525,7 @@ extension AppDelegate: NSMenuDelegate {
         Self.showCallNotes(in: menu, when: notesOn)
         Self.showHandNotes(in: menu, as: notesOn ? model?.meetings.handButton : nil)
         Self.showAddRecording(in: menu, when: notesOn, reading: model?.meetings.recordings.isBusy ?? false)
+        Self.showUpgrade(in: menu, onFree: license?.entitlement.plan == .free)
         #if AIRLOCK_GUIDE
         updateGuideRows(in: menu)
         #endif

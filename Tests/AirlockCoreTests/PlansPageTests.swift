@@ -29,21 +29,39 @@ final class PlansPageTests: XCTestCase {
                   now: now, locale: gb, timeZone: utc)
     }
 
-    private func buttons(_ page: PlansPage) -> [PlansPage.Button] { page.cards.map(\.button) }
-    private func markers(_ page: PlansPage) -> [PlansPage.Card.Marker?] { page.cards.map(\.marker) }
+    /// Every button on the page: the big card's, then the line's.
+    private func buttons(_ page: PlansPage) -> [PlansPage.Button] {
+        [page.hero.offer?.button, page.line?.button].compactMap { $0 }
+    }
+
+    private func hasCheckout(_ page: PlansPage) -> Bool {
+        buttons(page).contains { if case .get = $0 { true } else { false } }
+    }
 
     // MARK: - Free
 
+    /// One offer: what Free is in a sentence, Plus as the big card with its
+    /// price, Pro as the line under it.
     func testFree() {
         let free = page(.free)
         XCTAssertEqual(free.current.plan, .free)
         XCTAssertEqual(free.current.title, "Free")
-        XCTAssertEqual(free.current.summary, "Clipboard keeps 100 · one agent at a time on the notch · "
-                       + "call notes for the first 30 minutes, written on your Mac")
+        XCTAssertEqual(free.current.summary, "clipboard keeps 100, one coding agent at a time, "
+                       + "notes for the first 30 minutes of a call.")
+        XCTAssertEqual(free.current.sentence, "You're on **Free**: clipboard keeps 100, one coding agent "
+                       + "at a time, notes for the first 30 minutes of a call.")
+        XCTAssertNil(free.current.price)
         XCTAssertFalse(free.current.manages)
         XCTAssertFalse(free.current.needsAttention)
-        XCTAssertEqual(buttons(free), [.yours, .get(.plus), .get(.pro)])
-        XCTAssertEqual(markers(free), [.yours, nil, nil])
+
+        XCTAssertEqual(free.hero.plan, .plus)
+        XCTAssertFalse(free.hero.isYours)
+        XCTAssertEqual(free.hero.title, "The whole call, written down")
+        XCTAssertEqual(free.hero.lead, "Everything in Free, and:")
+        XCTAssertEqual(free.line?.plan, .pro)
+        XCTAssertEqual(free.line?.sentence.hasPrefix("Everything in Plus"), true)
+        XCTAssertEqual(free.plansHeading, "Plans")
+        XCTAssertEqual(buttons(free), [.get(.plus), .get(.pro)])
         XCTAssertFalse(free.canCheckNow, "no key, nothing to ask about")
     }
 
@@ -55,54 +73,87 @@ final class PlansPageTests: XCTestCase {
         let ended = page(.free, stored: license(.plus))
         XCTAssertEqual(ended.current.title, "Free")
         XCTAssertTrue(ended.canCheckNow)
-        XCTAssertEqual(buttons(ended), [.yours, .get(.plus), .get(.pro)])
+        XCTAssertEqual(buttons(ended), [.get(.plus), .get(.pro)])
         XCTAssertFalse(page(.free, stored: license(.plus), server: false).canCheckNow,
                        "a copy with no licence server has nobody to ask")
     }
 
     // MARK: - Plus and Pro
 
+    /// Their own plan is the big card, its foot the price and renewal day,
+    /// and Pro is the line under it.
     func testPlusBoughtFromTheShop() {
         let plus = page(.licensed(license(.plus, .monthly)))
         XCTAssertEqual(plus.current.plan, .plus)
         XCTAssertEqual(plus.current.title, "Plus")
-        XCTAssertEqual(plus.current.summary, "€3.99 a month · renews on 15 November")
+        XCTAssertEqual(plus.current.price, "€3.99 a month")
+        XCTAssertEqual(plus.current.summary, "renews on 15 November")
+        XCTAssertEqual(plus.current.note, "A set number of online notes each month",
+                       "Plus says it has a monthly number, so Pro's \"twice as many\" has something to double")
         XCTAssertTrue(plus.current.manages)
         XCTAssertFalse(plus.current.needsAttention)
-        XCTAssertEqual(markers(plus), [nil, .yours, nil])
+
+        XCTAssertTrue(plus.hero.isYours)
+        XCTAssertEqual(plus.hero.title, "You're on Plus")
+        XCTAssertEqual(plus.hero.features, PlanCatalog.features(.plus))
+        XCTAssertTrue(plus.hero.alsoYours.isEmpty)
+        XCTAssertNil(plus.hero.offer, "nothing to buy on the card of the plan they pay for")
+        XCTAssertEqual(plus.plansHeading, "Want even better notes?")
+        XCTAssertEqual(plus.line?.sentence.hasPrefix("Everything you have now"), true)
         XCTAssertTrue(plus.canCheckNow)
     }
 
+    /// Pro has nothing above it: no line, no prices, no switch. Its card
+    /// lists what came with Plus under its own two.
+    func testPro() {
+        let pro = page(.licensed(license(.pro, .monthly)))
+        XCTAssertEqual(pro.hero.title, "You're on Pro")
+        XCTAssertEqual(pro.hero.lead, "Everything in Plus, and:")
+        XCTAssertEqual(pro.hero.features.map(\.title), ["The best notes", "Twice the online notes"])
+        XCTAssertEqual(pro.hero.alsoYours, PlanCatalog.features(.plus).map(\.line))
+        XCTAssertEqual(pro.current.price, "€7.99 a month")
+        XCTAssertEqual(pro.current.note, "Change plan or card, or cancel, in your browser")
+        XCTAssertNil(pro.line)
+        XCTAssertNil(pro.plansHeading, "nothing priced, so no Monthly | Yearly switch")
+        XCTAssertEqual(buttons(pro), [])
+    }
+
     /// THE rule on this page: somebody paying never gets a second checkout.
-    /// Going up from Plus happens on their subscription page.
+    /// Going up from Plus happens on their subscription page, a payment that
+    /// didn't go through included.
     func testSomebodyPayingChangesPlanOnTheirSubscriptionPage() {
         let plus = page(.licensed(license(.plus)))
-        XCTAssertEqual(buttons(plus), [.included(in: .plus), .yours, .change(to: .pro)])
+        XCTAssertEqual(buttons(plus), [.change(to: .pro)])
         XCTAssertEqual(PlansPage.Button.change(to: .pro).title, "Change to Pro")
-        XCTAssertNotNil(PlansPage.Button.change(to: .pro).note)
+        XCTAssertEqual(PlansPage.Button.change(to: .pro).note,
+                       "Opens your subscription page. You never pay twice.")
 
-        let pro = page(.licensed(license(.pro, .yearly, renewsAt: "2027-10-01")))
-        XCTAssertEqual(buttons(pro), [.included(in: .pro), .included(in: .pro), .yours])
-        XCTAssertEqual(markers(pro), [nil, nil, .yours])
-        for page in [plus, pro] {
-            XCTAssertFalse(page.cards.contains { if case .get = $0.button { true } else { false } },
-                           "a checkout here would be a second subscription billed beside the first")
+        let paying = [plus,
+                      page(.licensed(license(.pro, .yearly, renewsAt: "2027-10-01"))),
+                      page(.grace(license(.plus, renewsAt: "2026-10-10"))),
+                      page(.overdue(license(.plus, renewsAt: "2026-09-01")))]
+        for page in paying {
+            XCTAssertFalse(hasCheckout(page), "a checkout here would be a second subscription billed beside the first")
+            XCTAssertTrue(page.hero.isYours)
         }
     }
 
     /// A renewal close enough reads without its year; a year away, with it.
     func testTheRenewalDayHasItsYearOnlyWhenItIsAYearAway() {
         let pro = page(.licensed(license(.pro, .yearly, renewsAt: "2027-10-01")))
-        XCTAssertEqual(pro.current.summary, "€71.99 a year · renews on 1 October 2027")
+        XCTAssertEqual(pro.current.price, "€71.99 a year")
+        XCTAssertEqual(pro.current.summary, "renews on 1 October 2027")
     }
 
     /// In grace the day has passed and the renewal is on its way: never a
     /// date in the past beside "renews".
     func testGraceSaysRenewingNow() {
         let grace = page(.grace(license(.plus, renewsAt: "2026-10-10")))
-        XCTAssertEqual(grace.current.summary, "€3.99 a month · renewing now")
+        XCTAssertEqual(grace.current.price, "€3.99 a month")
+        XCTAssertEqual(grace.current.summary, "renewing now")
         XCTAssertFalse(grace.current.needsAttention, "grace is invisible on purpose")
         XCTAssertEqual(grace.current.title, "Plus")
+        XCTAssertEqual(buttons(grace), [.change(to: .pro)])
     }
 
     /// A payment that didn't go through is said, never as a lock, and the
@@ -113,8 +164,74 @@ final class PlansPageTests: XCTestCase {
         XCTAssertTrue(overdue.current.manages)
         XCTAssertTrue(overdue.current.summary.contains("didn't go through"))
         XCTAssertTrue(overdue.current.summary.contains("keeps working"))
+        XCTAssertNil(overdue.current.price, "no price beside a payment that failed")
         XCTAssertEqual(overdue.current.title, "Plus", "a payment problem is never a downgrade")
-        XCTAssertEqual(buttons(overdue), [.included(in: .plus), .yours, .change(to: .pro)])
+        XCTAssertEqual(overdue.hero.title, "You're on Plus")
+        XCTAssertEqual(buttons(overdue), [], "fix the payment first; no Pro offer beside it")
+        XCTAssertNil(overdue.plansHeading)
+    }
+
+    // MARK: - Going down
+
+    /// Somebody paying can always see how to step down, on the page and not
+    /// only behind "Manage subscription": Pro to Plus is changed on the
+    /// subscription page, either plan to Free is cancelling there, kept to
+    /// the end of what was paid for.
+    func testSomebodyPayingSeesHowToStepDown() {
+        let pro = page(.licensed(license(.pro, .yearly, renewsAt: "2026-11-15")))
+        XCTAssertEqual(pro.stepsDownHeading, "Change or cancel")
+        XCTAssertEqual(pro.stepsDown.map(\.plan), [.plus, .free])
+        XCTAssertEqual(pro.stepsDown.map(\.button), [.change(to: .plus), .cancel])
+        XCTAssertEqual(pro.stepsDown[0].sentence,
+                       "Everything you have, except the best model and the extra online notes. €35.99 a year.")
+        XCTAssertEqual(pro.stepsDown[1].sentence, "You keep Pro until 15 November, then you're on Free.")
+        XCTAssertEqual(pro.stepsDownNote,
+                       "Both open your subscription page in your browser. Nothing you made is ever deleted.")
+
+        let plus = page(.licensed(license(.plus, .monthly, renewsAt: "2026-11-15")))
+        XCTAssertEqual(plus.stepsDown.map(\.button), [.cancel])
+        XCTAssertEqual(plus.stepsDown[0].sentence, "You keep Plus until 15 November, then you're on Free.")
+        XCTAssertEqual(plus.stepsDownNote,
+                       "Opens your subscription page in your browser. Nothing you made is ever deleted.")
+        XCTAssertEqual(PlansPage.Button.cancel.title, "Cancel subscription")
+        XCTAssertEqual(PlansPage.Button.change(to: .plus).title, "Change to Plus")
+        XCTAssertTrue(PlansPage.Button.cancel.opensBrowser)
+
+        // A year away, the date says its year; in grace, no date in the past.
+        let far = page(.licensed(license(.pro, .yearly, renewsAt: "2027-10-01")))
+        XCTAssertEqual(far.stepsDown.last?.sentence, "You keep Pro until 1 October 2027, then you're on Free.")
+        let grace = page(.grace(license(.plus, renewsAt: "2026-10-10")))
+        XCTAssertEqual(grace.stepsDown.last?.sentence,
+                       "You keep Plus to the end of what you paid for, then you're on Free.")
+    }
+
+    /// Nothing to step down from on Free or an old trial, and beside a
+    /// payment that didn't go through that is fixed first.
+    func testNoStepsDownWhenNotPaying() {
+        for page in [page(.free), page(.trialing(daysRemaining: 5)),
+                     page(.free, stored: license(.plus, renewsAt: "2026-09-01")),
+                     page(.overdue(license(.plus, renewsAt: "2026-09-01"))),
+                     page(.overdue(license(.pro, renewsAt: "2026-09-01", sold: false)))] {
+            XCTAssertEqual(page.stepsDown, [])
+            XCTAssertNil(page.stepsDownHeading)
+            XCTAssertNil(page.stepsDownNote)
+        }
+    }
+
+    /// A key issued by hand has no subscription to change or cancel: its
+    /// way down is taking the key off this Mac, said plainly, and nothing
+    /// opens the shop.
+    func testAKeyIssuedByHandStepsDownByTakingTheKeyOff() {
+        for plan in [License.Plan.plus, .pro] {
+            let hand = page(.licensed(license(plan, sold: false)))
+            XCTAssertEqual(hand.stepsDownHeading, "Other plans")
+            XCTAssertEqual(hand.stepsDown.map(\.button), [.removeKey])
+            XCTAssertEqual(hand.stepsDown.map(\.plan), [.free])
+            XCTAssertTrue(hand.stepsDown[0].sentence.contains("paste the key back"))
+            XCTAssertNil(hand.stepsDownNote)
+        }
+        XCTAssertEqual(PlansPage.Button.removeKey.title, "Switch to Free")
+        XCTAssertFalse(PlansPage.Button.removeKey.opensBrowser)
     }
 
     // MARK: - A key issued by hand
@@ -125,72 +242,82 @@ final class PlansPageTests: XCTestCase {
         let hand = page(.licensed(license(.pro, .yearly, renewsAt: "2027-09-16", sold: false)))
         XCTAssertEqual(hand.current.title, "Pro")
         XCTAssertEqual(hand.current.summary, "Your key lasts until 30 September 2027")
+        XCTAssertNil(hand.current.price)
+        XCTAssertNil(hand.current.note)
         XCTAssertFalse(hand.current.manages)
         XCTAssertFalse(hand.canCheckNow, "a key issued by hand never changes plan")
+        XCTAssertEqual(hand.hero.title, "You're on Pro")
 
         let plus = page(.licensed(license(.plus, sold: false)))
-        XCTAssertEqual(buttons(plus), [.included(in: .plus), .yours, .get(.pro)])
+        XCTAssertEqual(buttons(plus), [.get(.pro)])
 
         let ran = page(.overdue(license(.plus, renewsAt: "2026-09-01", sold: false)))
         XCTAssertTrue(ran.current.needsAttention)
         XCTAssertTrue(ran.current.summary.contains("hello@useairlock.app"))
         XCTAssertFalse(ran.current.manages)
+        XCTAssertEqual(buttons(ran), [.get(.pro)])
     }
 
     // MARK: - A trial from before plans
 
-    /// It has Plus's things and has paid for nothing: both plans are still
-    /// to get, and Plus carries the trial's marker rather than "yours".
+    /// It has Plus's things and has paid for nothing, so it is offered Plus
+    /// the way Free is, with its days left in the sentence.
     func testATrialFromBeforePlans() {
         let trial = page(.trialing(daysRemaining: 5))
         XCTAssertEqual(trial.current.plan, .plus)
         XCTAssertEqual(trial.current.title, "Plus trial")
         XCTAssertEqual(trial.current.summary, "5 days left, then Free. No card needed.")
+        XCTAssertEqual(trial.current.sentence, "You're on a **Plus trial**: 5 days left, then Free. No card needed.")
         XCTAssertFalse(trial.current.manages)
-        XCTAssertEqual(markers(trial), [nil, .trial, nil])
-        XCTAssertEqual(buttons(trial), [.included(in: .plus), .get(.plus), .get(.pro)])
+        XCTAssertFalse(trial.hero.isYours)
+        XCTAssertEqual(trial.hero.plan, .plus)
+        XCTAssertEqual(trial.plansHeading, "Plans")
+        XCTAssertEqual(buttons(trial), [.get(.plus), .get(.pro)])
         XCTAssertFalse(trial.canCheckNow)
 
         XCTAssertEqual(page(.trialing(daysRemaining: 1)).current.summary, "1 day left, then Free. No card needed.")
     }
 
-    // MARK: - The three cards
+    // MARK: - Prices and what each plan adds
 
-    func testTheCardsFollowTheSwitch() {
-        let yearly = page(.free, period: .yearly).cards
-        XCTAssertEqual(yearly.map(\.amount), ["€0", "€35.99", "€71.99"])
-        XCTAssertEqual(yearly.map(\.per), [nil, "a year", "a year"])
-        XCTAssertEqual(yearly.map(\.note), ["No card needed", "€3 a month, billed yearly",
-                                            "€6 a month, billed yearly"])
+    func testThePricesFollowTheSwitch() {
+        let yearly = page(.free, period: .yearly)
+        XCTAssertEqual(yearly.hero.offer?.amount, "€35.99")
+        XCTAssertEqual(yearly.hero.offer?.per, "a year")
+        XCTAssertEqual(yearly.hero.offer?.note, "€3 a month, billed yearly · a set number of online notes each month")
+        XCTAssertEqual(yearly.line?.amount, "€71.99")
+        XCTAssertEqual(yearly.line?.per, "a year")
+        XCTAssertEqual(yearly.line?.note, "€6 a month")
 
-        let monthly = page(.free, period: .monthly).cards
-        XCTAssertEqual(monthly.map(\.amount), ["€0", "€3.99", "€7.99"])
-        XCTAssertEqual(monthly.map(\.per), [nil, "a month", "a month"])
-        XCTAssertEqual(monthly.map(\.note), ["No card needed", "Stop any time", "Stop any time"])
+        let monthly = page(.free, period: .monthly)
+        XCTAssertEqual(monthly.hero.offer?.amount, "€3.99")
+        XCTAssertEqual(monthly.hero.offer?.per, "a month")
+        XCTAssertEqual(monthly.hero.offer?.note, "Stop any time · a set number of online notes each month")
+        XCTAssertEqual(monthly.line?.amount, "€7.99")
+        XCTAssertEqual(monthly.line?.per, "a month")
+        XCTAssertEqual(monthly.line?.note, "Stop any time")
+
+        XCTAssertEqual(page(.licensed(license(.plus)), period: .monthly).line?.amount, "€7.99")
     }
 
     /// The lists are the website's, and their numbers are the ones enforced.
-    func testTheCardsListWhatEachPlanAdds() {
-        let cards = page(.free).cards
-        XCTAssertEqual(cards.map(\.lead), [nil, "Everything in Free, and:", "Everything in Plus, and:"])
-        XCTAssertTrue(cards[0].bullets[0].hasSuffix("last \(PlanLimits.freeClipboard)"))
-        XCTAssertTrue(cards[0].bullets.contains { $0.contains("first 30 minutes") })
-        XCTAssertEqual(cards[1].bullets[0], "Clipboard keeps up to 1,000")
-        XCTAssertEqual(cards[2].bullets.count, 2)
-        XCTAssertTrue(cards[1].bullets.contains("A set number of online notes each month"),
-                      "Plus says it has a monthly number, so Pro's \"twice as many\" has something to double")
-        XCTAssertTrue(cards[1].bullets.contains { $0.hasPrefix("Tells the voices on a call apart") },
-                      "Plus says it tells voices apart, which Free doesn't")
-        XCTAssertFalse(cards[0].bullets.contains { $0.contains("voices") })
+    func testWhatEachPlanAdds() {
+        let plus = PlanCatalog.features(.plus)
+        XCTAssertEqual(plus.count, 6)
+        XCTAssertTrue(plus.contains { $0.title == "Who said what" },
+                      "Plus says it tells voices apart, which Free never does")
+        XCTAssertEqual(plus.first { $0.symbol == "list.clipboard" }?.title, "Clipboard keeps 1,000")
+        XCTAssertEqual(ClipboardHistory.capacityRange.upperBound, 10 * PlanLimits.freeClipboard,
+                       "\"Ten times what Free keeps\"")
+        XCTAssertEqual(PlanCatalog.features(.pro).count, 2)
+        XCTAssertTrue(PlanCatalog.features(.free).isEmpty)
+        XCTAssertFalse(page(.free).current.summary.contains("voice"))
+        XCTAssertFalse(PlanCatalog.features(.plus).contains { $0.line.isEmpty })
     }
 
-    func testOnlyRealButtonsAct() {
-        XCTAssertFalse(PlansPage.Button.yours.acts)
-        XCTAssertFalse(PlansPage.Button.included(in: .pro).acts)
-        XCTAssertTrue(PlansPage.Button.get(.plus).acts)
-        XCTAssertTrue(PlansPage.Button.change(to: .pro).acts)
-        XCTAssertEqual(PlansPage.Button.included(in: .pro).title, "Included in Pro")
+    func testTheButtons() {
         XCTAssertEqual(PlansPage.Button.get(.plus).title, "Get Plus")
+        XCTAssertEqual(PlansPage.Button.get(.pro).title, "Get Pro")
         XCTAssertNil(PlansPage.Button.get(.plus).note)
     }
 

@@ -567,7 +567,7 @@ final class LicenseModel {
         request.timeoutInterval = 20
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await PretendOutage.shared.data(for: request)
             let payload = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard status == 200, let fresh = payload["token"] else {

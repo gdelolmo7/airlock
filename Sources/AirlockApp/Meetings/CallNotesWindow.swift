@@ -74,6 +74,12 @@ final class CallsPage {
         library.saveNames = save
     }
 
+    /// Where "Use" and "Leave it" on "Check these words" go: through the
+    /// notes model, for the same reason (`CallNotesLibrary.checkWord`).
+    func checkWords(_ check: @escaping @MainActor (URL, CallNotesLibrary.WordAnswer) -> Void) {
+        library.checkWord = check
+    }
+
     /// What the notes offer by plan, and where their buttons go.
     func offering(_ offering: CallNotesLibrary.Offering) {
         library.offering = offering
@@ -169,6 +175,16 @@ final class CallNotesLibrary {
     /// app sends them through the notes model, which may still be holding
     /// the call (`MeetingNotesModel.saveNames`).
     @ObservationIgnored var saveNames: (@MainActor (URL, [MeetingVoiceName]) -> Void)?
+    /// Where a word on "Check these words" is answered. Nil writes straight
+    /// to the call's folder; the app sends it through the notes model.
+    @ObservationIgnored var checkWord: (@MainActor (URL, WordAnswer) -> Void)?
+
+    /// "Use Mapa" (`use`) or "Leave it" for one word on the list.
+    struct WordAnswer: Equatable, Sendable {
+        let best: String
+        let heard: [String]
+        let use: Bool
+    }
     /// Nil draws no "Add a recording" and takes no drops.
     @ObservationIgnored var recordings: Recordings?
     /// A file is held over the window; nil when none is.
@@ -523,6 +539,27 @@ final class CallNotesLibrary {
         reload(selecting: nil)
     }
 
+    /// One word on "Check these words" answered: with "Use", `best` in
+    /// place of every way it was heard, in the notes and the transcript;
+    /// either way, the line comes off the list. Shown at once, then read
+    /// again from the files.
+    func check(_ call: Call, _ answer: WordAnswer) {
+        let preview = store.root.path == "/var/empty"
+        if let index = calls.firstIndex(where: { $0.id == call.id }), let page = call.page {
+            var record = call.record
+            if answer.use { MeetingWordCheck.use(answer.best, for: answer.heard, in: &record) }
+            calls[index] = Call(folder: call.folder, record: record, page: MeetingWordCheck.answer(
+                page, best: answer.best, heard: answer.heard, use: answer.use))
+        }
+        guard !preview else { return }
+        if let checkWord {
+            checkWord(call.folder, answer)
+        } else {
+            _ = try? store.checkWord(answer.best, heard: answer.heard, use: answer.use, in: call.folder)
+        }
+        reload(selecting: nil)
+    }
+
     private static func sorted(_ names: [MeetingVoiceName]) -> [MeetingVoiceName] {
         names.sorted { $0.voice < $1.voice }
     }
@@ -536,8 +573,7 @@ final class CallNotesLibrary {
         case .transcript: text = Self.plainTranscript(of: call.record)
         }
         guard !text.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        AirlockCopy.put(text)
         let done = Copied(call: call.id, tab: tab)
         copied = done
         AccessibilityNotification.Announcement("Copied").post()
@@ -1330,8 +1366,15 @@ private struct CallNotesPage: View {
                 if let empty = offers.empty {
                     CallNotesNoModel(call: call, empty: empty, offers: offers)
                 }
-                ForEach(Array(split.sections.enumerated()), id: \.offset) { _, section in
-                    CallNotesCard(call: call, section: section, people: people)
+                ForEach(Array(MeetingPage.cards(split.sections).enumerated()), id: \.offset) { _, card in
+                    switch card {
+                    case .section(let section):
+                        CallNotesCard(call: call, section: section, people: people)
+                    case .topics(let head, let topics):
+                        // A call of its own folds its own way.
+                        CallNotesTopics(call: call, head: head, topics: topics)
+                            .id(call.id)
+                    }
                 }
                 // A page the Mac had no model for says it all in its card.
                 if offers.empty == nil, !page.closing.isEmpty {
@@ -1609,7 +1652,7 @@ private struct CallNotesDrop: DropDelegate {
 
 /// How a section's card is drawn, by its heading.
 private struct CallNotesCardLook {
-    enum Kind { case summary, yours, todos, list, loose }
+    enum Kind { case summary, yours, todos, words, list, loose }
     let kind: Kind
     let symbol: String?
     let tint: Color
@@ -1625,6 +1668,8 @@ private struct CallNotesCardLook {
         case MeetingFiles.questionsHeading?:
             (kind, symbol, tint) = (.list, "questionmark.bubble.fill", CallsLook.questions)
         case MeetingFiles.keyPointsHeading?: (kind, symbol, tint) = (.list, "lightbulb.fill", CallsLook.keyPoints)
+        case MeetingFiles.topicsHeading?: (kind, symbol, tint) = (.list, "list.number", CallsLook.topics)
+        case MeetingFiles.wordsHeading?: (kind, symbol, tint) = (.words, "text.magnifyingglass", CallsLook.words)
         // A heading the owner wrote in a text editor: a plain card.
         default: (kind, symbol, tint) = (.list, nil, Theme.textPrimary)
         }
@@ -1645,16 +1690,16 @@ struct CallNotesCard: View {
         let lines = section.lines
         VStack(alignment: .leading, spacing: 0) {
             if let heading = section.heading {
-                head(heading, look: look)
+                CallNotesCardHead(heading: heading, count: lines.filter(Self.isItem).count, look: look)
                     .padding(.bottom, look.kind == .summary ? 7 : 4)
             }
-            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                draw(line, look: look)
-                    .overlay(alignment: .top) {
-                        if index > 0, Self.isItem(line), Self.isItem(lines[index - 1]) {
-                            Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1)
-                        }
-                    }
+            if look.kind == .todos, let groups = Self.byPerson(lines) {
+                ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                    CallNotesOwnerHead(owner: group.owner, count: group.lines.count, people: people)
+                    list(group.lines, look: look, grouped: true)
+                }
+            } else {
+                list(lines, look: look)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1673,6 +1718,9 @@ struct CallNotesCard: View {
             case .todos, .list:
                 shape.fill(Color.white.opacity(0.03))
                     .overlay(shape.strokeBorder(Color.white.opacity(0.05), lineWidth: 1))
+            case .words:
+                shape.fill(CallsLook.words.opacity(0.05))
+                    .overlay(shape.strokeBorder(CallsLook.words.opacity(0.16), lineWidth: 1))
             case .loose:
                 EmptyView()
             }
@@ -1680,35 +1728,41 @@ struct CallNotesCard: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func head(_ heading: String, look: CallNotesCardLook) -> some View {
-        let count = section.lines.filter(Self.isItem).count
-        return HStack(spacing: 7) {
-            if let symbol = look.symbol {
-                Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .accessibilityHidden(true)
-            }
-            Text(heading)
-                .font(Theme.chrome(12, .bold))
-            if look.kind != .summary, count > 0 {
-                Text("\(count)")
-                    .font(Theme.chrome(10.5, .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textSecondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(0.07)))
-                    .padding(.leading, 2)
-                    .accessibilityHidden(true)
-            }
+    /// Lines one under the other, a hairline between list lines.
+    private func list(_ lines: [MeetingPage.Placed], look: CallNotesCardLook, grouped: Bool = false) -> some View {
+        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+            draw(line, look: look, grouped: grouped)
+                .overlay(alignment: .top) {
+                    if index > 0, Self.isItem(line), Self.isItem(lines[index - 1]) {
+                        Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1)
+                    }
+                }
         }
-        .foregroundStyle(look.tint)
-        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// The to-dos person by person (`MeetingOwners`): you, each person,
+    /// everyone, then those with no name. Nil when no to-do names anyone,
+    /// which draws the plain list.
+    static func byPerson(_ lines: [MeetingPage.Placed]) -> [(owner: String?, lines: [MeetingPage.Placed])]? {
+        let groups = MeetingOwners.grouped(lines) { line -> String? in
+            if case .item(_, _, let owner, _) = line.block { return owner }
+            return nil
+        }
+        guard groups.contains(where: { $0.owner != nil }) else { return nil }
+        return groups.map { ($0.owner, $0.items) }
     }
 
     @ViewBuilder
-    private func draw(_ line: MeetingPage.Placed, look: CallNotesCardLook) -> some View {
+    private func draw(_ line: MeetingPage.Placed, look: CallNotesCardLook, grouped: Bool) -> some View {
+        if look.kind == .words, case .item(let text, _, _, let at) = line.block, let word = MeetingPage.word(text) {
+            let said = call.flatMap { call in at.map { CallsCard.time($0, into: call.record.startedAt) } }
+            CallNotesWordRow(call: call, best: word.best, heard: word.heard, at: at, said: said)
+        } else {
+            draw(line, look: look, shared: grouped)
+        }
+    }
+    @ViewBuilder
+    private func draw(_ line: MeetingPage.Placed, look: CallNotesCardLook, shared: Bool) -> some View {
         switch line.block {
         case .paragraph(let text):
             Text(CallNotesItem.inline(text))
@@ -1719,8 +1773,13 @@ struct CallNotesCard: View {
                 .padding(.vertical, look.kind == .summary ? 0 : 4)
         case .item(let text, let checked, let owner, let at):
             let said = call.flatMap { call in at.map { CallsCard.time($0, into: call.record.startedAt) } }
-            let item = CallNotesItem(text: text, checked: checked, owner: owner, said: said,
-                                     look: look, yours: line.isYours, people: people)
+            // Under its person's name, a to-do only says who else it is for;
+            // an open question says what it came up in.
+            let question = section.heading == MeetingFiles.questionsHeading ? MeetingPage.question(text) : nil
+            let others = shared ? MeetingOwners.others(owner) : []
+            let detail = question?.context ?? (others.isEmpty ? nil : "with " + others.joined(separator: ", "))
+            let item = CallNotesItem(text: question?.text ?? text, checked: checked, owner: shared ? nil : owner,
+                                     said: said, look: look, yours: line.isYours, people: people, detail: detail)
             if let at, let call {
                 CallNotesJump(call: call, at: at) { item }
             } else {
@@ -1761,6 +1820,312 @@ struct CallNotesCard: View {
     private static func isItem(_ line: MeetingPage.Placed) -> Bool {
         if case .item = line.block { return true }
         return false
+    }
+}
+
+/// A card's heading: its icon and name in the card's colour, and how many
+/// lines it has.
+private struct CallNotesCardHead: View {
+    let heading: String
+    let count: Int
+    let look: CallNotesCardLook
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if let symbol = look.symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .accessibilityHidden(true)
+            }
+            Text(heading)
+                .font(Theme.chrome(12, .bold))
+            if look.kind != .summary, count > 0 {
+                Text("\(count)")
+                    .font(Theme.chrome(10.5, .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.07)))
+                    .padding(.leading, 2)
+                    .accessibilityHidden(true)
+            }
+        }
+        .foregroundStyle(look.tint)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Whose to-dos follow, in the to-dos card: their face and name, or
+/// "Everyone", or "Not assigned" for those with no name on them.
+private struct CallNotesOwnerHead: View {
+    let owner: String?
+    let count: Int
+    let people: [CallPeople.Person]
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if let owner, !MeetingOwners.isEveryone(owner) {
+                CallPersonAvatar(name: owner, seat: CallPeople.seat(of: owner, in: people), size: 16)
+            } else {
+                Image(systemName: owner == nil ? "questionmark.circle" : "person.3.fill")
+                    .font(.system(size: owner == nil ? 12 : 10, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
+            }
+            Text(owner ?? "Not assigned")
+                .font(Theme.chrome(12, .semibold))
+                .foregroundStyle(CallsLook.quietText)
+            Text("\(count)")
+                .font(Theme.chrome(10.5, .semibold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textTertiary)
+                .accessibilityHidden(true)
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 1)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A word the transcript may have heard wrong: what the notes took it to
+/// be, how it was heard, when, and "Use" or "Leave it".
+private struct CallNotesWordRow: View {
+    let call: CallNotesLibrary.Call?
+    let best: String
+    let heard: [String]
+    let at: TimeInterval?
+    let said: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(words)
+                    .font(Theme.chrome(13.5))
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let said, let at, let call {
+                    CallNotesJump(call: call, at: at) { CallNotesTimeChip(time: said) }
+                } else if let said {
+                    CallNotesTimeChip(time: said)
+                }
+            }
+            if let call {
+                CallNotesWordButtons(call: call, best: best, heard: heard)
+            }
+        }
+        .padding(.vertical, 7)
+    }
+
+    /// "Mapa  heard as “napa”, “mapá”", the word in bold.
+    private var words: AttributedString {
+        var best = AttributedString(best)
+        best.font = Theme.chrome(13.5, .semibold)
+        best.foregroundColor = Theme.textPrimary
+        var rest = AttributedString("  \(MeetingPage.heardAs) " + heard.map { "“\($0)”" }.joined(separator: ", "))
+        rest.foregroundColor = Theme.textSecondary
+        return best + rest
+    }
+}
+
+/// "Use Mapa" and "Leave it", for a call the window shows.
+private struct CallNotesWordButtons: View {
+    @Environment(CallNotesLibrary.self) private var library
+    let call: CallNotesLibrary.Call
+    let best: String
+    let heard: [String]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            CallNotesOfferButton("Use “\(best)”", tone: .light) {
+                library.check(call, .init(best: best, heard: heard, use: true))
+            }
+            .help("Write “\(best)” everywhere it was heard, in the notes and the transcript")
+            CallNotesOfferButton("Leave it") {
+                library.check(call, .init(best: best, heard: heard, use: false))
+            }
+            .help("Take it off this list and change nothing")
+        }
+    }
+}
+
+/// The topics of notes written online, in one card: each numbered, with
+/// when it came up and what came of it, its points folded under it.
+struct CallNotesTopics: View {
+    let call: CallNotesLibrary.Call?
+    let head: MeetingPage.Section
+    let topics: [MeetingPage.Section]
+    @State private var open: Set<Int> = []
+
+    var body: some View {
+        let look = CallNotesCardLook(MeetingFiles.topicsHeading)
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let all = Set(topics.indices)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                CallNotesCardHead(heading: head.heading ?? MeetingFiles.topicsHeading, count: topics.count, look: look)
+                Spacer(minLength: 8)
+                if topics.count > 1 {
+                    Button(open == all ? "Fold all" : "Open all") {
+                        withAnimation(MotionEffect.pointer) { open = open == all ? [] : all }
+                    }
+                    .buttonStyle(.plain)
+                    .font(Theme.chrome(11.5, .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .clickable()
+                }
+            }
+            .padding(.bottom, 4)
+            // Anything the person wrote under "Topics" itself.
+            ForEach(Array(head.lines.enumerated()), id: \.offset) { _, line in
+                if case .paragraph(let text) = line.block {
+                    Text(CallNotesItem.inline(text))
+                        .font(Theme.chrome(13.5))
+                        .foregroundStyle(CallsLook.noteText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 4)
+                }
+            }
+            ForEach(Array(topics.enumerated()), id: \.offset) { index, topic in
+                CallNotesTopicRow(call: call, section: topic, place: index + 1, open: Binding(
+                    get: { open.contains(index) },
+                    set: { isOpen in
+                        if isOpen { open.insert(index) } else { open.remove(index) }
+                    }))
+                .overlay(alignment: .top) {
+                    if index > 0 { Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 12)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 8)
+        .background {
+            shape.fill(Color.white.opacity(0.03))
+                .overlay(shape.strokeBorder(Color.white.opacity(0.05), lineWidth: 1))
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// One topic: its number, its title and when it came up, a seal with how
+/// many of its points were agreed, its gist, and its points when open. The
+/// title opens and closes it; the time goes to the transcript.
+private struct CallNotesTopicRow: View {
+    let call: CallNotesLibrary.Call?
+    let section: MeetingPage.Section
+    /// Its place in the card, for a heading that has no number.
+    let place: Int
+    @Binding var open: Bool
+
+    var body: some View {
+        let topic = MeetingPage.topic(section.heading ?? "")
+        let points = section.lines.filter { if case .item = $0.block { true } else { false } }
+        let paragraphs = section.lines.compactMap { line -> String? in
+            if case .paragraph(let text) = line.block { return text }
+            return nil
+        }
+        let decided = points.filter { line in
+            if case .item(let text, _, _, _) = line.block { return MeetingPage.point(text).decided }
+            return false
+        }.count
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Button(action: toggle) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text("\(topic?.number ?? place)")
+                            .font(Theme.chrome(11, .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(CallsLook.topics)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(CallsLook.topics.opacity(0.14)))
+                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4.5 }
+                        Text(topic?.title ?? section.heading ?? "")
+                            .font(Theme.chrome(13.5, .semibold))
+                            .foregroundStyle(Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if decided > 0 {
+                            HStack(spacing: 3) {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text("\(decided)")
+                                    .font(Theme.chrome(11, .semibold))
+                                    .monospacedDigit()
+                            }
+                            .foregroundStyle(CallsLook.decisions)
+                            .fixedSize()
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(decided == 1 ? "1 decision" : "\(decided) decisions")
+                        }
+                        if !points.isEmpty {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Theme.textTertiary)
+                                .rotationEffect(.degrees(open ? 90 : 0))
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .clickable()
+                .accessibilityHint(points.isEmpty ? "" : (open ? "Hides its points" : "Shows its points"))
+                if let at = topic?.at {
+                    let said = call.map { CallsCard.time(at, into: $0.record.startedAt) }
+                        ?? MeetingFiles.clock(at)
+                    if let call {
+                        CallNotesJump(call: call, at: at) { CallNotesTimeChip(time: said) }
+                    } else {
+                        CallNotesTimeChip(time: said)
+                    }
+                }
+            }
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, text in
+                Text(CallNotesItem.inline(text))
+                    .font(Theme.chrome(13))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 30)
+            }
+            if open {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(points.enumerated()), id: \.offset) { _, line in
+                        point(line)
+                    }
+                }
+                .padding(.leading, 30)
+                .padding(.top, 2)
+            }
+        }
+        .padding(.vertical, 9)
+    }
+
+    @ViewBuilder
+    private func point(_ line: MeetingPage.Placed) -> some View {
+        if case .item(let text, _, _, let at) = line.block {
+            let point = MeetingPage.point(text)
+            let words = point.lead.map { "**\($0):** \(point.rest)" } ?? point.rest
+            let said = call.flatMap { call in at.map { CallsCard.time($0, into: call.record.startedAt) } }
+            let item = CallNotesItem(text: words, checked: nil, owner: nil, said: said,
+                                     look: CallNotesCardLook(MeetingFiles.topicsHeading), yours: false,
+                                     people: [], decided: point.decided)
+            if let at, let call {
+                CallNotesJump(call: call, at: at) { item }
+            } else {
+                item
+            }
+        }
+    }
+
+    private func toggle() {
+        withAnimation(MotionEffect.pointer) { open.toggle() }
     }
 }
 
@@ -2177,8 +2542,10 @@ private struct CallNotesUnwritten: View {
 }
 
 /// One list line of the notes: its marker (a dot in the card's colour, an
-/// empty circle for a to-do, a yellow bar for the person's own line), the
-/// words, who it is for, and when it was said ("20:58").
+/// empty circle for a to-do, a yellow bar for the person's own line, a green
+/// seal for a topic's point that was agreed), the words, who it is for, and
+/// when it was said ("20:58"). Under the words, in grey, what an open
+/// question came up in or who else a to-do is for.
 private struct CallNotesItem: View {
     let text: String
     let checked: Bool?
@@ -2187,6 +2554,8 @@ private struct CallNotesItem: View {
     let look: CallNotesCardLook
     let yours: Bool
     let people: [CallPeople.Person]
+    var detail: String?
+    var decided = false
 
     /// Half the cap height of 13.5pt text: how far above the baseline a
     /// marker's middle sits, so it lines up with the first line.
@@ -2195,13 +2564,22 @@ private struct CallNotesItem: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             marker
-            Text(Self.inline(text))
-                .font(Theme.chrome(13.5))
-                .foregroundStyle(yours ? Theme.textPrimary : CallsLook.noteText)
-                .strikethrough(checked == true, color: Theme.textTertiary)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Self.inline(text))
+                    .font(Theme.chrome(13.5))
+                    .foregroundStyle(yours ? Theme.textPrimary : CallsLook.noteText)
+                    .strikethrough(checked == true, color: Theme.textTertiary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(Self.inline(detail))
+                        .font(Theme.chrome(12))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let owner {
                 HStack(spacing: 5) {
                     CallPersonAvatar(name: owner, seat: CallPeople.seat(of: owner, in: people), size: 16)
@@ -2230,6 +2608,13 @@ private struct CallNotesItem: View {
                 .padding(.trailing, 2)
                 .alignmentGuide(.firstTextBaseline) { $0.height / 2 + Self.capMiddle }
                 .accessibilityHidden(true)
+        } else if decided {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(CallsLook.decisions)
+                .frame(width: 14, height: 14)
+                .alignmentGuide(.firstTextBaseline) { $0.height / 2 + Self.capMiddle }
+                .accessibilityLabel("Decided")
         } else {
             switch checked {
             case nil:

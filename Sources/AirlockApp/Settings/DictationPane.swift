@@ -75,7 +75,8 @@ struct DictationPane: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
-                LookPageHeader(title: "Voice", subtitle: "Hold a key, talk, and your words are typed.")
+                LookPageHeader(title: "Voice", subtitle: "Hold a key, talk, and your words are typed.",
+                               learnMore: SettingsPane.voice.learnMore)
                     .padding(.horizontal, 4)
                     .padding(.bottom, 8)
                 keyRows

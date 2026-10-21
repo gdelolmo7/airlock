@@ -28,8 +28,14 @@ final class UpgradeReminderModel {
     @ObservationIgnored var agentAsking: () -> Bool = { false }
     /// "You're on Free now" or a welcome is up: that is the day's one.
     @ObservationIgnored var otherCardUp: () -> Bool = { false }
+    /// The parts of Airlock this Mac uses now, for the week's card.
+    @ObservationIgnored var uses: () -> Set<UpgradeReminder.Use> = { [] }
     /// Opens Settings › Plans.
     @ObservationIgnored var onSeePlus: () -> Void = {}
+    /// A card came on screen, and "Not now" on one, for usage counts. The
+    /// gallery's model never calls them.
+    @ObservationIgnored var onShown: (UpgradeReminder.Kind) -> Void = { _ in }
+    @ObservationIgnored var onNotNow: (UpgradeReminder.Kind) -> Void = { _ in }
 
     @ObservationIgnored private var reminders: UpgradeReminders
     /// Nil for the state gallery's, which keeps nothing.
@@ -80,14 +86,17 @@ final class UpgradeReminderModel {
 
     func islandOpened(now: Date = Date()) {
         guard defaults != nil, card == nil else { return }
+        let onFree = onFree()
+        if onFree { change { $0.openedOnFree(now: now) } }
         if otherCardUp() {
-            if onFree() { change { $0.anotherCardShown(now: now) } }
+            if onFree { change { $0.anotherCardShown(now: now) } }
             return
         }
-        guard let due = reminders.due(onFree: onFree(), callOn: callOn(), agentAsking: agentAsking(),
-                                      now: now) else { return }
+        guard let due = reminders.due(onFree: onFree, callOn: callOn(), agentAsking: agentAsking(),
+                                      uses: uses(), now: now) else { return }
         card = due
         change { $0.shown(due, now: now) }
+        onShown(due.kind)
         Self.log.info("free reminder shown: \(due.kind.rawValue, privacy: .public)")
     }
 
@@ -108,6 +117,7 @@ final class UpgradeReminderModel {
         guard let shown = card else { return }
         card = nil
         change { $0.notNow(shown.kind, now: now) }
+        if defaults != nil { onNotNow(shown.kind) }
     }
 
     private func change(_ edit: (inout UpgradeReminders) -> Void) {

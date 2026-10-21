@@ -7,12 +7,15 @@ import SwiftUI
 /// **Never orange.** Amber is an agent waiting on an answer; a reminder waits
 /// on nothing, so it wears the blue of the "You're on Free now" card and the
 /// face for a limit being reached. No sound, and gone when the panel closes.
+/// The week's card met no limit, so it wears that card's calm face instead.
 struct UpgradeReminderCard: View {
     let reminder: UpgradeReminder
     var onSeePlus: () -> Void
     var onNotNow: () -> Void
 
-    static let face: BloubExpression = .stressed
+    static func face(for reminder: UpgradeReminder) -> BloubExpression {
+        reminder.kind == .week ? .neutral : .stressed
+    }
     static let tint: BloubTint = .working
     static let cloudWidth: CGFloat = 40
 
@@ -20,7 +23,7 @@ struct UpgradeReminderCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            BloubView(expression: Self.face, motion: .breathing, tint: accent)
+            BloubView(expression: Self.face(for: reminder), motion: .breathing, tint: accent)
                 .frame(width: Self.cloudWidth)
                 .padding(.top, 2)
                 .accessibilityHidden(true)

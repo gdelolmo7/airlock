@@ -315,8 +315,8 @@ struct NotchScreenSection: View {
     /// The long version, behind "More options" on General.
     static func explanation(followsMainDisplay: Bool) -> String {
         followsMainDisplay
-            ? "The notch goes wherever your main display is (the one set as main in System Settings › Displays). On a monitor it sits in the middle of the menu bar and works the same. Dragging files onto it for the Shelf only works on a MacBook's notch. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
-            : "The notch stays on your MacBook. With the lid closed, it can sit in the middle of the menu bar on your main display instead, and works the same. Dragging files onto it for the Shelf only works on the MacBook. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
+            ? "The notch goes wherever your main display is (the one set as main in System Settings › Displays). On a monitor it sits in the middle of the menu bar and works the same. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
+            : "The notch stays on your MacBook. With the lid closed, it can sit in the middle of the menu bar on your main display instead, and works the same. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
     }
 
     var body: some View {
@@ -351,7 +351,9 @@ private struct NotchPane: View {
     @State private var moreOptions = false
 
     var body: some View {
-        LookPage("The notch", subtitle: "What it shows, and how it looks.", moreOptions: $moreOptions) {
+        LookPage("The notch", subtitle: "What it shows, and how it looks.",
+                 learnMore: SettingsPane.appearance.learnMore,
+                 moreOptions: $moreOptions) {
             // The island as it is now, redrawn as anything below changes
             // (card Settings 2).
             if let islandPreview {
@@ -993,8 +995,7 @@ private struct AboutDetails: View {
         // granted in System Settings, and copying what is on screen is only
         // honest if what is on screen is current.
         rebuildDiagnostics()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(diagnostics, forType: .string)
+        AirlockCopy.put(diagnostics)
         copied = true
     }
 
@@ -1043,7 +1044,7 @@ struct AgentsPane: View {
     var body: some View {
         LookPage(SettingsPane.agents.title,
                  subtitle: "Coding agents, how their requests reach you, and what they may do without asking.",
-                 moreOptions: $moreOptions, anchorsInMoreOptions: [.givingUp]) {
+                 learnMore: SettingsPane.agents.learnMore, moreOptions: $moreOptions, anchorsInMoreOptions: [.givingUp]) {
             #if AIRLOCK_GUIDE
             if SettingsPane.guideIsOn { DeveloperModeSection() }
             #endif

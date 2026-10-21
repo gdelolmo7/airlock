@@ -18,7 +18,13 @@ final class AssistantService {
     private var session: LanguageModelSession?
     private var sessionInstructions: String?
 
+    /// The Mac's own answer, unless Airlock was started pretending Apple
+    /// Intelligence is switched off (`OutageDrill`).
     var availability: ModelAvailability {
+        OutageDrill.availability(systemAvailability, hidden: PretendOutage.hidesAppleIntelligence)
+    }
+
+    private var systemAvailability: ModelAvailability {
         switch SystemLanguageModel.default.availability {
         case .available:
             return .ready
@@ -98,7 +104,7 @@ final class AssistantService {
     /// the phrase as it always would.
     func classify(_ spoken: String,
                   offering actions: [any VoiceAction.Type]) async -> VoiceReply {
-        guard case .available = SystemLanguageModel.default.availability else {
+        guard availability.isReady else {
             return .answer("")
         }
         let session = LanguageModelSession(

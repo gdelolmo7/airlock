@@ -227,9 +227,25 @@ final class PlansTests: XCTestCase {
     func testSetupSaysThereIsNoTrial() {
         XCTAssertEqual(PlanSetupNote.title, "Airlock is free")
         XCTAssertTrue(PlanSetupNote.detail.hasPrefix("No trial and no card."))
-        XCTAssertTrue(PlanSetupNote.detail.contains("Plus writes your call notes online"))
+        XCTAssertTrue(PlanSetupNote.detail.contains("writes the notes online"))
         XCTAssertTrue(PlanSetupNote.detail.contains(License.Period.monthly.price))
+        XCTAssertTrue(PlanSetupNote.detail.hasSuffix("See Settings › Plans whenever you like."))
         XCTAssertFalse(PlanSetupNote.detail.lowercased().contains("days"), "no countdown")
+    }
+
+    /// Free's limits are said before anybody meets them, with the numbers
+    /// the app enforces, so the two cannot drift apart.
+    func testSetupNamesFreesLimitsWithTheirOwnNumbers() throws {
+        let detail = PlanSetupNote.detail
+        XCTAssertTrue(detail.contains("last \(PlanLimits.freeClipboard) copies"))
+        XCTAssertTrue(detail.contains("one coding agent at a time"))
+        XCTAssertTrue(detail.contains("first \(Int(PlanLimits.freeNotesListen / 60)) minutes"))
+        XCTAssertTrue(detail.contains("whole calls"))
+        XCTAssertTrue(detail.contains("every agent"))
+        // Free's sentence comes before Plus's, so it reads as what you have, then what more costs.
+        let free = try XCTUnwrap(detail.range(of: "On Free"))
+        let plus = try XCTUnwrap(detail.range(of: "Plus covers"))
+        XCTAssertLessThan(free.lowerBound, plus.lowerBound)
     }
 }
 

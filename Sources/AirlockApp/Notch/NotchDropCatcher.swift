@@ -13,10 +13,21 @@ import DynamicNotchKit
 /// Sized to the cutout and no larger. That area is the camera housing, so there
 /// is nothing behind it a click could have reached, which makes swallowing
 /// clicks there harmless — anywhere else it would not be.
+///
+/// On a monitor there is no housing, so it sits over the stand-in the island
+/// is drawn around instead (`NSScreen.islandMetrics`) — the island's own black
+/// centre, which takes no click of its own: tapping the compact island is its
+/// shoulders' job. That holds only while the island is drawn, so there it
+/// comes and goes with it (`islandShown`).
 @MainActor
 final class NotchDropCatcher {
     private var panel: NSPanel?
     private var coverage: Coverage = .cutout
+    /// Placed over a stand-in rather than a camera housing. Then the window is
+    /// only allowed on screen while the island is.
+    private var onStandIn = false
+    /// What the controller last said — see `islandShown`.
+    private var islandVisible = false
     /// When a drag last said anything. `watchForAbandonment` is the only reader.
     private var lastDragMessage = Date.distantPast
     private var abandonWatch: Task<Void, Never>?
@@ -70,6 +81,37 @@ final class NotchDropCatcher {
         }
     }
 
+    /// Whether the island is drawn right now, from the controller's single
+    /// presentation funnel, every pass.
+    ///
+    /// Over a camera housing this changes nothing: the window stays put even
+    /// with the island hidden, because a drag arriving at a closed notch is
+    /// the moment it exists for, and the housing is black hardware either way.
+    ///
+    /// Over a stand-in it decides whether the window is there at all. Hidden
+    /// there means a full-screen app has the menu bar, and a window left over
+    /// that strip would be a dead patch in the middle of the film — eating
+    /// clicks, catching drags meant for the app. So it goes with the island
+    /// and comes back with it.
+    ///
+    /// Every pass rather than on a change, because the stand-in is the menu
+    /// bar's height and that moves on its own; the frame follows it here.
+    /// Only at rest: a grown window belongs to the drag, and `shrinkToNotch`
+    /// puts it back when the drag is done.
+    func islandShown(_ visible: Bool) {
+        islandVisible = visible
+        guard onStandIn, let panel else { return }
+        guard visible else {
+            if panel.isVisible { panel.orderOut(nil) }
+            return
+        }
+        if coverage == .cutout {
+            let resting = Self.restingFrame(on: NotchScreen.notched)
+            if panel.frame != resting { panel.setFrame(resting, display: false) }
+        }
+        if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
     /// Rebuilt rather than moved on display changes: the notch geometry may
     /// belong to a different screen entirely now.
     private func place() {
@@ -77,8 +119,11 @@ final class NotchDropCatcher {
         panel = nil
         coverage = .cutout // rebuilt at rest, whatever it was covering before
 
-        let screen = NotchScreen.notched
-        guard screen.notchMetrics.hasNotch else { return } // nothing to hover over
+        // Wherever the island is — the housing, or a monitor's stand-in.
+        // `catching` and `notched` name the same screen whenever the first is
+        // non-nil, which is what lets every frame below keep reading `notched`.
+        guard let screen = NotchScreen.catching else { return } // no island anywhere
+        onStandIn = !screen.notchMetrics.hasNotch
 
         let panel = NSPanel(contentRect: Self.restingFrame(on: screen),
                             styleMask: [.borderless, .nonactivatingPanel],
@@ -129,19 +174,24 @@ final class NotchDropCatcher {
             },
             onHover: onHover
         )
-        panel.orderFrontRegardless()
         self.panel = panel
+        if !onStandIn || islandVisible { panel.orderFrontRegardless() }
     }
 
     /// Only the cutout at rest. This window swallows clicks in its frame, and
     /// the cutout is the one place on screen where that costs nothing — there
-    /// is no UI behind the camera housing.
+    /// is no UI behind the camera housing, and on a monitor the island's own
+    /// centre is drawn over the stand-in.
     private static func restingFrame(on screen: NSScreen) -> NSRect {
-        let metrics = screen.notchMetrics
-        return NSRect(x: screen.frame.midX - metrics.notchWidth / 2,
-                      y: screen.frame.maxY - metrics.notchHeight,
-                      width: metrics.notchWidth,
-                      height: metrics.notchHeight)
+        restingFrame(screenFrame: screen.frame, island: screen.islandMetrics)
+    }
+
+    /// The same, from numbers a test can construct.
+    static func restingFrame(screenFrame: CGRect, island metrics: NotchMetrics) -> NSRect {
+        NSRect(x: screenFrame.midX - metrics.notchWidth / 2,
+               y: screenFrame.maxY - metrics.notchHeight,
+               width: metrics.notchWidth,
+               height: metrics.notchHeight)
     }
 
     /// The kit's panel frame — not a copy of it, the same function. The AirDrop

@@ -195,9 +195,36 @@ enum GalleryMeetings {
                 wholePage(budget(on: .plus, .mac(at: budgetEnd, why: .setting, plan: PlanSnapshot(plan: .plus, isPaid: true)),
                               redone: CallNotesLibrary.said(.offline, plan: PlanSnapshot(plan: .plus, isPaid: true))))
             },
-            GalleryState("K88", area, "What each plan writes: one example call, three plans",
-                         ground: .window, width: 1000) {
-                NotesComparisonView(close: {}, showPlans: {}).frame(width: 1000, height: 720)
+            // A Mac without Apple Intelligence can't write the notes itself,
+            // so when the online service is down the page waits for it
+            // (`CloudNotesRedo`). `--outage --no-apple-intelligence` shows
+            // these live.
+            GalleryState("K94", area, "Window: Plus, no Apple Intelligence, the online service didn't answer, notes later",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .plus, .noNotes(.failed, at: budgetEnd,
+                                                     notBefore: budgetEnd.addingTimeInterval(CloudNotesRedo.retryWaits[0])),
+                                 written: false, noModel: .needsAppleIntelligence))
+            },
+            GalleryState("K95", area, "Window: Plus, no Apple Intelligence, offline when the call ended, notes later",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .plus, .noNotes(.offline, at: budgetEnd),
+                                 written: false, noModel: .needsAppleIntelligence))
+            },
+            GalleryState("K88", area, "What each plan writes: on Free, opens on Plus",
+                         ground: .window, width: NotesComparisonView.size.width) {
+                comparison(on: .free)
+            },
+            GalleryState("K88a", area, "What each plan writes: on Free, Free picked",
+                         ground: .window, width: NotesComparisonView.size.width) {
+                comparison(on: .free, picked: .free)
+            },
+            GalleryState("K88b", area, "What each plan writes: on Pro, nothing offered",
+                         ground: .window, width: NotesComparisonView.size.width) {
+                comparison(on: .pro)
+            },
+            GalleryState("K88c", area, "What each plan writes: on Plus, Pro offered",
+                         ground: .window, width: NotesComparisonView.size.width) {
+                comparison(on: .plus)
             },
 
             onCall("K5", "Compact: call starts, \"Notes?\" for 10 s") { .ask },
@@ -213,6 +240,10 @@ enum GalleryMeetings {
                                   area: area),
             GalleryIsland.compact("K12", "Compact: notes ready, two to-dos",
                                   CompactIslandInput(now: now, callNotes: .ready(todos: 2),
+                                                     callNotesAt: now.addingTimeInterval(-2)),
+                                  area: area),
+            GalleryIsland.compact("K98", "Compact: call saved, notes later (written online once the service answers)",
+                                  CompactIslandInput(now: now, callNotes: .later,
                                                      callNotesAt: now.addingTimeInterval(-2)),
                                   area: area),
             GalleryIsland.compact("K33", "Compact: call over, too little said for notes",
@@ -509,6 +540,12 @@ enum GalleryMeetings {
     }
     private static var monthAhead: Date {
         Calendar.current.date(byAdding: .day, value: 12, to: now) ?? now
+    }
+
+    /// "What each plan writes" as a Mac on `plan` opens it, or with `picked`.
+    private static func comparison(on plan: AirlockPlan, picked: AirlockPlan? = nil) -> some View {
+        NotesComparisonView(plan: plan, picked: picked, close: {}, showPlans: {})
+            .frame(width: NotesComparisonView.size.width, height: NotesComparisonView.size.height)
     }
 
     /// Yesterday's 42-minute budget review, the example call, with notes

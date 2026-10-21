@@ -9,10 +9,14 @@ public struct MeetingDraft: Equatable, Sendable {
         public var text: String
         /// Transcript line IDs as the model wrote them, e.g. "S12".
         public var sources: [String]
+        /// For an open question written online: what it depends on or why
+        /// it matters, or empty.
+        public var context: String
 
-        public init(text: String, sources: [String]) {
+        public init(text: String, sources: [String], context: String = "") {
             self.text = text
             self.sources = sources
+            self.context = context
         }
     }
 
@@ -20,13 +24,20 @@ public struct MeetingDraft: Equatable, Sendable {
         public var task: String
         /// As the model wrote it; may be empty, "unassigned", or a guess.
         public var owner: String
+        /// Everyone who will do it, from notes written by topic, which ask
+        /// for a list: "You" and "Ana" for a task shared, "Everyone" for
+        /// one all of them took on. Empty for the Mac's notes, which name
+        /// one `owner`.
+        public var owners: [String]
         /// When it is due, in the call's words, or empty.
         public var due: String
         public var sources: [String]
 
-        public init(task: String, owner: String = "", due: String = "", sources: [String]) {
+        public init(task: String, owner: String = "", owners: [String] = [], due: String = "",
+                    sources: [String]) {
             self.task = task
             self.owner = owner
+            self.owners = owners
             self.due = due
             self.sources = sources
         }
@@ -177,6 +188,22 @@ public struct MeetingPeople: Equatable, Sendable {
 
     /// Answers that mean the person the notes are for.
     private static let you: Set<String> = ["you", "tu", "usted", "vos"]
+
+    /// What the page calls a to-do all of them took on.
+    public static let everyone = "Everyone"
+
+    /// Whether an owner the model wrote means all of them, folded: only
+    /// read from a list of owners (`MeetingDraft.Todo.owners`), where the
+    /// notes are told to say so. "We" and "the team" still name nobody.
+    static func meansEveryone(_ said: String) -> Bool {
+        let name = said.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        return everyoneWords.contains(fold(name))
+    }
+
+    private static let everyoneWords: Set<String> = [
+        "everyone", "everybody", "all", "all of us", "todos", "todas", "todo el mundo", "todos nosotros",
+        "tots", "totes", "tothom", "tous", "toutes", "tout le monde", "alle", "tutti", "tutte", "todo mundo",
+    ]
 }
 
 /// Every line of notes the model offered, checked against the transcript,
@@ -295,7 +322,9 @@ public struct MeetingLedger: Sendable {
         }
         for fact in draft.questions {
             keep(checked(fact, shown: shown).flatMap { item in
-                MeetingText.openQuestion(item.text).map { MeetingNotes.Item(text: $0, sources: item.sources) }
+                MeetingText.openQuestion(item.text).map {
+                    MeetingNotes.Item(text: $0, sources: item.sources, context: Self.context(fact.context))
+                }
             }, into: &questions, earlier: earlier.questions, asked: true)
         }
         for fact in draft.topics { keep(checked(fact, shown: shown), into: &topics, earlier: earlier.topics) }
@@ -371,8 +400,34 @@ public struct MeetingLedger: Sendable {
             while task.last == "." { task.removeLast() }
             task += " " + missing.joined(separator: "; ")
         }
-        let owner = people.owner(todo.owner).flatMap { people.isHeard($0, in: context) ? $0 : nil }
+        let owner = todo.owners.isEmpty
+            ? people.owner(todo.owner).flatMap { people.isHeard($0, in: context) ? $0 : nil }
+            : owners(todo.owners, near: context)
         return MeetingNotes.Item(text: task, owner: owner, sources: sources)
+    }
+
+    /// A to-do's owners from a list, as the page writes them: "You, Ana".
+    /// Each is checked as a lone owner is (somebody on the call, heard near
+    /// the lines it cites); one that means all of them is "Everyone", which
+    /// names nobody to check, and then says it all. "You" goes first, the
+    /// rest in the model's order. Nil when none holds up.
+    private func owners(_ said: [String], near context: [NumberedTranscript.Turn]) -> String? {
+        if said.contains(where: MeetingPeople.meansEveryone) { return MeetingPeople.everyone }
+        var kept: [String] = []
+        for name in said {
+            guard let owner = people.owner(name), people.isHeard(owner, in: context),
+                  !kept.contains(owner) else { continue }
+            kept.append(owner)
+        }
+        let you = kept.filter { $0 == MeetingSpeaker.me.label }
+        let sorted = you + kept.filter { $0 != MeetingSpeaker.me.label }
+        return sorted.isEmpty ? nil : sorted.joined(separator: ", ")
+    }
+
+    /// An open question's context as the page shows it, or nil for none.
+    static func context(_ text: String) -> String? {
+        let line = MeetingText.line(text)
+        return line.isEmpty ? nil : line
     }
 
     /// Whether a to-do only tells what somebody did in the meeting itself:
@@ -753,13 +808,89 @@ public struct MeetingLedger: Sendable {
     /// The notes from everything kept. Without key points (the final step
     /// failed, or none of its key points held up), the topics stand in:
     /// plain, but still sourced (`standIns`).
-    public func notes(summary: String? = nil, keyPoints: [MeetingNotes.Item]? = nil) -> MeetingNotes {
+    public func notes(summary: String? = nil, keyPoints: [MeetingNotes.Item]? = nil,
+                      topics byTopic: [MeetingNotes.Topic] = [], words: [MeetingNotes.Word] = []) -> MeetingNotes {
         let checked = checkedNotes()
         let listed = checked.todos + checked.decisions + checked.questions
         return MeetingNotes(summary: Self.sentences(summary ?? "", limit: 3),
                             todos: checked.todos, decisions: checked.decisions,
                             questions: checked.questions,
-                            keyPoints: keyPoints ?? Self.standIns(topics, besides: listed))
+                            keyPoints: keyPoints ?? Self.standIns(topics, besides: listed),
+                            topics: byTopic, words: words)
+    }
+
+    // MARK: - Notes by topic
+
+    /// The topics of notes written online by topic, every point checked as
+    /// any line is (`checked(_:shown:)`): it must cite a line that exists
+    /// and was shown, or it goes. At most `pointLimit` points a topic, the
+    /// same point twice in one topic kept once, and a topic left with no
+    /// point goes too. At most `limit` topics, in the order they came up
+    /// (their first point's time).
+    public func checked(_ topics: [CloudNotes.Draft.Topic], shown: Set<Int>, limit: Int, pointLimit: Int)
+        -> (topics: [MeetingNotes.Topic], tally: Tally) {
+        var tally = Tally()
+        var kept: [MeetingNotes.Topic] = []
+        for topic in topics {
+            var seen = Set<String>()
+            var points: [MeetingNotes.Point] = []
+            for point in topic.points {
+                guard points.count < pointLimit,
+                      let item = checked(MeetingDraft.Fact(text: point.text, sources: point.sources), shown: shown),
+                      seen.insert(MeetingText.key(item.text)).inserted else {
+                    tally.dropped += 1
+                    continue
+                }
+                points.append(MeetingNotes.Point(text: item.text, decided: point.decision, sources: item.sources,
+                                                 at: transcript.turn(item.sources[0])?.start))
+                tally.kept += 1
+            }
+            let title = MeetingText.line(topic.title)
+            guard kept.count < limit, !points.isEmpty, !title.isEmpty else {
+                tally.dropped += points.count
+                tally.kept -= points.count
+                continue
+            }
+            kept.append(MeetingNotes.Topic(title: title, gist: Self.sentences(topic.gist, limit: 2),
+                                           points: points))
+        }
+        let ordered = kept.indices.sorted { (kept[$0].at ?? 0, $0) < (kept[$1].at ?? 0, $1) }.map { kept[$0] }
+        return (ordered, tally)
+    }
+
+    /// The words to check, each kept only as far as it holds up: it cites a
+    /// line that exists and was shown, and of the ways it was heard, only
+    /// those the transcript has near those lines and that differ from the
+    /// best guess stay. A word with none left goes: "Use" would change
+    /// nothing. At most `limit`.
+    public func checked(_ words: [CloudNotes.Draft.Word], shown: Set<Int>, limit: Int) -> [MeetingNotes.Word] {
+        var kept: [MeetingNotes.Word] = []
+        for word in words where kept.count < limit {
+            let sources = sources(word.sources, shown: shown)
+            let best = MeetingText.line(word.best)
+            guard !sources.isEmpty, !best.isEmpty else { continue }
+            let said = nearby(sources)
+            var seen: Set<String> = [MeetingText.key(best)]
+            let heard = word.heard.map(MeetingText.line).filter { form in
+                !form.isEmpty && Self.says(form, in: said) && seen.insert(MeetingText.key(form)).inserted
+            }
+            guard !heard.isEmpty, !kept.contains(where: { MeetingText.key($0.best) == MeetingText.key(best) })
+            else { continue }
+            kept.append(MeetingNotes.Word(best: best, heard: heard, sources: sources,
+                                          at: transcript.turn(sources[0])?.start))
+        }
+        return kept
+    }
+
+    /// Whether `form` is said in these turns as whole words, case and
+    /// accents aside.
+    static func says(_ form: String, in turns: [NumberedTranscript.Turn]) -> Bool {
+        let words = MeetingPeople.words(MeetingPeople.fold(form))
+        guard !words.isEmpty else { return false }
+        let wanted = " " + words.joined(separator: " ") + " "
+        return turns.contains { turn in
+            (" " + MeetingPeople.words(MeetingPeople.fold(turn.text)).joined(separator: " ") + " ").contains(wanted)
+        }
     }
 
     /// The topics that stand in for key points: at most `limit`, and when

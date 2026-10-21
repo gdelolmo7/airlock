@@ -394,6 +394,12 @@ final class NotesByPlanTests: XCTestCase {
         XCTAssertEqual(whole.endedAt?.timeIntervalSince(whole.startedAt), 42 * 60)
     }
 
+    /// The window's plan tiles count the to-dos each plan found, and each
+    /// plan up finds more.
+    func testEachPlanUpFindsMoreToDos() {
+        XCTAssertEqual(AirlockPlan.allCases.map(NotesComparisonSample.todos), [9, 12, 18])
+    }
+
     /// Free's page is what the Mac's model wrote of the first 30 minutes,
     /// said at the top and the foot, from a call whose other side is one
     /// "Them": telling voices apart is Plus's, and Free's example never
@@ -469,6 +475,40 @@ final class NotesByPlanTests: XCTestCase {
         XCTAssertFalse(CallNotesOffers.voicesOnPlus(heardAsOne(ended: false), plan: .free), "still going")
         XCTAssertFalse(CallNotesOffers.voicesOnPlus(heardAsOne(theySpoke: false), plan: .free),
                        "nobody on the other side spoke")
+    }
+
+    // MARK: - The example pages
+
+    /// Plus's and Pro's pages are written by topic, as online notes are:
+    /// one card of numbered topics, each with its time and its lines, and
+    /// no "Decisions" or "Key points" of their own. Free's is the Mac's,
+    /// with no topics.
+    func testThePaidPlansExamplePagesAreByTopic() throws {
+        func topics(_ plan: AirlockPlan) -> [[MeetingPage.Section]] {
+            MeetingPage.cards(NotesComparisonSample.sections(plan)).compactMap {
+                if case .topics(_, let topics) = $0 { return topics }
+                return nil
+            }
+        }
+        XCTAssertEqual(topics(.free).count, 0)
+        for plan in [AirlockPlan.plus, .pro] {
+            try XCTSkipIf(NotesComparisonSample.written(plan).isEmpty, "\(plan.label)'s example is not written yet")
+            let cards = topics(plan)
+            XCTAssertEqual(cards.count, 1, plan.label)
+            let list = try XCTUnwrap(cards.first, plan.label)
+            XCTAssertGreaterThanOrEqual(list.count, 2, plan.label)
+            for (index, topic) in list.enumerated() {
+                let read = try XCTUnwrap(MeetingPage.topic(topic.heading ?? ""), plan.label)
+                XCTAssertEqual(read.number, index + 1, plan.label)
+                XCTAssertNotNil(read.at, "\(plan.label): topic \(read.number) has no time")
+                let points = topic.lines.filter { if case .item = $0.block { return true } else { return false } }
+                XCTAssertFalse(points.isEmpty, "\(plan.label): topic \(read.number) has no lines")
+            }
+            let headings = NotesComparisonSample.sections(plan).compactMap(\.heading)
+            XCTAssertFalse(headings.contains(MeetingFiles.decisionsHeading), plan.label)
+            XCTAssertFalse(headings.contains(MeetingFiles.keyPointsHeading), plan.label)
+            XCTAssertTrue(headings.contains(MeetingFiles.todosHeading), plan.label)
+        }
     }
 
     /// Every time on the page ("· 25:02") is before `limit`.

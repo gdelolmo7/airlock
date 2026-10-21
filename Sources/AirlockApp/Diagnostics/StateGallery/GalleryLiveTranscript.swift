@@ -32,6 +32,10 @@ enum GalleryLiveTranscript {
                          ground: .window, width: side.width) {
                 window(record(ended: true), outcome: .saved(.notes, todos: 2))
             },
+            GalleryState("K97", area, "Side window: call saved, its notes written online later",
+                         ground: .window, width: side.width) {
+                window(record(ended: true), outcome: .saved(.later, todos: 0))
+            },
             GalleryState("K58", area, "Side window: the notes stopped mid-call, the way to what was said",
                          ground: .window, width: side.width) {
                 window(record(), outcome: .failed(CallLive.Stopped.notSaved))

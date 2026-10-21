@@ -15,8 +15,10 @@ final class UpgradeReminderTests: XCTestCase {
     }
 
     private func due(_ reminders: UpgradeReminders, at now: Date, onFree: Bool = true,
-                     callOn: Bool = false, agentAsking: Bool = false) -> UpgradeReminder? {
-        reminders.due(onFree: onFree, callOn: callOn, agentAsking: agentAsking, now: now, calendar: calendar)
+                     callOn: Bool = false, agentAsking: Bool = false,
+                     uses: Set<UpgradeReminder.Use> = []) -> UpgradeReminder? {
+        reminders.due(onFree: onFree, callOn: callOn, agentAsking: agentAsking, uses: uses,
+                      now: now, calendar: calendar)
     }
 
     // MARK: - One a day
@@ -173,6 +175,81 @@ final class UpgradeReminderTests: XCTestCase {
         reminders.copiesLetGo(5, now: day(8, 20), calendar: calendar)
         reminders.shown(.clipboardFull, now: day(8, 20, 11))
         XCTAssertNil(due(reminders, at: day(10, 1)), "August is not last month in October")
+    }
+
+    // MARK: - A week in
+
+    func testTheWeeksCardComesAWeekAfterTheFirstOpenOnFree() {
+        var reminders = UpgradeReminders()
+        reminders.openedOnFree(now: day(10, 1, 9))
+        reminders.openedOnFree(now: day(10, 5, 9))
+        XCTAssertNil(due(reminders, at: day(10, 8, 8), uses: [.agents]), "not yet a week")
+        XCTAssertEqual(due(reminders, at: day(10, 8, 9), uses: [.agents]), .firstWeek(uses: [.agents]),
+                       "a week from the first open, not the last")
+        XCTAssertNil(due(reminders, at: day(10, 8, 9)), "nothing in use, nothing true to say")
+        XCTAssertNil(due(reminders, at: day(10, 8, 9), onFree: false, uses: [.agents]))
+        XCTAssertNil(due(reminders, at: day(10, 8, 9), callOn: true, uses: [.agents]))
+    }
+
+    func testTheWeeksCardShowsOnceEver() {
+        var reminders = UpgradeReminders()
+        reminders.openedOnFree(now: day(10, 1))
+        let card = due(reminders, at: day(10, 9), uses: [.callNotes])
+        XCTAssertEqual(card, .firstWeek(uses: [.callNotes]))
+        reminders.shown(card!, now: day(10, 9))
+        reminders.notNow(.week, now: day(10, 9), calendar: calendar)
+        XCTAssertNil(due(reminders, at: day(10, 10), uses: [.callNotes]))
+        XCTAssertNil(due(reminders, at: day(12, 1), uses: [.callNotes]), "not after Not now runs out either")
+        XCTAssertNil(UpgradeReminder.firstWeek(uses: [.callNotes]).notNowHint, "it never comes back anyway")
+    }
+
+    /// Only for somebody nothing has said Plus to: a limit's reminder, or
+    /// "You're on Free now", already did.
+    func testNoWeeksCardAfterAnyOtherCard() {
+        var reminders = UpgradeReminders()
+        reminders.openedOnFree(now: day(10, 1))
+        reminders.copiesLetGo(1, now: day(10, 3), calendar: calendar)
+        reminders.shown(.clipboardFull, now: day(10, 3))
+        XCTAssertNil(due(reminders, at: day(10, 9), uses: [.clipboard]))
+
+        var dropped = UpgradeReminders()
+        dropped.openedOnFree(now: day(10, 1))
+        dropped.anotherCardShown(now: day(10, 1))
+        XCTAssertNil(due(dropped, at: day(10, 9), uses: [.clipboard]))
+    }
+
+    /// A limit that was just met is news, so its card goes before the week's.
+    func testALimitsCardGoesFirst() {
+        var reminders = UpgradeReminders()
+        reminders.openedOnFree(now: day(10, 1))
+        reminders.copiesLetGo(1, now: day(10, 9, 9), calendar: calendar)
+        XCTAssertEqual(due(reminders, at: day(10, 9, 10), uses: [.clipboard]), .clipboardFull)
+    }
+
+    func testTheWeeksCardSaysWhatPlusAddsToWhatIsUsed() {
+        XCTAssertEqual(UpgradeReminder.firstWeek(uses: [.clipboard]).message,
+                       "On Plus, the clipboard would keep up to 1,000 copies.")
+        XCTAssertEqual(UpgradeReminder.firstWeek(uses: [.clipboard, .callNotes]).message,
+                       "On Plus, call notes would cover whole calls and the clipboard would keep up to 1,000 copies.")
+        XCTAssertEqual(UpgradeReminder.firstWeek(uses: [.agents, .clipboard, .callNotes]).message,
+                       "On Plus, call notes would cover whole calls, every coding agent could ask you here "
+                           + "at the same time and the clipboard would keep up to 1,000 copies.")
+        XCTAssertEqual(UpgradeReminder.firstWeek(uses: [.agents]).title, "A week with Airlock")
+    }
+
+    /// Preferences written before the week's card read back with no first
+    /// open, so a copy already on Free starts its week now.
+    func testOlderPreferencesStartTheWeekNow() throws {
+        var reminders = UpgradeReminders()
+        reminders.copiesLetGo(2, now: day(10, 16), calendar: calendar)
+        var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(reminders))
+            as? [String: Any])
+        stored["firstOpenOnFree"] = nil
+        var back = try JSONDecoder().decode(UpgradeReminders.self,
+                                            from: JSONSerialization.data(withJSONObject: stored))
+        XCTAssertNil(back.firstOpenOnFree)
+        back.openedOnFree(now: day(10, 20))
+        XCTAssertEqual(back.firstOpenOnFree, day(10, 20))
     }
 
     // MARK: - Words

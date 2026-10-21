@@ -18,6 +18,18 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertFalse(flow.isWaiting)
     }
 
+    /// Each checkout sent to the browser is heard, with its plan and period,
+    /// for usage counts.
+    func testEachBeginningIsHeardWithItsPlanAndPeriod() {
+        let flow = PurchaseFlow()
+        var heard: [String] = []
+        flow.onBegin = { plan, period in heard.append("\(plan.rawValue) \(period.rawValue)") }
+        flow.begin(.plus, .yearly, now: t0)
+        flow.cancel()
+        flow.begin(.pro, .monthly, now: t0)
+        XCTAssertEqual(heard, ["plus yearly", "pro monthly"])
+    }
+
     func testBeginningRemembersWhichPlanTheyLeftToBuy() {
         let flow = PurchaseFlow()
         flow.begin(.pro, .monthly, now: t0)

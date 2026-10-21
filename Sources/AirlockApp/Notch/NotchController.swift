@@ -2206,6 +2206,9 @@ final class NotchController {
             + " suppressed=\(hoverSuppressed) rest=\(canRest) top=\(pointerAtTop)"
             + " → \(desired) (was \(applied.map(String.init(describing:)) ?? "none"))")
         transition(to: desired)
+        // After the transition, from what it applied: on a monitor the catcher
+        // is only there while the island is (see `NotchDropCatcher.islandShown`).
+        dropCatcher?.islandShown(applied.map { $0 != .hidden } ?? false)
         scheduleIslandDeadlines(after: island.now)
         // Without this the island would hold `.compact` until something
         // unrelated moved — `apply` is event-driven and an expiring linger is

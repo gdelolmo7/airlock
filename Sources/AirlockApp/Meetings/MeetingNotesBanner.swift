@@ -550,7 +550,7 @@ private struct NotesReady: View {
                     Spacer(minLength: 6)
                     if CloudNotesAllowance.offersUpgrade {
                         NotesPill(CloudNotesAllowance.upgradeButton, quiet: true) { meetings.showPlans() }
-                            .help("Opens Airlock's plans on the website")
+                            .help("Opens Plans in Settings")
                     }
                 }
             }

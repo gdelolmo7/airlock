@@ -160,12 +160,16 @@ public struct UsageContext: Equatable, Sendable {
 /// The request body `/usage` takes. Kept beside the Worker's own check of
 /// it, which refuses anything that does not look like this.
 public enum UsageWire {
-    public static func body(install: String, context: UsageContext, records: [UsageRecord]) throws -> Data {
+    /// `owner` is the owner's mark (`OwnerMark`), only on the owner's own
+    /// Macs; nil leaves the field out.
+    public static func body(install: String, context: UsageContext, records: [UsageRecord],
+                            owner: String? = nil) throws -> Data {
         let body = Body(install: install,
                         context: .init(app: context.app, build: context.build, os: context.os,
                                        model: context.model, lang: context.language, plan: context.plan),
                         events: records.map { .init(id: $0.id.uuidString.lowercased(), name: $0.name,
-                                                    at: $0.at, props: $0.properties) })
+                                                    at: $0.at, props: $0.properties) },
+                        owner: owner.flatMap(OwnerMark.valid))
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -176,6 +180,7 @@ public enum UsageWire {
         let install: String
         let context: Context
         let events: [Event]
+        let owner: String?
     }
 
     private struct Context: Encodable {

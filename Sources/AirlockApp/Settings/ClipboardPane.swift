@@ -22,7 +22,8 @@ struct ClipboardPane: View {
 
     var body: some View {
         @Bindable var clipboard = clipboard
-        LookPage("Clipboard", subtitle: "Everything you copy, kept on this Mac.", moreOptions: $moreOptions) {
+        LookPage("Clipboard", subtitle: "Everything you copy, kept on this Mac.",
+                 learnMore: SettingsPane.clipboard.learnMore, moreOptions: $moreOptions) {
             LookToggleRow("Record clipboard history", isOn: $clipboard.isEnabled)
                 .settingsAnchor(.clipboardHistory)
 

@@ -6,90 +6,160 @@ import Foundation
 /// Free, Plus, Pro, an old trial, a subscription that ended and one whose
 /// payment didn't go through. The view only lays it out.
 ///
+/// **One offer at a time.** Somebody not paying sees Plus as the big card,
+/// with what it adds and its price, and Pro as one line under it. Somebody
+/// paying sees their own plan as the big card instead, with what it gives
+/// them and "Manage subscription", and the plan above theirs as the line,
+/// when there is one.
+///
 /// **Somebody already paying never gets a second checkout.** A checkout is a
 /// new subscription, billed beside the one they have; changing plan happens
 /// on their subscription page in the shop (`PlanCatalog.manageURL`). That
 /// includes a payment that didn't go through, where a second subscription is
 /// the worst answer there is.
+///
+/// **Going down is on the page too, never only behind "Manage
+/// subscription".** Somebody paying finds the plans below theirs under
+/// "Change or cancel", each with what happens if they choose it.
 public struct PlansPage: Equatable, Sendable {
-    /// The "Your plan" card at the top.
+    /// The plan this Mac is on.
     public struct Current: Equatable, Sendable {
         public let plan: AirlockPlan
-        /// The name beside the tag: "Free", "Plus", "Plus trial".
+        /// The plan's name: "Free", "Plus", "Plus trial".
         public let title: String
-        /// One line: what Free keeps, or the price and the renewal day.
+        /// Not paying: what the plan is ("clipboard keeps 100, …", "5 days
+        /// left, then Free. No card needed."). Paying: the renewal ("renews
+        /// on 15 November"), how long a key issued by hand lasts, or what
+        /// went wrong.
         public let summary: String
+        /// "€3.99 a month", before the renewal. Only for a subscription in
+        /// good standing: a key issued by hand has no price.
+        public let price: String?
+        /// The line under those on a paid plan's card, or nil.
+        public let note: String?
         /// "Manage subscription", to the shop's page. Only for a key the
         /// shop sold: a key issued by hand has no subscription to manage.
         public let manages: Bool
         /// A payment that didn't go through: said, and never as a lock.
         public let needsAttention: Bool
+
+        /// "You're on **Free**: clipboard keeps 100, …", the top line for
+        /// somebody not paying. Markdown, for the plan's name.
+        public var sentence: String {
+            "You're on \(title == plan.label ? "" : "a ")**\(title)**: \(summary)"
+        }
     }
 
-    /// One plan's card in the row of three.
-    public struct Card: Equatable, Sendable {
-        public enum Marker: Equatable, Sendable {
-            /// The plan this Mac is on.
-            case yours
-            /// The plan an old trial gives, until its days run out.
-            case trial
-        }
-
+    /// The big card: Plus on offer to somebody not paying, or the plan they
+    /// pay for.
+    public struct Hero: Equatable, Sendable {
         public let plan: AirlockPlan
-        /// "€35.99", "€0".
+        /// The plan they are on, its foot filled from `Current`, rather than
+        /// one on offer.
+        public let isYours: Bool
+        /// "The whole call, written down", "You're on Plus".
+        public let title: String
+        /// "Everything in Free, and:".
+        public let lead: String
+        public let features: [PlanCatalog.Feature]
+        /// Pro's card lists what came with Plus under its own two.
+        public let alsoYours: [String]
+        /// On offer only: its price for the period the switch shows, and
+        /// its button.
+        public let offer: Offer?
+    }
+
+    public struct Offer: Equatable, Sendable {
+        /// "€35.99".
         public let amount: String
-        /// "a year", or nil for Free.
-        public let per: String?
-        /// "€3 a month, billed yearly", "Stop any time", "No card needed".
+        /// "a year".
+        public let per: String
+        /// "€3 a month, billed yearly · a set number of online notes each month".
         public let note: String
-        public let lead: String?
-        public let bullets: [String]
-        public let marker: Marker?
+        public let button: Button
+    }
+
+    /// The slim line under the big card: the plan above theirs.
+    public struct Line: Equatable, Sendable {
+        public let plan: AirlockPlan
+        public let sentence: String
+        /// "€71.99".
+        public let amount: String
+        /// "a year".
+        public let per: String
+        /// "€6 a month", "Stop any time".
+        public let note: String
+        public let button: Button
+    }
+
+    /// A plan below theirs, under "Change or cancel", and what choosing it
+    /// does.
+    public struct StepDown: Equatable, Sendable {
+        public let plan: AirlockPlan
+        /// "You keep Pro until 15 November, then you're on Free."
+        public let sentence: String
         public let button: Button
     }
 
     public enum Button: Equatable, Sendable {
-        /// Not a button: the plan they are on.
-        case yours
-        /// Not a button: a smaller plan, all of it in theirs.
-        case included(in: AirlockPlan)
         /// A checkout for this plan and the period the switch shows.
         case get(AirlockPlan)
         /// Their subscription page in the shop, where the plan is changed.
         case change(to: AirlockPlan)
+        /// Their subscription page in the shop, where it is cancelled. It
+        /// runs to the end of what was paid for, then the Mac is on Free.
+        case cancel
+        /// A key issued by hand has no subscription: Free is taking the key
+        /// off this Mac, asked first, and it can be pasted back.
+        case removeKey
 
         public var title: String {
             switch self {
-            case .yours: "Your plan"
-            case .included(let plan): "Included in \(plan.label)"
             case .get(let plan): "Get \(plan.label)"
             case .change(let plan): "Change to \(plan.label)"
+            case .cancel: "Cancel subscription"
+            case .removeKey: "Switch to Free"
             }
         }
 
-        /// Whether pressing it does anything.
-        public var acts: Bool {
-            switch self {
-            case .yours, .included: false
-            case .get, .change: true
-            }
-        }
-
-        /// Under the button, when it needs saying.
+        /// Under the line, when it needs saying.
         public var note: String? {
             switch self {
-            case .change: "On your subscription page. You never pay twice."
-            case .yours, .included, .get: nil
+            case .change: "Opens your subscription page. You never pay twice."
+            case .get, .cancel, .removeKey: nil
+            }
+        }
+
+        /// Opens the shop in the browser rather than doing something here.
+        public var opensBrowser: Bool {
+            switch self {
+            case .get, .change, .cancel: true
+            case .removeKey: false
             }
         }
     }
 
     public let current: Current
-    public let cards: [Card]
+    public let hero: Hero
+    /// The plan above theirs, or nil on Pro, which has nothing above it.
+    public let line: Line?
+    /// Over the first price on the page, beside the Monthly | Yearly switch:
+    /// "Plans" for somebody not paying, "Want even better notes?" on Plus,
+    /// and nil on Pro, where nothing is priced.
+    public let plansHeading: String?
     /// "Check my plan now": only for a key the shop sold, in a copy with a
     /// licence server to ask. A key issued by hand never changes plan, and
     /// Free with no key has nothing to ask about.
     public let canCheckNow: Bool
+    /// The plans below theirs, for somebody paying, biggest first: Plus
+    /// from Pro, then Free. Empty for somebody not paying, and beside a
+    /// payment that didn't go through, which is fixed first.
+    public let stepsDown: [StepDown]
+    /// Over `stepsDown`: "Change or cancel", or "Other plans" for a key
+    /// issued by hand, which has nothing to cancel.
+    public let stepsDownHeading: String?
+    /// Under `stepsDown`, when they open the shop.
+    public let stepsDownNote: String?
 
     /// `stored` is the key on this Mac when it still checks out, whatever the
     /// entitlement says: a subscription that ended is on Free and still has
@@ -102,17 +172,86 @@ public struct PlansPage: Equatable, Sendable {
         let sold = (license ?? stored)?.ref != nil
         current = Self.current(entitlement, now: now, locale: locale, timeZone: timeZone)
         canCheckNow = canAskServer && sold
-        cards = AirlockPlan.allCases.map { plan in
-            Card(plan: plan,
-                 amount: PlanCatalog.amount(plan, period),
-                 per: plan == .free ? nil : (period == .monthly ? "a month" : "a year"),
-                 note: PlanCatalog.note(plan, period),
-                 lead: PlanCatalog.lead(plan),
-                 bullets: PlanCatalog.bullets(plan),
-                 marker: Self.marker(plan, entitlement),
-                 button: Self.button(plan, entitlement, sold: license?.ref != nil))
+
+        // A trial has paid for nothing: it is offered Plus like Free is.
+        let paying = license != nil
+        let on = paying ? entitlement.plan : .free
+        if paying {
+            hero = Hero(plan: on, isYours: true, title: "You're on \(on.label)",
+                        lead: PlanCatalog.lead(on) ?? "", features: PlanCatalog.features(on),
+                        alsoYours: on == .pro ? PlanCatalog.features(.plus).map(\.line) : [],
+                        offer: nil)
+        } else {
+            hero = Hero(plan: .plus, isYours: false, title: Self.plusHeadline,
+                        lead: PlanCatalog.lead(.plus) ?? "", features: PlanCatalog.features(.plus),
+                        alsoYours: [],
+                        offer: Offer(amount: PlanCatalog.amount(.plus, period), per: PlanCatalog.per(period),
+                                     note: "\(PlanCatalog.note(.plus, period)) · \(PlanCatalog.monthlyNotes.lowercased())",
+                                     button: .get(.plus)))
+        }
+
+        // Pro has nothing above it, and a sold subscription whose payment
+        // failed is asked to fix that first, not to pay for more.
+        if on == .pro || (current.needsAttention && license?.ref != nil) {
+            line = nil
+            plansHeading = nil
+        } else {
+            // Going up from a plan the shop sold happens on its page; a key
+            // issued by hand has none, so it is a checkout like anyone's.
+            let button: Button = on == .plus && license?.ref != nil ? .change(to: .pro) : .get(.pro)
+            line = Line(plan: .pro,
+                        sentence: on == .plus ? Self.proOverPlus : Self.proOverFree,
+                        amount: PlanCatalog.amount(.pro, period), per: PlanCatalog.per(period),
+                        note: PlanCatalog.shortNote(.pro, period), button: button)
+            plansHeading = on == .plus ? "Want even better notes?" : "Plans"
+        }
+
+        if let license, !current.needsAttention {
+            let steps = Self.stepsDown(from: on, license, now: now, locale: locale, timeZone: timeZone)
+            stepsDown = steps
+            stepsDownHeading = license.ref != nil ? "Change or cancel" : "Other plans"
+            stepsDownNote = license.ref == nil ? nil
+                : (steps.count > 1 ? "Both open" : "Opens") + " your subscription page in your browser. "
+                    + "Nothing you made is ever deleted."
+        } else {
+            stepsDown = []
+            stepsDownHeading = nil
+            stepsDownNote = nil
         }
     }
+
+    /// Pro steps down to Plus on the subscription page, and either plan to
+    /// Free by cancelling there. A key issued by hand has neither, so its way
+    /// down is taking the key off this Mac, and it has no Plus to change to.
+    private static func stepsDown(from on: AirlockPlan, _ license: License, now: Date,
+                                  locale: Locale, timeZone: TimeZone) -> [StepDown] {
+        guard license.ref != nil else {
+            return [StepDown(plan: .free, sentence: removeKeySentence, button: .removeKey)]
+        }
+        var steps: [StepDown] = []
+        if on == .pro {
+            steps.append(StepDown(plan: .plus,
+                                  sentence: "Everything you have, except the best model and the extra "
+                                      + "online notes. \(PlanCatalog.price(.plus, license.period)).",
+                                  button: .change(to: .plus)))
+        }
+        // In grace the renewal day has passed and the next one isn't known
+        // yet: no date in the past.
+        let withYear = license.renewsAt.timeIntervalSince(now) > 300 * 86_400
+        let until = license.renewsAt > now
+            ? "until \(date(license.renewsAt, withYear: withYear, locale: locale, timeZone: timeZone))"
+            : "to the end of what you paid for"
+        steps.append(StepDown(plan: .free, sentence: "You keep \(on.label) \(until), then you're on Free.",
+                              button: .cancel))
+        return steps
+    }
+
+    static let removeKeySentence = "Takes your key off this Mac. Nothing you made is deleted, "
+        + "and you can paste the key back any time."
+
+    static let plusHeadline = "The whole call, written down"
+    static let proOverFree = "Everything in Plus, with notes by the best model we've tested and twice as many online notes."
+    static let proOverPlus = "Everything you have now, with notes by the best model we've tested and twice as many online notes."
 
     // MARK: - Your plan
 
@@ -120,46 +259,48 @@ public struct PlansPage: Equatable, Sendable {
                                 locale: Locale, timeZone: TimeZone) -> Current {
         switch entitlement {
         case .free:
-            return Current(plan: .free, title: AirlockPlan.free.label,
-                           summary: freeSummary, manages: false, needsAttention: false)
+            return Current(plan: .free, title: AirlockPlan.free.label, summary: freeSummary,
+                           price: nil, note: nil, manages: false, needsAttention: false)
         case .trialing(let days):
             let left = days == 1 ? "1 day" : "\(days) days"
-            return Current(plan: .plus, title: "Plus trial",
-                           summary: "\(left) left, then Free. No card needed.",
-                           manages: false, needsAttention: false)
+            return Current(plan: .plus, title: "Plus trial", summary: "\(left) left, then Free. No card needed.",
+                           price: nil, note: nil, manages: false, needsAttention: false)
         case .licensed(let license), .grace(let license):
-            return Current(plan: AirlockPlan(license.plan), title: license.plan.label,
-                           summary: paidSummary(license, now: now, locale: locale, timeZone: timeZone),
-                           manages: license.ref != nil, needsAttention: false)
+            let plan = AirlockPlan(license.plan)
+            guard license.ref != nil else {
+                // Issued by hand: no price, never renews, nothing to manage.
+                let until = date(license.checkBy, withYear: true, locale: locale, timeZone: timeZone)
+                return Current(plan: plan, title: license.plan.label, summary: "Your key lasts until \(until)",
+                               price: nil, note: nil, manages: false, needsAttention: false)
+            }
+            return Current(plan: plan, title: license.plan.label,
+                           summary: renewal(license, now: now, locale: locale, timeZone: timeZone),
+                           price: PlanCatalog.price(plan, license.period),
+                           note: plan == .pro ? "Change plan or card, or cancel, in your browser" : PlanCatalog.monthlyNotes,
+                           manages: true, needsAttention: false)
         case .overdue(let license):
             let summary = license.ref != nil
                 ? "The last payment didn't go through. Airlock keeps working while you update it."
                 : "This key has run out. Airlock keeps working; write to hello@useairlock.app for a new one."
-            return Current(plan: AirlockPlan(license.plan), title: license.plan.label,
-                           summary: summary, manages: license.ref != nil, needsAttention: true)
+            return Current(plan: AirlockPlan(license.plan), title: license.plan.label, summary: summary,
+                           price: nil, note: nil, manages: license.ref != nil, needsAttention: true)
         }
     }
 
     /// What Free keeps, from the table that enforces it.
     static var freeSummary: String {
         let minutes = Int(PlanLimits.freeNotesListen / 60)
-        return "Clipboard keeps \(PlanLimits.freeClipboard) · one agent at a time on the notch · "
-            + "call notes for the first \(minutes) minutes, written on your Mac"
+        return "clipboard keeps \(PlanLimits.freeClipboard), one coding agent at a time, "
+            + "notes for the first \(minutes) minutes of a call."
     }
 
-    /// "€3.99 a month · renews on 15 November". A key issued by hand has no
-    /// price and never renews, so it says how long it lasts.
-    private static func paidSummary(_ license: License, now: Date, locale: Locale,
-                                    timeZone: TimeZone) -> String {
-        guard license.ref != nil else {
-            return "Your key lasts until \(date(license.checkBy, withYear: true, locale: locale, timeZone: timeZone))"
-        }
-        let price = PlanCatalog.price(AirlockPlan(license.plan), license.period)
+    /// "renews on 15 November".
+    private static func renewal(_ license: License, now: Date, locale: Locale, timeZone: TimeZone) -> String {
         // In grace the day has passed and the renewal is being fetched; a
         // date in the past beside "renews" reads like a mistake.
-        guard license.renewsAt > now else { return "\(price) · renewing now" }
+        guard license.renewsAt > now else { return "renewing now" }
         let withYear = license.renewsAt.timeIntervalSince(now) > 300 * 86_400
-        return "\(price) · renews on \(date(license.renewsAt, withYear: withYear, locale: locale, timeZone: timeZone))"
+        return "renews on \(date(license.renewsAt, withYear: withYear, locale: locale, timeZone: timeZone))"
     }
 
     private static func date(_ date: Date, withYear: Bool, locale: Locale, timeZone: TimeZone) -> String {
@@ -169,26 +310,6 @@ public struct PlansPage: Equatable, Sendable {
         formatter.timeZone = timeZone
         formatter.setLocalizedDateFormatFromTemplate("dMMMMy")
         return formatter.string(from: date)
-    }
-
-    // MARK: - The three cards
-
-    private static func marker(_ plan: AirlockPlan, _ entitlement: Entitlement) -> Card.Marker? {
-        if case .trialing = entitlement { return plan == .plus ? .trial : nil }
-        return plan == entitlement.plan ? .yours : nil
-    }
-
-    /// `sold` is whether the licence in force came from the shop, so it has
-    /// a subscription page to change plan on.
-    private static func button(_ plan: AirlockPlan, _ entitlement: Entitlement, sold: Bool) -> Button {
-        // A trial has paid for nothing: both plans are still to get.
-        if case .trialing = entitlement {
-            return plan == .free ? .included(in: .plus) : .get(plan)
-        }
-        let on = entitlement.plan
-        if plan == on { return .yours }
-        if plan.rank < on.rank { return .included(in: on) }
-        return sold ? .change(to: plan) : .get(plan)
     }
 }
 

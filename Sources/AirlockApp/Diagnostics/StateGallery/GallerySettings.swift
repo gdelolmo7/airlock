@@ -74,6 +74,16 @@ enum GallerySettings {
                     why: "The page needs a dozen widget models whose switches read the real preferences."),
             .notYet("X13", area, "The notch: calendars",
                     why: "The page needs a dozen widget models whose switches read the real preferences."),
+            GalleryState("X13a", area, "The notch: title line, Learn more offers five pages", ground: .window,
+                         width: paneWidth) {
+                // The page itself can't be drawn yet (above), so its header
+                // alone, with the same words and pages.
+                LookColumn {
+                    LookPageHeader(title: SettingsPane.appearance.title, subtitle: "What it shows, and how it looks.",
+                                   learnMore: SettingsPane.appearance.learnMore)
+                        .padding(.horizontal, 4)
+                }
+            },
             .notYet("X14", area, "Voice: keys clash / microphone missing",
                     why: "The Voice page re-checks the hold key's event tap on appear, which can raise the Input Monitoring prompt."),
             GalleryState("X15", area, "Voice: the six rows", ground: .window, width: paneWidth) {

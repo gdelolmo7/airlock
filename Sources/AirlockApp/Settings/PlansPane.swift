@@ -2,16 +2,20 @@ import AirlockCore
 import AppKit
 import SwiftUI
 
-/// Settings › Plans: the plan this Mac is on, the three side by side with
-/// their prices, and the key.
+/// Settings › Plans: one offer at a time. Somebody not paying reads what
+/// they're on in a sentence, then Plus as the big card with its price and
+/// Pro as one line under it. Somebody paying finds their own plan as the big
+/// card, with "Manage subscription", and the plan above it as the line.
 ///
 /// What it says comes from `PlansPage` (Core, pure and tested), and every
 /// price and link from `PlanCatalog`; this only lays it out. Like the
 /// Licence page before it, it never scolds: a payment that didn't go
 /// through is an amber line, and the worst any state reaches is Free.
 ///
-/// **Somebody already paying never gets a second checkout.** Their other
-/// plan's button opens the shop's subscription page (`PlansPage.Button`).
+/// **Somebody already paying never gets a second checkout.** Going up opens
+/// the shop's subscription page (`PlansPage.Button`), and so does going
+/// down, listed under "Change or cancel" rather than left to be found behind
+/// "Manage subscription".
 struct PlansPane: View {
     @Environment(LicenseModel.self) private var license
     /// Optional so the state gallery can draw the page without the window.
@@ -23,13 +27,18 @@ struct PlansPane: View {
     /// "Enter a key" pressed: the field shows in place of the row.
     @State private var enteringKey: Bool
     @State private var moreOptions: Bool
+    /// "Switch to Free" pressed on a key issued by hand: asked in place,
+    /// under the row, before the key comes off.
+    @State private var goingFree: Bool
 
     /// The arguments are the state gallery's, to draw a moment that takes
     /// clicks to reach.
-    init(confirmingRemove: Bool = false, enteringKey: Bool = false, moreOptions: Bool = false) {
+    init(confirmingRemove: Bool = false, enteringKey: Bool = false, moreOptions: Bool = false,
+         goingFree: Bool = false) {
         _confirmingRemove = State(initialValue: confirmingRemove)
         _enteringKey = State(initialValue: enteringKey)
         _moreOptions = State(initialValue: moreOptions)
+        _goingFree = State(initialValue: goingFree)
     }
 
     static let subtitle = "What you are on, and what Plus and Pro add. Nothing you made is ever removed."
@@ -40,25 +49,39 @@ struct PlansPane: View {
                              period: license.plansPeriod, canAskServer: license.hasServer)
         return LookPage("Plans", subtitle: Self.subtitle, moreOptions: $moreOptions) {
             LookGroupLabel("Your plan")
-            YourPlanCard(current: page.current)
-
-            HStack(alignment: .center) {
-                LookGroupLabel("Plans")
-                PeriodSwitch(period: $license.plansPeriod)
-            }
-            .padding(.top, 6)
-            HStack(alignment: .top, spacing: 8) {
-                ForEach(page.cards, id: \.plan) { card in
-                    PlanCardView(card: card) { press(card.button) }
+            VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
+                if page.hero.isYours {
+                    PlanHero(hero: page.hero, current: page.current, press: press)
+                } else {
+                    CurrentPlanRow(current: page.current)
+                }
+                if let heading = page.plansHeading {
+                    HStack(alignment: .center) {
+                        LookGroupLabel(heading)
+                        PeriodSwitch(period: $license.plansPeriod)
+                    }
+                    .padding(.top, 6)
+                }
+                if !page.hero.isYours {
+                    PlanHero(hero: page.hero, current: page.current, press: press)
+                }
+                if let line = page.line {
+                    PlanLine(line: line) { press(line.button) }
+                        .padding(.top, 2)
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
             .settingsAnchor(.plans)
-            underTheCards
+            underTheCards(aside: page.line.map { $0.button.note ?? "Paying opens in your browser." })
+            if let heading = page.stepsDownHeading, !page.stepsDown.isEmpty {
+                stepsDown(page, heading: heading)
+            }
 
-            LookGroupLabel("Key and billing")
-                .padding(.top, 6)
-            keyRows
+            // A key issued by hand already has its way off: "Switch to Free".
+            if !page.stepsDown.contains(where: { $0.button == .removeKey }) {
+                LookGroupLabel("Key and billing")
+                    .padding(.top, 6)
+                keyRows
+            }
             if let problem = license.activationError ?? license.rejection.map(Self.message(for:)) {
                 ProblemCard(sentence: problem)
             }
@@ -90,12 +113,12 @@ struct PlansPane: View {
 
     private func press(_ button: PlansPage.Button) {
         switch button {
-        case .yours, .included:
-            return
         case .get(let plan):
             buy(plan, license.plansPeriod)
-        case .change:
+        case .change, .cancel:
             NSWorkspace.shared.open(PlanCatalog.manageURL)
+        case .removeKey:
+            goingFree = true
         }
     }
 
@@ -113,15 +136,17 @@ struct PlansPane: View {
 
     // MARK: - Under the cards
 
-    /// "See what each plan writes" and where paying happens, or, once a
-    /// checkout has started, how it is going.
+    /// "See what each plan writes" and, when the page offers a plan, where
+    /// paying or changing plan happens; or, once a checkout has started, how
+    /// it is going.
     @ViewBuilder
-    private var underTheCards: some View {
+    private func underTheCards(aside: String?) -> some View {
         switch license.purchase.stage {
         case .idle:
             HStack(alignment: .firstTextBaseline) {
                 Button {
-                    NotesComparisonWindowController.shared.show(showPlans: { [license] in license.showPlans(from: "comparison") })
+                    NotesComparisonWindowController.shared.show(plan: license.entitlement.plan,
+                                                                showPlans: { [license] in license.showPlans(from: "comparison") })
                 } label: {
                     HStack(spacing: 3) {
                         Text("See what each plan writes")
@@ -135,9 +160,12 @@ struct PlansPane: View {
                 .buttonStyle(.plain)
                 .clickable()
                 Spacer(minLength: 8)
-                Text("Paying opens in your browser.")
-                    .font(Theme.chrome(11))
-                    .foregroundStyle(Theme.textTertiary)
+                if let aside {
+                    Text(aside)
+                        .font(Theme.chrome(11))
+                        .foregroundStyle(Theme.textTertiary)
+                        .multilineTextAlignment(.trailing)
+                }
             }
             .padding(.horizontal, 4)
             .padding(.top, 2)
@@ -198,6 +226,59 @@ struct PlansPane: View {
                 VStack(alignment: .leading, spacing: 8) { row }
             }
         }
+        .lookRowBox()
+    }
+
+    // MARK: - Change or cancel
+
+    /// The plans below theirs, each with what choosing it does: Plus and
+    /// cancelling on the subscription page, or, for a key issued by hand,
+    /// taking the key off.
+    private func stepsDown(_ page: PlansPage, heading: String) -> some View {
+        VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
+            LookGroupLabel(heading)
+                .padding(.top, 6)
+            ForEach(page.stepsDown, id: \.plan) { step in
+                if step.button == .removeKey {
+                    // Where "Licence key" in Settings search lands for this key.
+                    StepDownRow(step: step) { press(step.button) }
+                        .disabled(goingFree)
+                        .settingsAnchor(.licenceKey)
+                    if goingFree { goingFreeQuestion(from: page.current.plan) }
+                } else {
+                    StepDownRow(step: step) { press(step.button) }
+                }
+            }
+            if let note = page.stepsDownNote {
+                Text(note)
+                    .font(Theme.chrome(11))
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    /// Free for a key issued by hand: the key comes off this Mac, asked
+    /// first, like Remove.
+    private func goingFreeQuestion(from plan: AirlockPlan) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Take your key off this Mac and use Free? Nothing you made is deleted, "
+                 + "and you can paste the key back any time.")
+                .font(Theme.chrome(12))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                LookButton("Switch to Free") {
+                    goingFree = false
+                    license.removeLicense()
+                    draft = ""
+                }
+                LookButton("Keep \(plan.label)", prominent: true) { goingFree = false }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .lookRowBox()
     }
 
@@ -385,81 +466,33 @@ struct PlansPane: View {
 
 // MARK: - Your plan
 
-/// The plan this Mac is on, at the top: its tile, name and tag, one line,
-/// and "Manage subscription" for a key the shop sold.
-private struct YourPlanCard: View {
+/// Somebody not paying: what they're on, in one sentence over the offer.
+private struct CurrentPlanRow: View {
     let current: PlansPage.Current
 
     var body: some View {
-        let tint = current.needsAttention ? Theme.needs : PlanTag.tint(current.plan)
-        HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(tint.opacity(current.plan == .free && !current.needsAttention ? 0.12 : 0.18))
-                .frame(width: 34, height: 34)
-                .overlay {
-                    Image(systemName: symbol)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(current.plan == .free && !current.needsAttention
-                                         ? Theme.textSecondary : tint)
-                }
+        HStack(alignment: .center, spacing: 10) {
+            // An old trial is the one state titled other than its plan
+            // ("Plus trial"), and it is counting down.
+            Image(systemName: current.title == current.plan.label ? "checkmark.seal.fill" : "clock")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 18)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
-                    Text(current.title)
-                        .font(Theme.chrome(14, .semibold))
-                        .foregroundStyle(Theme.textPrimary)
-                    PlanTag(current.plan)
-                }
-                Text(current.summary)
-                    .font(Theme.chrome(11))
-                    .foregroundStyle(current.needsAttention ? Theme.needs : Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 8)
-            if current.manages {
-                Button {
-                    NSWorkspace.shared.open(PlanCatalog.manageURL)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("Manage subscription")
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 9, weight: .bold))
-                    }
-                    .font(Theme.chrome(11.5, .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .clickable()
-                .fixedSize()
-                .help("Opens your subscription page in the shop: change plan, change card or cancel.")
-            }
+            Text(sentence)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: SettingsLook.rowRadius, style: .continuous)
-            .fill(SettingsLook.rowFill))
-        .overlay(RoundedRectangle(cornerRadius: SettingsLook.rowRadius, style: .continuous)
-            .strokeBorder(current.needsAttention ? Theme.needs.opacity(0.45) : SettingsLook.rowStroke,
-                          lineWidth: 1))
-        .accessibilityElement(children: .contain)
+        .lookRowBox()
     }
 
-    private var symbol: String {
-        if current.needsAttention { return "exclamationmark.circle.fill" }
-        // An old trial is the one state titled other than its plan
-        // ("Plus trial"), and it is counting down.
-        if current.title != current.plan.label { return "clock" }
-        switch current.plan {
-        case .free: return "checkmark.seal.fill"
-        case .plus: return "star.fill"
-        case .pro: return "crown.fill"
-        }
+    /// The plan's name in bold and bright, the rest quiet.
+    private var sentence: AttributedString {
+        var text = (try? AttributedString(markdown: current.sentence)) ?? AttributedString(current.sentence)
+        let names = text.runs.filter { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true }
+        for run in names { text[run.range].foregroundColor = Theme.textPrimary }
+        return text
     }
 }
 
@@ -504,128 +537,394 @@ private struct PeriodSwitch: View {
     }
 }
 
-// MARK: - One plan
+// MARK: - The big card
 
-private struct PlanCardView: View {
-    let card: PlansPage.Card
-    let action: () -> Void
+/// Plus on offer, or the plan somebody pays for. One look for both, so the
+/// card somebody bought is the card they find afterwards.
+private struct PlanHero: View {
+    let hero: PlansPage.Hero
+    let current: PlansPage.Current
+    let press: (PlansPage.Button) -> Void
 
     var body: some View {
-        let tint = PlanTag.tint(card.plan)
-        let paid = card.plan != .free
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let tint = PlanTag.tint(hero.plan)
+        // Gold is the brighter colour; a touch less of it reads the same.
+        let gold = hero.plan == .pro
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Text(card.plan.label)
-                    .font(Theme.chrome(13, .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                if paid { PlanTag(card.plan) }
-                Spacer(minLength: 2)
-                if let marker = card.marker {
-                    Text(marker == .yours ? "YOURS" : "TRIAL")
-                        .font(Theme.label)
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize()
-                }
+            PlanTag(hero.plan)
+            Text(hero.title)
+                .font(Theme.chrome(17, .bold))
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.top, 7)
+            Text(hero.lead)
+                .font(Theme.chrome(11.5))
+                .foregroundStyle(Theme.textSecondary)
+                .padding(.top, 2)
+            TwoColumns(hero.features) { feature in
+                FeatureTile(feature: feature, tint: tint, ink: PlanTag.text(hero.plan))
             }
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(card.amount)
-                    .font(Theme.chrome(19, .bold))
-                    .foregroundStyle(Theme.textPrimary)
-                if let per = card.per {
-                    Text(per)
-                        .font(Theme.chrome(11))
-                        .foregroundStyle(Theme.textSecondary)
+            .padding(.top, 14)
+            if !hero.alsoYours.isEmpty {
+                alsoYours(tint)
+            }
+            Rectangle()
+                .fill(tint.opacity(0.20))
+                .frame(height: 1)
+                .padding(.top, 16)
+            foot
+                .padding(.top, 13)
+        }
+        .padding(.top, 16)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(shape.fill(RadialGradient(colors: [tint.opacity(gold ? 0.16 : 0.20),
+                                                       tint.opacity(gold ? 0.03 : 0.04)],
+                                              center: .topLeading, startRadius: 0, endRadius: 380)))
+        .overlay(shape.strokeBorder(tint.opacity(gold ? 0.40 : 0.42), lineWidth: 1))
+        .accessibilityElement(children: .contain)
+    }
+
+    /// Pro's card: what came with Plus, as a quieter list under its own two.
+    private func alsoYours(_ tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle()
+                .fill(tint.opacity(0.14))
+                .frame(height: 1)
+            Text("Also yours, from Plus".uppercased())
+                .font(Theme.label)
+                .foregroundStyle(Theme.textTertiary)
+                .padding(.top, 12)
+            TwoColumns(hero.alsoYours, spacing: 8) { line in
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(tint)
+                        .accessibilityHidden(true)
+                    Text(line)
+                        .font(Theme.chrome(11.5))
+                        .foregroundStyle(Theme.textPrimary.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.top, 8)
-            Text(card.note)
-                .font(Theme.chrome(11))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let lead = card.lead {
-                Text(lead)
-                    .font(Theme.chrome(11))
-                    .foregroundStyle(Theme.textSecondary)
-                    .padding(.top, 12)
-            }
-            VStack(alignment: .leading, spacing: 7) {
-                ForEach(card.bullets, id: \.self) { bullet in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(paid ? tint : Theme.textSecondary)
-                            .accessibilityHidden(true)
-                        Text(bullet)
-                            .font(Theme.chrome(11.5))
+        }
+        .padding(.top, 16)
+    }
+
+    /// On offer: the price and the button. Theirs: what it costs and when it
+    /// renews, or how long the key lasts, or what went wrong.
+    @ViewBuilder
+    private var foot: some View {
+        if let offer = hero.offer {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(offer.amount)
+                            .font(Theme.chrome(19, .bold))
                             .foregroundStyle(Theme.textPrimary)
+                        Text(offer.per)
+                            .font(Theme.chrome(11.5))
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    Text(offer.note)
+                        .font(Theme.chrome(10.5))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                OfferButton(button: offer.button, plan: hero.plan, width: 120, tall: true) {
+                    press(offer.button)
+                }
+            }
+        } else {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    status
+                    if let note = current.note {
+                        Text(note)
+                            .font(Theme.chrome(10.5))
+                            .foregroundStyle(Theme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-            }
-            .padding(.top, card.lead == nil ? 12 : 7)
-            Spacer(minLength: 14)
-            PlanButton(button: card.button, plan: card.plan, action: action)
-            if let note = card.button.note {
-                Text(note)
-                    .font(Theme.chrome(10))
-                    .foregroundStyle(Theme.textTertiary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if current.manages { ManageButton() }
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(shape.fill(paid
-            ? AnyShapeStyle(LinearGradient(colors: [tint.opacity(0.10), tint.opacity(0.02)],
-                                           startPoint: .top, endPoint: .bottom))
-            : AnyShapeStyle(SettingsLook.rowFill)))
-        .overlay(shape.strokeBorder(paid ? tint.opacity(0.45) : SettingsLook.rowStroke, lineWidth: 1))
+    }
+
+    /// "€3.99 a month · renews on 15 November". A payment that didn't go
+    /// through is said in amber, and never as a lock.
+    @ViewBuilder
+    private var status: some View {
+        if current.needsAttention {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(current.summary)
+                    .font(Theme.chrome(11.5))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(Theme.needs)
+        } else if let price = current.price {
+            let amount = Text(price).font(Theme.chrome(15, .bold)).foregroundStyle(Theme.textPrimary)
+            let when = Text(" · \(current.summary)").font(Theme.chrome(11.5)).foregroundStyle(Theme.textSecondary)
+            Text("\(amount)\(when)")
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text(current.summary)
+                .font(Theme.chrome(12, .medium))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Items two to a row, each column half the width.
+private struct TwoColumns<Item, Cell: View>: View {
+    let items: [Item]
+    var spacing: CGFloat = 12
+    @ViewBuilder let cell: (Item) -> Cell
+
+    init(_ items: [Item], spacing: CGFloat = 12, @ViewBuilder cell: @escaping (Item) -> Cell) {
+        self.items = items
+        self.spacing = spacing
+        self.cell = cell
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(stride(from: 0, to: items.count, by: 2)), id: \.self) { index in
+                HStack(alignment: .top, spacing: 16) {
+                    cell(items[index])
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    Group {
+                        if index + 1 < items.count { cell(items[index + 1]) } else { Color.clear }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            }
+        }
+    }
+}
+
+/// One thing a plan adds: its symbol on a tile, a name, and a line.
+private struct FeatureTile: View {
+    let feature: PlanCatalog.Feature
+    let tint: Color
+    let ink: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(tint.opacity(0.14))
+                .frame(width: 28, height: 28)
+                .overlay {
+                    Image(systemName: feature.symbol)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ink)
+                }
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(feature.title)
+                    .font(Theme.chrome(12, .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(feature.detail)
+                    .font(Theme.chrome(11))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// "Manage subscription", to the shop's page, for a key the shop sold.
+private struct ManageButton: View {
+    var body: some View {
+        Button {
+            NSWorkspace.shared.open(PlanCatalog.manageURL)
+        } label: {
+            HStack(spacing: 4) {
+                Text("Manage subscription")
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .font(Theme.chrome(11.5, .semibold))
+            .foregroundStyle(Theme.textPrimary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .clickable()
+        .fixedSize()
+        .help("Opens your subscription page in the shop: change plan, change card or cancel.")
+    }
+}
+
+// MARK: - Change or cancel
+
+/// A plan below theirs: quieter than the offer above it, with what
+/// choosing it does in a sentence and a plain outlined button.
+private struct StepDownRow: View {
+    let step: PlansPage.StepDown
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(PlanTag.tint(step.plan).opacity(0.12))
+                .frame(width: 30, height: 30)
+                .overlay {
+                    Image(systemName: symbol)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PlanTag.text(step.plan))
+                }
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(step.plan.label)
+                        .font(Theme.chrome(13, .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                    if step.plan != .free { PlanTag(step.plan) }
+                }
+                Text(step.sentence)
+                    .font(Theme.chrome(11.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: action) {
+                HStack(spacing: 4) {
+                    Text(step.button.title)
+                    if step.button.opensBrowser {
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                }
+                .font(Theme.chrome(11.5, .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(hovered ? 0.07 : 0)))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .clickable()
+            .fixedSize()
+            .onHover { hovered = $0 }
+        }
+        .lookRowBox()
+        .accessibilityElement(children: .contain)
+    }
+
+    private var symbol: String {
+        switch step.button {
+        case .change: "arrow.down"
+        case .cancel: "calendar"
+        case .removeKey: "key"
+        case .get: "crown"
+        }
+    }
+}
+
+// MARK: - The line
+
+/// The plan above theirs, as one line under the big card.
+private struct PlanLine: View {
+    let line: PlansPage.Line
+    let action: () -> Void
+
+    var body: some View {
+        let tint = PlanTag.tint(line.plan)
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        HStack(alignment: .center, spacing: 12) {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(tint.opacity(0.13))
+                .frame(width: 30, height: 30)
+                .overlay {
+                    Image(systemName: "crown")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(line.plan.label)
+                        .font(Theme.chrome(13, .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                    PlanTag(line.plan)
+                }
+                Text(line.sentence)
+                    .font(Theme.chrome(11.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .trailing, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(line.amount)
+                        .font(Theme.chrome(16, .bold))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(line.per)
+                        .font(Theme.chrome(11))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Text(line.note)
+                    .font(Theme.chrome(10.5))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .fixedSize()
+            OfferButton(button: line.button, plan: line.plan, width: 112, tall: false, action: action)
+        }
+        .padding(.vertical, 11)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(shape.fill(LinearGradient(colors: [tint.opacity(0.07), tint.opacity(0.01)],
+                                              startPoint: .top, endPoint: .bottom)))
+        .overlay(shape.strokeBorder(tint.opacity(0.28), lineWidth: 1))
         .accessibilityElement(children: .contain)
     }
 }
 
-/// The card's button, full width. "Your plan" and "Included in Plus" are
-/// drawn like one and do nothing; Plus's own is the filled one, the
-/// suggestion; Pro's is outlined in its gold.
-private struct PlanButton: View {
+/// "Get Plus" filled in its blue, the suggestion; Pro's outlined in gold.
+private struct OfferButton: View {
     let button: PlansPage.Button
     let plan: AirlockPlan
+    let width: CGFloat
+    let tall: Bool
     let action: () -> Void
     @State private var hovered = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-        if button.acts {
-            Button(action: action) {
-                label
-                    .foregroundStyle(plan == .plus ? Color.white : PlanTag.tint(plan))
-                    .background(shape.fill(plan == .plus
-                        ? PlanTag.plus.opacity(hovered ? 1 : 0.9)
-                        : PlanTag.tint(plan).opacity(hovered ? 0.16 : 0.08)))
-                    .overlay(shape.strokeBorder(plan == .plus ? .clear : PlanTag.tint(plan).opacity(0.55),
-                                                lineWidth: 1))
-                    .contentShape(shape)
-            }
-            .buttonStyle(.plain)
-            .clickable()
-            .onHover { hovered = $0 }
-        } else {
-            label
-                .foregroundStyle(Theme.textSecondary)
-                .overlay(shape.strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
-                .accessibilityAddTraits(.isStaticText)
+        let filled = plan == .plus
+        Button(action: action) {
+            Text(button.title)
+                .font(Theme.chrome(tall ? 13 : 12.5, .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.vertical, tall ? 8 : 6)
+                .frame(width: width)
+                .foregroundStyle(filled ? Color.white : PlanTag.tint(plan))
+                .background(shape.fill(filled
+                    ? PlanTag.plus.opacity(hovered ? 1 : 0.9)
+                    : PlanTag.tint(plan).opacity(hovered ? 0.16 : 0.08)))
+                .overlay(shape.strokeBorder(filled ? .clear : PlanTag.tint(plan).opacity(0.55), lineWidth: 1))
+                .contentShape(shape)
         }
-    }
-
-    private var label: some View {
-        Text(button.title)
-            .font(Theme.chrome(12, .semibold))
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
+        .clickable()
+        .onHover { hovered = $0 }
     }
 }

@@ -108,6 +108,19 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The website's pages about what this page sets up, behind its "Learn
+    /// more" (`LookLearnMore`). Several make a menu. General, Permissions and
+    /// Plans have no page of their own on the site, so they show none.
+    var learnMore: [FeaturePage] {
+        switch self {
+        case .appearance: return [.mediaAndSound, .today, .thisMac, .dropShelf, .keepAwake]
+        case .voice: return [.dictation, .callNotes]
+        case .clipboard: return [.clipboardHistory]
+        case .agents: return [.codingAgents]
+        default: return []
+        }
+    }
+
     var symbol: String {
         switch self {
         case .general: return "gearshape"

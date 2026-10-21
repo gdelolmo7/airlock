@@ -10,9 +10,10 @@ final class MeetingNamingTests: XCTestCase {
     private func room(_ lines: [(Int?, String)] = [(1, "Morning, everyone, shall we start?"),
                                                     (2, "Hola, soy Laura y llevo el almacén desde marzo."),
                                                     (3, "I can send the figures by Friday."),
-                                                    (1, "Great, thanks.")]) -> MeetingRecord {
+                                                    (1, "Great, thanks.")],
+                      languages: [String] = []) -> MeetingRecord {
         var record = MeetingRecord(bundleID: OngoingCall.inPersonBundleID, appName: "In person",
-                                   startedAt: start, endedAt: start.addingTimeInterval(900))
+                                   startedAt: start, endedAt: start.addingTimeInterval(900), languages: languages)
         for (index, line) in lines.enumerated() {
             let at = TimeInterval(index * 20)
             record.add(MeetingSegment(speaker: .them, start: at, end: at + 5, text: line.1, person: line.0))
@@ -221,6 +222,82 @@ final class MeetingNamingTests: XCTestCase {
         XCTAssertTrue(named.contains("You runs the warehouse."))
         XCTAssertTrue(named.contains("Person 1 agreed with you."))
         XCTAssertTrue(named.contains("— You · 1:00"))
+    }
+
+    /// Notes written in Spanish about an in-person meeting.
+    private let spanishRoom = """
+    # Notes: reunión en persona
+
+    ## Summary
+
+    Santi y Persona 2 coordinarán la mudanza del almacén antes de fin de mes. Persona 2 lleva el \
+    inventario desde marzo. Persona 1 habló con Persona 2 de los precios del transporte y lo dejó \
+    todo para Persona 2, así que la decisión depende de Persona 2.
+
+    ## To-dos
+
+    - [ ] Enviar las cifras del inventario — Persona 2 · 0:40
+    - [ ] Llamar al proveedor de cajas — Persona 1, Persona 2 · 1:00
+
+    """
+
+    /// What the owner saw: "Santi y you coordinarán". In notes in another
+    /// language "That's me" is that language's word, in the form the words
+    /// before it ask for, and a to-do's owner is still "You", as the notes
+    /// write it.
+    func testThatsMeInNotesInAnotherLanguageIsThatLanguagesWord() {
+        var record = room([(1, "Buenos días a todos, ¿empezamos ya con la mudanza del almacén?"),
+                           (2, "Sí, yo llevo el inventario desde marzo y lo tengo casi todo contado."),
+                           (1, "Perfecto, gracias.")], languages: ["es_ES"])
+        record.name(2, as: nil, isYou: true)
+        XCTAssertEqual(MeetingNaming.apply(record, to: spanishRoom), """
+            # Notes: reunión en persona
+
+            ## Summary
+
+            Santi y tú coordinarán la mudanza del almacén antes de fin de mes. Tú lleva el \
+            inventario desde marzo. Persona 1 habló contigo de los precios del transporte y lo dejó \
+            todo para ti, así que la decisión depende de ti.
+
+            ## To-dos
+
+            - [ ] Enviar las cifras del inventario — You · 0:40
+            - [ ] Llamar al proveedor de cajas — Persona 1, You · 1:00
+
+            """)
+    }
+
+    /// The notes' language is read from the page itself: English notes keep
+    /// "you" whatever the call was heard in, and a page too short to say is
+    /// in the language the call was heard in.
+    func testTheWordForYouFollowsTheLanguageOfTheNotes() {
+        var spanishCall = room(languages: ["es_ES"])
+        spanishCall.name(2, as: nil, isYou: true)
+        let english = """
+            ## Summary
+
+            Person 2 runs the warehouse and has counted most of the stock since March. Person 1 talked \
+            prices with Person 2 and left the decision about the boxes to Person 2, who will call the \
+            supplier this week. Everyone agreed to meet again on Friday to look at the moving plan.
+            """
+        let named = MeetingNaming.apply(spanishCall, to: english)
+        XCTAssertTrue(named.contains("You runs the warehouse"))
+        XCTAssertTrue(named.contains("talked prices with you and left the decision about the boxes to you, who"))
+        XCTAssertEqual(MeetingNaming.apply(spanishCall, to: "Habló con Persona 2."), "Habló contigo.")
+
+        var german = room(languages: ["de_DE"])
+        german.name(2, as: nil, isYou: true)
+        XCTAssertEqual(MeetingNaming.apply(german, to: "Anna und Person 2 sprechen mit Person 2 über Person 2."),
+                       "Anna und du sprechen mit dir über dich.")
+
+        var french = room(languages: ["fr_FR"])
+        french.name(2, as: nil, isYou: true)
+        XCTAssertEqual(MeetingNaming.apply(french, to: "Person 2 parle avec Person 2."), "Tu parle avec toi.")
+
+        var unlisted = room(languages: ["nl_NL"])
+        unlisted.name(2, as: nil, isYou: true)
+        XCTAssertEqual(MeetingNaming.apply(unlisted, to: "Anna en Person 2 bellen."), "Anna en You bellen.",
+                       "a language without its word gets the label, never \"you\" mid-sentence")
     }
 
     /// "them" is a word as well as a label: the label, with its capital,

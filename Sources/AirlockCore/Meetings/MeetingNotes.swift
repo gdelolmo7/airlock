@@ -19,10 +19,69 @@ public struct MeetingNotes: Equatable, Sendable {
         public var sources: [Int]
         /// When the first of those turns started, in seconds from the start.
         public var at: TimeInterval?
+        /// For an open question: one short line on what it depends on or
+        /// why it matters. Nil when the writer gave none.
+        public var context: String?
 
-        public init(text: String, owner: String? = nil, sources: [Int] = [], at: TimeInterval? = nil) {
+        public init(text: String, owner: String? = nil, sources: [Int] = [], at: TimeInterval? = nil,
+                    context: String? = nil) {
             self.text = text
             self.owner = owner
+            self.sources = sources
+            self.at = at
+            self.context = context
+        }
+    }
+
+    /// One subject of the meeting, as notes written online follow it: a
+    /// title, one sentence on what came of it, and what was said.
+    public struct Topic: Equatable, Sendable {
+        public var title: String
+        /// One sentence on what was said or settled about it, or empty.
+        public var gist: String
+        public var points: [Point]
+        /// When it came up: its first point's time.
+        public var at: TimeInterval?
+
+        public init(title: String, gist: String = "", points: [Point], at: TimeInterval? = nil) {
+            self.title = title
+            self.gist = gist
+            self.points = points
+            self.at = at ?? points.compactMap(\.at).min()
+        }
+    }
+
+    /// One line of a topic, and whether the people agreed on it.
+    public struct Point: Equatable, Sendable {
+        public var text: String
+        /// Agreed in the meeting, not only said.
+        public var decided: Bool
+        public var sources: [Int]
+        public var at: TimeInterval?
+
+        public init(text: String, decided: Bool = false, sources: [Int] = [], at: TimeInterval? = nil) {
+            self.text = text
+            self.decided = decided
+            self.sources = sources
+            self.at = at
+        }
+    }
+
+    /// A word the transcript may have heard wrong: a name spelled more
+    /// than one way, or a figure that reads wrong for what was said. The
+    /// page asks the person, and "Use" puts `best` in place of every
+    /// `heard` in the notes and the transcript.
+    public struct Word: Equatable, Sendable {
+        /// What the notes use.
+        public var best: String
+        /// How the transcript has it, each one different from `best`.
+        public var heard: [String]
+        public var sources: [Int]
+        public var at: TimeInterval?
+
+        public init(best: String, heard: [String], sources: [Int] = [], at: TimeInterval? = nil) {
+            self.best = best
+            self.heard = heard
             self.sources = sources
             self.at = at
         }
@@ -82,6 +141,12 @@ public struct MeetingNotes: Equatable, Sendable {
     public var decisions: [Item]
     public var questions: [Item]
     public var keyPoints: [Item]
+    /// The meeting subject by subject, in the order they came up: notes
+    /// written online since they are asked for by topic. Empty otherwise.
+    public var topics: [Topic]
+    /// Words to check (`Word`): only ever from notes written by topic.
+    /// Not part of `isEmpty`: they are a question about the transcript.
+    public var words: [Word]
     /// Where the model wrote nothing, so the notes are not read as the
     /// whole call. Not part of `isEmpty`: it says what is missing, not what
     /// was said.
@@ -89,8 +154,15 @@ public struct MeetingNotes: Equatable, Sendable {
 
     public init(summary: String = "", todos: [Item] = [], decisions: [Item] = [],
                 questions: [Item] = [], keyPoints: [Item] = [], unwritten: [Stretch] = [],
-                title: String? = nil) {
+                title: String? = nil, topics: [Topic] = [], words: [Word] = []) {
         self.title = Self.title(title)
+        self.topics = Self.tidy(topics)
+        self.words = words.compactMap { word in
+            var word = word
+            word.best = MeetingText.clean(word.best)
+            word.heard = word.heard.map(MeetingText.clean).filter { !$0.isEmpty }
+            return word.best.isEmpty || word.heard.isEmpty ? nil : word
+        }
         self.summary = MeetingText.clean(summary)
         self.unwritten = Stretch.merged(unwritten)
         self.todos = Self.tidy(todos)
@@ -107,6 +179,7 @@ public struct MeetingNotes: Equatable, Sendable {
 
     public var isEmpty: Bool {
         summary.isEmpty && todos.isEmpty && decisions.isEmpty && questions.isEmpty && keyPoints.isEmpty
+            && topics.isEmpty
     }
 
     /// Characters a title has at most: it is a name, and a folder's
@@ -164,6 +237,7 @@ public struct MeetingNotes: Equatable, Sendable {
             var item = item
             item.text = MeetingText.clean(item.text)
             item.owner = item.owner.map(MeetingText.clean).flatMap { $0.isEmpty ? nil : $0 }
+            item.context = item.context.map(MeetingText.line).flatMap { $0.isEmpty ? nil : $0 }
             guard !item.text.isEmpty else { continue }
             let key = MeetingText.key(item.text)
             if let at = index[key] {
@@ -174,6 +248,25 @@ public struct MeetingNotes: Equatable, Sendable {
             kept.append(item)
         }
         return kept
+    }
+
+    /// Topics with their lines cleaned: a point said twice in one topic
+    /// kept once, a topic with no point or no title left out. Its time is
+    /// its first point's, of the points kept.
+    private static func tidy(_ topics: [Topic]) -> [Topic] {
+        topics.compactMap { topic in
+            var seen = Set<String>()
+            let points = topic.points.compactMap { point -> Point? in
+                var point = point
+                point.text = MeetingText.line(point.text)
+                guard !point.text.isEmpty, seen.insert(MeetingText.key(point.text)).inserted else { return nil }
+                return point
+            }
+            let title = MeetingText.line(topic.title)
+            guard !title.isEmpty, !points.isEmpty else { return nil }
+            return Topic(title: title, gist: MeetingText.clean(topic.gist), points: points,
+                         at: points.compactMap(\.at).min() ?? topic.at)
+        }
     }
 }
 
@@ -412,8 +505,10 @@ extension MeetingFiles {
                 + record.jots.map { "- \(MeetingText.oneLine($0.text)) · \(clock($0.at))" } + [""]
         }
         if let notes {
+            lines += wordsSection(notes.words)
             lines += section(todosHeading, notes.todos, box: true)
             lines += section(decisionsHeading, notes.decisions)
+            lines += topicsSection(notes.topics)
             lines += section(questionsHeading, notes.questions)
             lines += section(keyPointsHeading, notes.keyPoints)
         }
@@ -436,7 +531,8 @@ extension MeetingFiles {
     /// Whether a notes page has notes on it: any of the headings the notes
     /// are written under. "Your notes" alone is the person's, not notes.
     public static func hasNotes(_ page: String) -> Bool {
-        let headings = [summaryHeading, todosHeading, decisionsHeading, questionsHeading, keyPointsHeading]
+        let headings = [summaryHeading, todosHeading, decisionsHeading, questionsHeading, keyPointsHeading,
+                        topicsHeading, wordsHeading]
         return MeetingPage.blocks(of: page).contains { block in
             if case .heading(let text, level: 2) = block { return headings.contains(text) }
             return false
@@ -603,17 +699,59 @@ extension MeetingFiles {
 
     /// "- [ ] Send the budget by Friday — Ana · 2:15". The owner and the time
     /// are what `MeetingPage` reads back, so a dash in the text itself is
-    /// softened to an en dash and cannot be mistaken for the owner's.
+    /// softened to an en dash and cannot be mistaken for the owner's. An
+    /// open question's context follows it the same way, in italics:
+    /// "- ¿Qué precio? — _Depends on the supplier_ · 4:05".
     private static func section(_ name: String, _ items: [MeetingNotes.Item], box: Bool = false) -> [String] {
         guard !items.isEmpty else { return [] }
         let list = items.map { item -> String in
-            var line = "- " + (box ? "[ ] " : "")
-                + MeetingText.clean(item.text).replacingOccurrences(of: " — ", with: " – ")
+            var line = "- " + (box ? "[ ] " : "") + soft(MeetingText.clean(item.text))
             if let owner = item.owner { line += " — \(owner)" }
+            if let context = item.context { line += " — _\(soft(context))_" }
             if let at = item.at { line += " · \(clock(at))" }
             return line
         }
         return ["## \(name)", ""] + list + [""]
+    }
+
+    /// "- **Mapa** — heard as “napa”, “mapá” · 2:15": what the notes took a
+    /// word to be, and how the transcript has it (`MeetingPage.word`).
+    private static func wordsSection(_ words: [MeetingNotes.Word]) -> [String] {
+        guard !words.isEmpty else { return [] }
+        let list = words.map { word -> String in
+            var line = "- **\(soft(word.best))** — \(MeetingPage.heardAs) "
+                + word.heard.map { "“\(soft($0))”" }.joined(separator: ", ")
+            if let at = word.at { line += " · \(clock(at))" }
+            return line
+        }
+        return ["## \(wordsHeading)", ""] + list + [""]
+    }
+
+    /// "## Topics", then for each "### 1. Price and plans · 4:05", its gist
+    /// and its points: "- **Price:** 40 € a month · 4:10", with "✓ " before
+    /// one that was decided (`MeetingPage.topic`, `MeetingPage.point`).
+    private static func topicsSection(_ topics: [MeetingNotes.Topic]) -> [String] {
+        guard !topics.isEmpty else { return [] }
+        var lines = ["## \(topicsHeading)", ""]
+        for (index, topic) in topics.enumerated() {
+            var heading = "### \(index + 1). \(soft(topic.title))"
+            if let at = topic.at { heading += " · \(clock(at))" }
+            lines += [heading, ""]
+            if !topic.gist.isEmpty { lines += [soft(topic.gist), ""] }
+            lines += topic.points.map { point in
+                var line = "- " + (point.decided ? MeetingPage.decidedMark : "") + MeetingPage.bolded(soft(point.text))
+                if let at = point.at { line += " · \(clock(at))" }
+                return line
+            }
+            lines.append("")
+        }
+        return lines
+    }
+
+    /// A dash in the notes' own words, softened so it can't be read as the
+    /// one before an owner or a context.
+    private static func soft(_ text: String) -> String {
+        text.replacingOccurrences(of: " — ", with: " – ")
     }
 }
 

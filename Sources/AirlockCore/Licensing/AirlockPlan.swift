@@ -198,12 +198,26 @@ public struct PlanSnapshot: Codable, Equatable, Sendable {
 }
 
 /// What first-run setup says about money, in both wizards: there is no trial
-/// to start, and what Plus adds. Only what `PlanLimits` enforces is named, for
-/// the reason the Free card's rows come from that table.
+/// to start, what Free keeps and what Plus adds. Only what `PlanLimits`
+/// enforces is named, with its own numbers, for the reason the Free card's
+/// rows come from that table: somebody who meets a limit a week in should
+/// remember having read it here, not feel caught out.
 public enum PlanSetupNote {
     public static let title = "Airlock is free"
     public static var detail: String {
-        "No trial and no card. Plus writes your call notes online, on any Mac, from "
-            + "\(License.Period.monthly.price). See Settings › Plans whenever you like."
+        "No trial and no card. \(free) \(plus) See Settings › Plans whenever you like."
+    }
+
+    /// Free's three limits, in the order the Free card lists them.
+    static var free: String {
+        "On Free, the clipboard shows your last \(PlanLimits.freeClipboard) copies, the notch "
+            + "answers one coding agent at a time, and call notes cover the first "
+            + "\(Int(PlanLimits.freeNotesListen / 60)) minutes of each call."
+    }
+
+    /// What Plus adds over them, and its smaller price.
+    static var plus: String {
+        "Plus covers whole calls, writes the notes online, tells voices apart and answers "
+            + "every agent, from \(License.Period.monthly.price)."
     }
 }

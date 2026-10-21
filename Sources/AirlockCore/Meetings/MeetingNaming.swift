@@ -14,7 +14,9 @@ import Foundation
 public enum MeetingNaming {
     /// `page` with every named voice called by its name. "Person 2" and the
     /// model's Spanish "Persona 2" both become "Ana", and "You" for "That's
-    /// me" ("you" inside a sentence).
+    /// me" ("you" inside a sentence). In notes in another language "That's
+    /// me" is that language's word ("Santi y tú", "habló contigo"), and a
+    /// to-do's owner is still "You" (`Second`).
     ///
     /// The other side of a call heard as one voice is named wherever the
     /// page has its label, "Them" with its capital ("Them finalizará",
@@ -27,6 +29,7 @@ public enum MeetingNaming {
     /// others". A room that was one voice is named only where it owns a
     /// to-do: "someone" is a word too.
     public static func apply(_ record: MeetingRecord, to page: String) -> String {
+        let written = page
         var page = page
         for given in record.names {
             if given.voice == MeetingRecord.otherSide, record.isInPerson {
@@ -47,8 +50,12 @@ public enum MeetingNaming {
                 }
             } else {
                 let pattern = #"(?<![\p{L}\p{N}])[Pp]ersona? "# + String(given.voice) + #"(?![\p{N}])"#
-                page = replace(pattern: pattern, in: page) { before in
-                    given.isYou ? you(after: before) : given.name
+                if given.isYou, let second = second(in: written, of: record) {
+                    page = replace(pattern, with: second, in: page)
+                } else {
+                    page = replace(pattern: pattern, in: page) { before in
+                        given.isYou ? you(after: before) : given.name
+                    }
                 }
             }
         }
@@ -63,7 +70,101 @@ public enum MeetingNaming {
             return MeetingSpeaker.me.label
         }
         guard let last = text.last else { return MeetingSpeaker.me.label }
+        if last == ",", let tail = line.range(of: " — ", options: .backwards).map({ line[$0.upperBound...] }),
+           !tail.hasPrefix("_") {
+            // A to-do's owners, "— Martín, You": a name in a list of names.
+            // Not an open question's context, which is in italics.
+            return MeetingSpeaker.me.label
+        }
         return ".!?:—–-*_(\"“«¿¡".contains(last) ? MeetingSpeaker.me.label : MeetingSpeaker.me.label.lowercased()
+    }
+
+    /// How the notes' language says "you", for the voice that is "That's
+    /// me". English has `you(after:)`; this is every other language. The
+    /// online notes write "you" the same way ("Ana y tú", "tu padre"), so a
+    /// page named afterwards reads like one written so.
+    private struct Second {
+        /// As the subject: "tú", "du". With a capital where a sentence starts.
+        let subject: String
+        /// Inside a sentence, where that is not the subject's word: French
+        /// "Santi et toi".
+        var inside: String?
+        /// The word that follows these, where it is not the subject's:
+        /// "para ti", "mit dir".
+        var after: [String: String] = [:]
+        /// Words it is joined to: "con" and "ti" are "contigo".
+        var joins: [String: String] = [:]
+
+        /// The word for the label after `before`. A to-do's owner stays
+        /// "You", as the notes write it in every language.
+        func word(after before: Substring) -> String {
+            let line = before.split(separator: "\n", omittingEmptySubsequences: false).last ?? ""
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if text.hasPrefix("-"), let dash = line.range(of: " — ", options: .backwards) {
+                let owners = line[dash.upperBound...].trimmingCharacters(in: .whitespaces)
+                if owners.isEmpty || owners.hasSuffix(",") && !owners.hasPrefix("_") {
+                    return MeetingSpeaker.me.label
+                }
+            }
+            let previous = String(text.reversed().prefix(while: \.isLetter).reversed()).lowercased()
+            if let form = after[previous] { return form }
+            return MeetingNaming.startsASentence(before) ? MeetingNaming.capitalised(subject) : inside ?? subject
+        }
+    }
+
+    /// By the language's name in English, as `CallLanguage` gives it: the
+    /// languages the notes have words for (`CallNotesPrompts`).
+    private static let seconds: [String: Second] = [
+        "Spanish": Second(subject: "tú", after: each(["a", "ante", "bajo", "contra", "de", "desde", "hacia",
+                                                      "hasta", "para", "por", "sin", "sobre", "tras"], "ti"),
+                          joins: ["con": "contigo"]),
+        "Catalan": Second(subject: "tu"),
+        "French": Second(subject: "tu", inside: "toi"),
+        "German": Second(subject: "du", after: each(["mit", "von", "bei", "zu", "nach", "aus", "seit",
+                                                     "gegenüber", "außer"], "dir")
+                            .merging(each(["für", "ohne", "gegen", "um", "durch", "über"], "dich")) { $1 }),
+        "Italian": Second(subject: "tu", after: each(["a", "di", "da", "con", "su", "per", "tra", "fra", "senza",
+                                                      "verso", "contro", "dopo", "presso"], "te")),
+        "Portuguese": Second(subject: "você"),
+    ]
+
+    /// The words for "you" in the language the notes are in; nil for English
+    /// or a page that cannot say. That is the page's own language, decided
+    /// the way the call's is before the notes are written (`CallLanguage`),
+    /// so English notes about a call in Spanish still say "you". A language
+    /// without words here gets "You", Airlock's name for you, never "you"
+    /// inside somebody else's sentence.
+    private static func second(in page: String, of record: MeetingRecord) -> Second? {
+        // The headings are Airlock's own, and English.
+        let prose = page.split(separator: "\n").filter { !$0.hasPrefix("#") }.joined(separator: "\n")
+        guard let language = CallLanguage.decide(engine: record.languages, reading: CallLanguage.reading(of: prose)),
+              language.code != "en" else { return nil }
+        return seconds[language.name] ?? Second(subject: MeetingSpeaker.me.label)
+    }
+
+    /// `label`, the voice that is you, called by `second`'s words.
+    private static func replace(_ label: String, with second: Second, in page: String) -> String {
+        var page = page
+        for (word, joined) in second.joins {
+            page = replace(pattern: NSRegularExpression.escapedPattern(for: word) + #"\s+(?:"# + label + ")",
+                           in: page) { before in
+                startsASentence(before) ? capitalised(joined) : joined
+            }
+        }
+        return replace(pattern: label, in: page) { before in second.word(after: before) }
+    }
+
+    /// Where `you(after:)` writes "You": a sentence's or a line's start.
+    private static func startsASentence(_ before: Substring) -> Bool {
+        you(after: before) == MeetingSpeaker.me.label
+    }
+
+    private static func capitalised(_ word: String) -> String {
+        word.prefix(1).uppercased() + word.dropFirst()
+    }
+
+    private static func each(_ words: [String], _ form: String) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: words.map { ($0, form) })
     }
 
     /// The owner of a to-do, "— Someone · 2:15" or "— Someone" at a line's end.

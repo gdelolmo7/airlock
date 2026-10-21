@@ -346,7 +346,7 @@ final class MeetingNotesModel {
         self.record = record
         readyNotes = notes
         readyAllowance = allowanceUntil
-        readyOutcome = record.map { CallNotesPanel.ready(of: $0, notes: notes) } ?? .notes
+        readyOutcome = record.map { CallNotesPanel.ready(of: $0, notes: notes, writer: $0.notesWriter) } ?? .notes
         jotCount = record?.jots.count ?? 0
         if let event, let call = flow.phase.call {
             eventCall = call
@@ -643,6 +643,7 @@ final class MeetingNotesModel {
         made.takeNotes(state: { [weak self] in self?.handButton ?? .busy },
                        press: { [weak self] in self?.pressHandButton() })
         made.saveNames { [weak self] folder, names in self?.saveNames(names, in: folder) }
+        made.checkWords { [weak self] folder, answer in self?.checkWord(answer, in: folder) }
         made.recordings(CallNotesLibrary.Recordings(
             reading: { [weak self] in self?.recordings.reading },
             takes: { [weak self] url in self?.recordings.takes(url) ?? false },
@@ -667,9 +668,10 @@ final class MeetingNotesModel {
     }
 
     /// "What each plan writes": one sample call's notes as each plan writes
-    /// them, side by side.
+    /// them, one plan at a time.
     func showComparison() {
-        NotesComparisonWindowController.shared.show(showPlans: { [weak self] in self?.showPlans() })
+        NotesComparisonWindowController.shared.show(plan: CloudNotesService.shared.plan().plan,
+                                                    showPlans: { [weak self] in self?.showPlans() })
         log("notes online: comparison shown")
     }
 
@@ -688,6 +690,28 @@ final class MeetingNotesModel {
             log("names: \(record.names.count) of \(record.voices.count) voice(s) named")
         } catch {
             log("names: save FAILED: \(error.localizedDescription)")
+        }
+        madeCallsPage?.refreshIfOpen()
+        recentCalls.refresh()
+    }
+
+    /// A word on "Check these words" answered in the calls window. "Use"
+    /// also adds it to the words in Settings, so the next call spells it
+    /// the same way, unless it is a figure (`MeetingWordCheck`).
+    func checkWord(_ answer: CallNotesLibrary.WordAnswer, in folder: URL) {
+        let held = folder == self.folder
+        do {
+            let record = try store.checkWord(answer.best, heard: answer.heard, use: answer.use, in: folder,
+                                             record: held ? self.record : nil)
+            if held, let record { self.record = record }
+            log("words: \(answer.use ? "used" : "left") one word to check")
+        } catch {
+            log("words: save FAILED: \(error.localizedDescription)")
+        }
+        if answer.use, MeetingWordCheck.belongsInKnownWords(answer.best) {
+            let typed = Self.typedWords()
+            let list = MeetingKnownWords.adding(answer.best, to: typed)
+            if list != typed { UserDefaults.standard.set(list, forKey: Self.knownWordsKey) }
         }
         madeCallsPage?.refreshIfOpen()
         recentCalls.refresh()
@@ -799,15 +823,13 @@ final class MeetingNotesModel {
         guard case let .ready(name, _) = flow.phase,
               let page = store.notesPage(in: store.root.appendingPathComponent(name, isDirectory: true))
         else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(page, forType: .string)
+        AirlockCopy.put(page)
         log("copy: notes")
     }
 
     /// A line to paste into the call's chat, so the others know.
     func copyHeadsUp() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(CallNotesPanel.headsUp, forType: .string)
+        AirlockCopy.put(CallNotesPanel.headsUp)
     }
 
     /// Where macOS keeps "System Audio Recording", the permission a tap on

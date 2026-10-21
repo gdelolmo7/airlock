@@ -176,6 +176,12 @@ final class UpdaterEvents: NSObject, SPUUpdaterDelegate {
         Task { @MainActor in report(event) }
     }
 
+    /// Nil keeps the feed in the bundle. During a pretend outage
+    /// (`OutageDrill`) it is an address nobody answers on.
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        PretendOutage.failure == nil ? nil : OutageDrill.deadFeedURL
+    }
+
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
                  error: (any Error)?) {
         send(.finished(errorCode: error.map { ($0 as NSError).code }))

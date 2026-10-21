@@ -130,4 +130,69 @@ final class UpgradeReminderModelTests: XCTestCase {
         reminders.islandClosed()
         XCTAssertEqual(reminders.card, .clipboardFull)
     }
+
+    // MARK: - A week in
+
+    /// The first open on Free starts the week, and the card a week later
+    /// says what Plus adds to what this Mac uses then.
+    func testTheWeeksCardAWeekAfterTheFirstOpen() {
+        let reminders = model()
+        reminders.uses = { [.callNotes] }
+        reminders.islandOpened(now: t0)
+        XCTAssertNil(reminders.card)
+        reminders.islandClosed()
+
+        let relaunched = model()
+        relaunched.uses = { [.callNotes, .agents] }
+        relaunched.islandOpened(now: t0.addingTimeInterval(6 * 86_400))
+        XCTAssertNil(relaunched.card, "not yet a week")
+        relaunched.islandOpened(now: t0.addingTimeInterval(7 * 86_400 + 3_600))
+        XCTAssertEqual(relaunched.card, .firstWeek(uses: [.callNotes, .agents]))
+    }
+
+    /// Opening on Plus or Pro starts no week: the card is for Free.
+    func testOpeningOnAPaidPlanStartsNoWeek() {
+        let paid = model(onFree: false)
+        paid.uses = { [.agents] }
+        paid.islandOpened(now: t0)
+
+        let free = model()
+        free.uses = { [.agents] }
+        free.islandOpened(now: t0.addingTimeInterval(7 * 86_400))
+        XCTAssertNil(free.card, "the week starts at this first open on Free")
+    }
+
+    /// Nothing went wrong in a week without a limit: no sweat on the cloud.
+    func testOnlyALimitWorriesTheCloud() {
+        XCTAssertEqual(UpgradeReminderCard.face(for: .firstWeek(uses: [.clipboard])), .neutral)
+        XCTAssertEqual(UpgradeReminderCard.face(for: .clipboardFull), .stressed)
+        XCTAssertEqual(UpgradeReminderCard.face(for: .agentInTerminal(asking: "website", answering: nil)), .stressed)
+    }
+
+    // MARK: - Usage counts
+
+    func testShownAndNotNowAreCountedWithTheirKind() {
+        let reminders = model()
+        var shown: [UpgradeReminder.Kind] = []
+        var notNow: [UpgradeReminder.Kind] = []
+        reminders.onShown = { shown.append($0) }
+        reminders.onNotNow = { notNow.append($0) }
+        reminders.copiesLetGo(1, now: t0)
+
+        reminders.islandOpened(now: t0.addingTimeInterval(60))
+        reminders.notNow(now: t0.addingTimeInterval(90))
+        XCTAssertEqual(shown, [.clipboard])
+        XCTAssertEqual(notNow, [.clipboard])
+
+        reminders.islandOpened(now: t0.addingTimeInterval(120))
+        XCTAssertEqual(shown, [.clipboard], "nothing shown, nothing counted")
+    }
+
+    func testThePreviewCountsNothing() {
+        let reminders = UpgradeReminderModel(previewing: .clipboardFull)
+        var counted = 0
+        reminders.onNotNow = { _ in counted += 1 }
+        reminders.notNow()
+        XCTAssertEqual(counted, 0)
+    }
 }

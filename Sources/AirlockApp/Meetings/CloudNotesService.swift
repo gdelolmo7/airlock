@@ -241,13 +241,16 @@ final class CloudNotesService {
         var request = URLRequest(url: endpoint, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = CloudNotes.requestBody(token: token, instructions: CallNotesPrompts.cloudInstructions,
-                                                  prompt: prompt)
+        // Notes by topic. A server from before them ignores the shape and
+        // answers in the old one, which reads all the same.
+        request.httpBody = CloudNotes.requestBody(token: token, instructions: CallNotesPrompts.cloudTopicsInstructions,
+                                                  prompt: prompt, shape: CloudNotes.topicsShape)
         // Nothing kept on disk: no cache, no cookies.
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout
+        PretendOutage.apply(to: configuration)
         let session = URLSession(configuration: configuration)
         defer { session.finishTasksAndInvalidate() }
         do {

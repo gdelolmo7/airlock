@@ -75,8 +75,7 @@ enum InputMonitoring {
     /// an app that silently reaches for its own TCC state — however good the
     /// reason — is doing the thing this whole permission system exists to stop.
     static func copyStaleRecordFix() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(staleRecordFix, forType: .string)
+        AirlockCopy.put(staleRecordFix)
     }
 
     /// The Input Monitoring pane, which is not the Accessibility one.

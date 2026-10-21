@@ -23,6 +23,10 @@ public enum MeetingFiles {
     public static let decisionsHeading = "Decisions"
     public static let questionsHeading = "Open questions"
     public static let keyPointsHeading = "Key points"
+    /// Notes written by topic: one "### 1. Title · 4:05" under it for each.
+    public static let topicsHeading = "Topics"
+    /// Names and figures the transcript may have heard wrong (`MeetingNotes.Word`).
+    public static let wordsHeading = "Check these words"
 
     /// The folder for a call, e.g. "2026-10-08 14.30 – Zoom", or
     /// "2026-10-08 14.30 – Budget review" when the calendar named the meeting.

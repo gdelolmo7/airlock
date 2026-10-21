@@ -106,10 +106,14 @@ public enum MeetingPage {
         /// Nil for the lines above the first heading.
         public let heading: String?
         public let lines: [Placed]
+        /// The heading's level: 2 for "## To-dos", 3 for a topic's
+        /// "### 1. Price". 0 above the first heading.
+        public let level: Int
 
-        public init(heading: String?, lines: [Placed]) {
+        public init(heading: String?, lines: [Placed], level: Int? = nil) {
             self.heading = heading
             self.lines = lines
+            self.level = level ?? (heading == nil ? 0 : 2)
         }
     }
 
@@ -120,20 +124,22 @@ public enum MeetingPage {
     public static func sections(_ placed: [Placed]) -> (sections: [Section], closing: [Placed]) {
         var sections: [Section] = []
         var heading: String?
+        var level = 0
         var lines: [Placed] = []
         var started = false
         var closing: [Placed] = []
         func flush() {
-            if started || !lines.isEmpty { sections.append(Section(heading: heading, lines: lines)) }
+            if started || !lines.isEmpty { sections.append(Section(heading: heading, lines: lines, level: level)) }
         }
         for line in placed {
             if line.closing {
                 if line.block != .rule { closing.append(line) }
                 continue
             }
-            if case .heading(let text, _) = line.block {
+            if case .heading(let text, let depth) = line.block {
                 flush()
                 heading = text
+                level = depth
                 lines = []
                 started = true
             } else {
@@ -142,6 +148,121 @@ public enum MeetingPage {
         }
         flush()
         return (sections, closing)
+    }
+
+    // MARK: Notes by topic
+
+    /// "heard as", between a word to check and how the transcript has it.
+    public static let heardAs = "heard as"
+    /// Before a topic's point the people agreed on.
+    public static let decidedMark = "✓ "
+
+    /// "Price: 40 € a month" as "**Price:** 40 € a month": a point's first
+    /// words in bold when the notes lead with a few words and a colon. Any
+    /// other line, and one already in bold, is left as it is.
+    public static func bolded(_ text: String) -> String {
+        guard !text.hasPrefix("**"), let colon = text.range(of: ": ") else { return text }
+        let lead = text[..<colon.lowerBound].trimmingCharacters(in: .whitespaces)
+        let rest = text[colon.upperBound...].trimmingCharacters(in: .whitespaces)
+        guard !lead.isEmpty, !rest.isEmpty, lead.count <= 40, !lead.contains("*"),
+              lead.split(separator: " ").count <= 5 else { return text }
+        return "**\(lead):** \(rest)"
+    }
+
+    /// A topic's point read back: whether it was decided, its bold lead
+    /// without the colon ("Price"), and the rest.
+    public static func point(_ text: String) -> (decided: Bool, lead: String?, rest: String) {
+        var text = Substring(text)
+        let decided = text.hasPrefix(decidedMark)
+        if decided { text = text.dropFirst(decidedMark.count) }
+        if text.hasPrefix("**"), let close = text.range(of: ":** ") {
+            let lead = text[text.index(text.startIndex, offsetBy: 2)..<close.lowerBound]
+            let rest = text[close.upperBound...]
+            if !lead.isEmpty, !lead.contains("*"), !rest.isEmpty {
+                return (decided, String(lead), String(rest))
+            }
+        }
+        return (decided, nil, String(text))
+    }
+
+    /// A topic's heading read back: "1. Price and plans · 4:05" is topic 1,
+    /// "Price and plans", from 4:05. Nil for any other heading.
+    public static func topic(_ heading: String) -> (number: Int, title: String, at: TimeInterval?)? {
+        guard let dot = heading.range(of: ". "), let number = Int(heading[..<dot.lowerBound]),
+              number > 0 else { return nil }
+        var title = String(heading[dot.upperBound...])
+        var at: TimeInterval?
+        if let mark = title.range(of: " · ", options: .backwards),
+           let time = seconds(String(title[mark.upperBound...])) {
+            at = time
+            title = String(title[..<mark.lowerBound])
+        }
+        title = title.trimmingCharacters(in: .whitespaces)
+        return title.isEmpty ? nil : (number, title, at)
+    }
+
+    /// A word to check read back: "**Mapa** — heard as “napa”, “mapá”" is
+    /// "Mapa", heard as ["napa", "mapá"]. Nil for any other line.
+    public static func word(_ text: String) -> (best: String, heard: [String])? {
+        let marker = "** — \(heardAs) "
+        guard text.hasPrefix("**"), let split = text.range(of: marker) else { return nil }
+        let best = text[text.index(text.startIndex, offsetBy: 2)..<split.lowerBound]
+        var heard: [String] = []
+        var rest = text[split.upperBound...]
+        while let open = rest.firstIndex(of: "“"),
+              let close = rest[rest.index(after: open)...].firstIndex(of: "”") {
+            let form = rest[rest.index(after: open)..<close].trimmingCharacters(in: .whitespaces)
+            if !form.isEmpty { heard.append(form) }
+            rest = rest[rest.index(after: close)...]
+        }
+        guard !best.isEmpty, !heard.isEmpty else { return nil }
+        return (String(best), heard)
+    }
+
+    /// An open question read back: "¿Qué precio? — _Depends on the
+    /// supplier_" is the question and the context it came up in.
+    public static func question(_ text: String) -> (text: String, context: String?) {
+        guard text.hasSuffix("_"), let dash = text.range(of: " — _", options: .backwards) else {
+            return (text, nil)
+        }
+        let context = text[dash.upperBound...].dropLast().trimmingCharacters(in: .whitespaces)
+        let question = String(text[..<dash.lowerBound])
+        return context.isEmpty || question.isEmpty ? (text, nil) : (question, context)
+    }
+
+    /// What the window draws one card for: a section on its own, or the
+    /// topics, "## Topics" with each "### 1. Price" under it.
+    public enum Card: Equatable, Sendable {
+        case section(Section)
+        case topics(heading: Section, topics: [Section])
+    }
+
+    /// The sections in cards: each topic's section gathered under the
+    /// "## Topics" before it, until a heading that is not a topic's. A
+    /// "### " heading anywhere else is a card of its own, as before.
+    public static func cards(_ sections: [Section]) -> [Card] {
+        var cards: [Card] = []
+        var head: Section?
+        var topics: [Section] = []
+        func flush() {
+            if let head { cards.append(.topics(heading: head, topics: topics)) }
+            head = nil
+            topics = []
+        }
+        for section in sections {
+            if head != nil, section.level >= 3, let heading = section.heading, topic(heading) != nil {
+                topics.append(section)
+                continue
+            }
+            flush()
+            if section.level == 2, section.heading == MeetingFiles.topicsHeading {
+                head = section
+            } else {
+                cards.append(.section(section))
+            }
+        }
+        flush()
+        return cards
     }
 
     private static func heading(_ line: String) -> (text: String, level: Int)? {

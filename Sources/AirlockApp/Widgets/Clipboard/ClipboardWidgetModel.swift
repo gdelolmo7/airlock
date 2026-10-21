@@ -23,8 +23,17 @@ final class ClipboardWidgetModel {
     /// model worth asserting about, and they are meaningless against an empty
     /// list. Everything else here reaches the pasteboard or the disk, so this is
     /// the one seam that buys coverage rather than ceremony.
-    init(history: ClipboardHistory = ClipboardHistory()) {
+    ///
+    /// The pasteboard and the app in front are seams too: a test writes to a
+    /// pasteboard of its own, never the one the person is using.
+    init(history: ClipboardHistory = ClipboardHistory(), pasteboard: NSPasteboard = .general,
+         frontmostApp: @escaping @MainActor () -> NSRunningApplication? = {
+             NSWorkspace.shared.frontmostApplication
+         }) {
         self.history = history
+        self.pasteboard = pasteboard
+        self.frontmostApp = frontmostApp
+        lastChangeCount = pasteboard.changeCount
     }
 
     /// A model for the state gallery: made-up items and settings, and nothing
@@ -42,6 +51,9 @@ final class ClipboardWidgetModel {
          lastSkip: ClipboardSkipReason? = nil, hotkeyError: String? = nil,
          missingPictures: Set<String> = [], pictureGoneNotice: Bool = false, planShows: Int? = nil) {
         self.history = history
+        pasteboard = .general
+        frontmostApp = { nil }
+        lastChangeCount = 0
         self.filter = filter
         self.query = query
         self.lastSkip = lastSkip
@@ -260,7 +272,9 @@ final class ClipboardWidgetModel {
     @ObservationIgnored private let hotkeyRegistration = GlobalHotkey()
     @ObservationIgnored private var classifier = PasteboardClassifier()
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var lastChangeCount = NSPasteboard.general.changeCount
+    @ObservationIgnored private let pasteboard: NSPasteboard
+    @ObservationIgnored private let frontmostApp: @MainActor () -> NSRunningApplication?
+    @ObservationIgnored private var lastChangeCount: Int
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var keyMonitor: Any?
 
@@ -337,70 +351,73 @@ final class ClipboardWidgetModel {
         timer = nil
     }
 
-    private func poll() {
-        let pasteboard = NSPasteboard.general
+    /// One look at the pasteboard. The timer's tick; called directly by tests.
+    func poll() {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
         capture(from: pasteboard)
     }
 
-    /// Text this app is about to write, which must not come back as history.
+    /// Text Airlock puts on the clipboard for the person, kept as row one at
+    /// once and credited to Airlock. Reached through `AirlockCopy`.
     ///
-    /// The frontmost-bundle check below cannot cover it: the notch is a
-    /// `.nonactivatingPanel`, so it is NEVER frontmost, and a copy made from it
-    /// would be recorded and attributed to whatever app happens to be in front.
+    /// The poll cannot do this part. The notch is a `.nonactivatingPanel`, so
+    /// it is never the app in front, and a copy made from it would be credited
+    /// to whatever app is. The change is claimed here, as `copy(_:)` claims
+    /// its own, so the poll does not keep it a second time.
     ///
-    /// A fingerprint rather than a flag, because the pasteboard poll may fire
-    /// either side of our write and a flag would have to guess which. The expiry
-    /// stops a suppression that never matched from swallowing a real copy later.
-    private var suppressedFingerprint: (value: String, until: Date)?
-
-    func suppressNextCopy(of text: String) {
-        suppressedFingerprint = (ClipboardItem.fingerprint(forText: text),
-                                 Date().addingTimeInterval(2))
+    /// Asked of the classifier like any copy, so a person who added Airlock to
+    /// the apps to ignore is listened to.
+    func keepOwnCopy(_ text: String) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        lastChangeCount = pasteboard.changeCount
+        guard isEnabled else { return }
+        let airlock = NSRunningApplication.current
+        switch classifier.decide(types: [NSPasteboard.PasteboardType.string.rawValue],
+                                 sourceBundleID: airlock.bundleIdentifier) {
+        case .skip(let reason): lastSkip = reason
+        case .takeText: keepText(text, source: airlock)
+        case .takeImage, .takeFile: break
+        }
     }
 
     private func capture(from pasteboard: NSPasteboard) {
         let types = pasteboard.types?.map(\.rawValue) ?? []
-        let source = NSWorkspace.shared.frontmostApplication
-        // Our own writes are never new copies. Selecting a row would otherwise
-        // re-record it a moment later and reshuffle the list under the pointer.
-        guard source?.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+        // Airlock in front is a copy like any other: ⌘C in a past call's notes
+        // or in Settings is the person's own. What Airlock writes itself never
+        // gets this far, because `copy(_:)` and `keepOwnCopy(_:)` claim the
+        // change before the next tick.
+        let source = frontmostApp()
 
         switch classifier.decide(types: types, sourceBundleID: source?.bundleIdentifier) {
         case .skip(let reason):
             lastSkip = reason
         case .takeText:
-            guard let value = pasteboard.string(forType: .string),
-                  !value.isEmpty else { lastSkip = .empty; return }
-            // Before hashing, not after: SHA-256 over a 50 MB paste blocks the
-            // main actor, and the whole point is never to touch something that
-            // size.
-            let byteCount = value.utf8.count
-            guard ClipboardLimits.acceptsText(byteCount: byteCount) else {
-                lastSkip = .tooLarge(bytes: byteCount)
-                return
-            }
-            let fingerprint = ClipboardItem.fingerprint(forText: value)
-            if let suppressed = suppressedFingerprint {
-                if suppressed.until < Date() {
-                    suppressedFingerprint = nil
-                } else if suppressed.value == fingerprint {
-                    suppressedFingerprint = nil
-                    return
-                }
-            }
-            lastSkip = nil
-            insert(ClipboardItem(payload: .text(value),
-                                 fingerprint: fingerprint,
-                                 copiedAt: Date(),
-                                 sourceBundleID: source?.bundleIdentifier,
-                                 sourceAppName: source?.localizedName))
+            keepText(pasteboard.string(forType: .string) ?? "", source: source)
         case .takeImage:
             captureImage(from: pasteboard, source: source)
         case .takeFile:
             captureFiles(from: pasteboard, source: source)
         }
+    }
+
+    private func keepText(_ value: String, source: NSRunningApplication?) {
+        guard !value.isEmpty else { lastSkip = .empty; return }
+        // Before hashing, not after: SHA-256 over a 50 MB paste blocks the
+        // main actor, and the whole point is never to touch something that
+        // size.
+        let byteCount = value.utf8.count
+        guard ClipboardLimits.acceptsText(byteCount: byteCount) else {
+            lastSkip = .tooLarge(bytes: byteCount)
+            return
+        }
+        lastSkip = nil
+        insert(ClipboardItem(payload: .text(value),
+                             fingerprint: ClipboardItem.fingerprint(forText: value),
+                             copiedAt: Date(),
+                             sourceBundleID: source?.bundleIdentifier,
+                             sourceAppName: source?.localizedName))
     }
 
     /// A Finder copy of three files is ONE pasteboard change and three things
@@ -659,7 +676,6 @@ final class ClipboardWidgetModel {
                   let data = try? Data(contentsOf: store.imageURL(for: file)) else { return false }
             pictureData = data
         }
-        let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         switch item.payload {
         case .text(let value):
@@ -841,6 +857,30 @@ final class ClipboardWidgetModel {
 @MainActor
 enum ClipboardKeyRouter {
     weak static var shared: ClipboardWidgetModel?
+}
+
+/// The one way Airlock puts text on the clipboard for the person: a call's
+/// notes or transcript, an answer, a dictation with nowhere to land, the
+/// diagnostics. Through the history rather than beside it, so the copy is row
+/// one straight away and says it came from Airlock.
+///
+/// Writing `NSPasteboard.general` directly leaves the copy to the poll, which
+/// credits whatever app is in front: never Airlock from the notch, and before
+/// this, nothing at all from Airlock's own windows.
+@MainActor
+enum AirlockCopy {
+    /// Set at launch once the history exists. Without it a copy is only
+    /// written, as in tests.
+    weak static var history: ClipboardWidgetModel?
+
+    static func put(_ text: String) {
+        if let history {
+            history.keepOwnCopy(text)
+        } else {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+    }
 }
 
 /// Small typed wrappers so the `didSet` bodies above stay readable.

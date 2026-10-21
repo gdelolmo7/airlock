@@ -104,6 +104,16 @@ enum GalleryLicence {
             GalleryState("L19c", area, "Plans page: a hand-issued key", ground: .window, width: paneWidth) {
                 plans(.licensed(handIssued))
             },
+            GalleryState("L19d", area, "Plans page: on Plus", ground: .window, width: paneWidth) {
+                plans(.licensed(licence))
+            },
+            GalleryState("L19e", area, "Plans page: a hand-issued Pro key", ground: .window, width: paneWidth) {
+                plans(.licensed(handIssuedPro))
+            },
+            GalleryState("L19f", area, "Plans page: a hand-issued key, Switch to Free pressed",
+                         ground: .window, width: paneWidth) {
+                plans(.licensed(handIssuedPro), goingFree: true)
+            },
             GalleryState("L20", area, "Plans page: entering a key", ground: .window, width: paneWidth) {
                 plans(.free, enteringKey: true)
             },
@@ -183,6 +193,12 @@ enum GalleryLicence {
             GalleryState("L28c", area, "Free reminder: a month with one thing in it") {
                 reminder(.monthlyRecap(FreeMonth(month: endedDay, callsStopped: 1)))
             },
+            GalleryState("L28d", area, "Free reminder: a week in, using all three") {
+                reminder(.firstWeek(uses: [.callNotes, .agents, .clipboard]))
+            },
+            GalleryState("L28e", area, "Free reminder: a week in, using only the clipboard") {
+                reminder(.firstWeek(uses: [.clipboard]))
+            },
         ]
     }
 
@@ -205,6 +221,13 @@ enum GalleryLicence {
         return License(id: "lic_gallery", email: "someone@example.com", product: "airlock",
                        period: .yearly, issued: renews.addingTimeInterval(-365 * 86_400),
                        renewsAt: renews, checkBy: renews.addingTimeInterval(14 * 86_400))
+    }()
+
+    private static let handIssuedPro: License = {
+        let renews = Date(timeIntervalSince1970: 1_822_000_000)
+        return License(id: "lic_gallery", email: "someone@example.com", product: "airlock",
+                       period: .yearly, issued: renews.addingTimeInterval(-365 * 86_400),
+                       renewsAt: renews, checkBy: renews.addingTimeInterval(14 * 86_400), plan: .pro)
     }()
 
     private static let proLicence: License = {
@@ -241,7 +264,7 @@ enum GalleryLicence {
                               subscribedBefore: Bool = false, stored: License? = nil,
                               hasServer: Bool = true, lastCheck: PlanCheck? = nil,
                               confirmingRemove: Bool = false, enteringKey: Bool = false,
-                              moreOptions: Bool = false,
+                              moreOptions: Bool = false, goingFree: Bool = false,
                               flow: (PurchaseFlow) -> Void = { _ in }) -> some View {
         let license = LicenseModel(previewing: entitlement, rejection: rejection,
                                    activationError: activationError,
@@ -249,11 +272,12 @@ enum GalleryLicence {
                                    hasServer: hasServer, lastCheck: lastCheck)
         license.plansPeriod = period
         flow(license.purchase)
-        return PlansPane(confirmingRemove: confirmingRemove, enteringKey: enteringKey, moreOptions: moreOptions)
+        return PlansPane(confirmingRemove: confirmingRemove, enteringKey: enteringKey, moreOptions: moreOptions,
+                         goingFree: goingFree)
             .environment(license)
             .environment(SettingsModel(previewing: [], policy: winBackPolicy))
             // The page scrolls, so it has no height of its own to fit.
-            .frame(height: moreOptions ? 1080 : 880)
+            .frame(height: moreOptions ? 1180 : 1000)
     }
 
     /// Seven rules, so the win-back's "Your rules" has a number to read.

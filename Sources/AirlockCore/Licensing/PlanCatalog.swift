@@ -4,9 +4,9 @@ import Foundation
 ///
 /// The prices were written out at four call sites before `License.Period.price`
 /// gathered them, and the store links had the same history. Three plans made
-/// that six prices and four links, so they all live here now: the Plans page,
-/// the notch's cards and first-run setup read them from this table and from
-/// nowhere else.
+/// that six prices and four links, so they all live here now, with what each
+/// plan adds: the Plans page, the notch's cards and first-run setup read them
+/// from this table and from nowhere else.
 ///
 /// **A build-time fact, never in a key.** A signed key is forever and prices
 /// are not, so a key says which plan was paid for and this says what that plan
@@ -70,28 +70,60 @@ public enum PlanCatalog {
         }
     }
 
-    /// What a plan's card lists, in the website's words, so the app and the
-    /// site never describe two different products. The numbers come from the
-    /// tables that enforce them.
-    public static func bullets(_ plan: AirlockPlan) -> [String] {
-        let notes = Int(PlanLimits.freeNotesListen / 60)
+    /// The same line, short enough for the narrow price column beside Pro on
+    /// the Plans page: "€6 a month", "Stop any time".
+    public static func shortNote(_ plan: AirlockPlan, _ period: License.Period) -> String {
+        guard plan != .free else { return "No card needed" }
+        switch period {
+        case .monthly: return "Stop any time"
+        case .yearly: return "\(euros(yearlyPerMonthCents(plan))) a month"
+        }
+    }
+
+    /// Said wherever Plus is priced or held, so Pro's "twice" has something
+    /// to double.
+    public static let monthlyNotes = "A set number of online notes each month"
+
+    /// One thing a plan adds, as the Plans page draws it: a symbol, a few
+    /// words, and a line under them saying what they mean.
+    public struct Feature: Equatable, Sendable {
+        /// An SF Symbol.
+        public let symbol: String
+        public let title: String
+        public let detail: String
+        /// The same thing as one line of a list ("Who said what: each voice
+        /// told apart"), for Pro's card, which lists what came with Plus.
+        public let line: String
+    }
+
+    /// What a plan adds to the one below it, in the order the Plans page
+    /// shows it. Free adds nothing: it is where the others start. The
+    /// numbers come from the tables that enforce them, and "ten times" is
+    /// held to them (`PlansPageTests`).
+    public static func features(_ plan: AirlockPlan) -> [Feature] {
         switch plan {
         case .free:
-            return ["Clipboard keeps your last \(PlanLimits.freeClipboard)",
-                    "Answer one coding agent at a time from the notch",
-                    "Calls: words, transcript and notes for the first \(notes) minutes, on your Mac",
-                    "Everything else: music, calendar, the shelf and dictation"]
+            return []
         case .plus:
-            return ["Clipboard keeps up to \(thousands(ClipboardHistory.capacityRange.upperBound))",
-                    "Answer every agent from the notch",
-                    "The whole call, with notes written online by a better model",
-                    "Tells the voices on a call apart: Person 1, Person 2\u{2026}",
-                    "A set number of online notes each month",
-                    "Redo the notes of past calls",
-                    "Works on every Mac, with or without Apple Intelligence"]
+            let clipboard = "Clipboard keeps \(thousands(ClipboardHistory.capacityRange.upperBound))"
+            return [Feature(symbol: "waveform", title: "The whole call",
+                            detail: "Notes written online by a better model", line: "The whole call, written down"),
+                    Feature(symbol: "person.2.fill", title: "Who said what",
+                            detail: "Each voice on a call told apart", line: "Who said what: each voice told apart"),
+                    Feature(symbol: "arrow.clockwise", title: "Redo past calls",
+                            detail: "Write a past call's notes again", line: "Redo the notes of past calls"),
+                    Feature(symbol: "laptopcomputer", title: "Any Mac",
+                            detail: "With or without Apple Intelligence", line: "Works on any Mac"),
+                    Feature(symbol: "list.clipboard", title: clipboard,
+                            detail: "Ten times what Free keeps", line: clipboard),
+                    Feature(symbol: "terminal", title: "Every agent",
+                            detail: "Answer all of them from the notch", line: "Answer every agent from the notch")]
         case .pro:
-            return ["Notes written by the best model we've tested",
-                    "Twice as many online notes each month"]
+            return [Feature(symbol: "wand.and.stars", title: "The best notes",
+                            detail: "Written by the best model we've tested",
+                            line: "Notes written by the best model we've tested"),
+                    Feature(symbol: "cloud", title: "Twice the online notes",
+                            detail: "Twice what Plus gets each month", line: "Twice as many online notes each month")]
         }
     }
 
@@ -135,7 +167,8 @@ public enum PlanCatalog {
 
     // MARK: -
 
-    private static func per(_ period: License.Period) -> String {
+    /// "a month", "a year".
+    static func per(_ period: License.Period) -> String {
         switch period {
         case .monthly: "a month"
         case .yearly: "a year"

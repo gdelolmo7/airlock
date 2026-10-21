@@ -76,6 +76,7 @@ final class CloudNotesPromptTests: XCTestCase {
         XCTAssertEqual(CallNotesPrompts.cloud(for: record, language: "Spanish"), """
             Take notes from this call. Write them in Spanish.
             People on the call: You, and Marta Vidal (the other side).
+            The call lasted 1 minute: about 1 topic.
 
             The person wrote these during the call; they matter, make sure they are covered:
             - 0:12 budget by Friday
@@ -94,7 +95,8 @@ final class CloudNotesPromptTests: XCTestCase {
     func testWithNothingTypedAndNoLanguageThePromptSaysNoMore() {
         let prompt = CallNotesPrompts.cloud(for: Fixture.record(), language: nil)
         XCTAssertTrue(prompt.hasPrefix(
-            "Take notes from this call.\nPeople on the call: You, and Marta Vidal (the other side).\n\nTRANSCRIPT START\n"))
+            "Take notes from this call.\nPeople on the call: You, and Marta Vidal (the other side).\n"
+            + "The call lasted 1 minute: about 1 topic.\n\nTRANSCRIPT START\n"))
         XCTAssertFalse(prompt.contains("The person wrote"))
     }
 
@@ -111,6 +113,7 @@ final class CloudNotesPromptTests: XCTestCase {
             Take notes from this call. Write them in Spanish.
             People on the call: You, and Them (everyone else on the call).
             In the notes, Them is "la otra persona".
+            The call lasted 1 minute: about 1 topic.
 
             TRANSCRIPT START
             [S1 0:05 Them] Can you send me the budget by Friday?
@@ -223,6 +226,14 @@ final class CloudNotesReplyTests: XCTestCase {
         let body = CloudNotes.requestBody(token: "tok", instructions: "rules", prompt: "question")
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
         XCTAssertEqual(object, ["token": "tok", "instructions": "rules", "prompt": "question"])
+    }
+
+    /// Notes by topic say so; a server from before them ignores the word.
+    func testTheShapeIsSentOnlyWhenAskedFor() throws {
+        let body = CloudNotes.requestBody(token: "tok", instructions: "rules", prompt: "question",
+                                          shape: CloudNotes.topicsShape)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(object, ["token": "tok", "instructions": "rules", "prompt": "question", "shape": "topics"])
     }
 
     func testNotesAreReadFromA200() throws {
