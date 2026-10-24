@@ -1,3 +1,4 @@
+import AirlockCore
 import AppKit
 
 @main
@@ -17,6 +18,8 @@ enum AgenticNotchMain {
         BrokenPipeGuard.install(Launch())
         // Asked by the release script, which wants the notes and not the app.
         if WhatsNewLaunch.printHTMLIfAsked(CommandLine.arguments) { return }
+        // Before any text is read: Spanish or English for this run.
+        AppLanguage.apply()
         // A recording played through the in-person notes, then gone.
         if let recording = RecordingReplay.requested() { RecordingReplay.runAndExit(recording) }
         let app = NSApplication.shared

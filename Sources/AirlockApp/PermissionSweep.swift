@@ -43,40 +43,28 @@ enum PermissionSweep {
     /// Automation is deliberately absent: macOS exposes no way to request it,
     /// and no way to read it short of sending an Apple event — which would raise
     /// the very prompt the row is describing. It asks on first use and says so.
-    ///
-    /// Screen Recording is in it while the guide is on, because the guide
-    /// cannot start without it: a sweep that skipped it and then said
-    /// everything was allowed sent people to a guide that would not open (X29).
     static func steps(dictation: DictationModel,
-                      calendar: CalendarWidgetModel,
-                      guideOn: Bool = GuideSwitch.isOn) -> [Step] {
+                      calendar: CalendarWidgetModel) -> [Step] {
         var steps: [Step] = [
             // Waits for the answer.
-            Step(name: "Microphone",
+            Step(name: String(localized: "Microphone"),
                  isSatisfied: { AVAudioApplication.shared.recordPermission == .granted },
                  ask: { await dictation.requestMicrophoneAccess() }),
             // Waits for the answer.
-            Step(name: "Calendar",
+            Step(name: String(localized: "Calendar"),
                  isSatisfied: { calendar.authStatus == .fullAccess },
                  ask: { await calendar.requestAccess() }),
             // Returns immediately; macOS queues the dialog itself. Satisfied
             // the way the page reads it, so an old approval that does not
             // work is still named as missing afterwards.
-            Step(name: "Input Monitoring",
+            Step(name: String(localized: "Input Monitoring"),
                  isSatisfied: {
                      PermissionFacts.read(dictation: dictation, calendar: calendar).inputMonitoring == .allowed
                  },
                  ask: { dictation.requestInputMonitoring() }),
         ]
-        if guideOn {
-            // Returns immediately too; its dialog also offers System Settings,
-            // so it goes after the ones that wait and before Accessibility.
-            steps.append(Step(name: "Screen Recording",
-                              isSatisfied: { CGPreflightScreenCaptureAccess() },
-                              ask: { _ = CGRequestScreenCaptureAccess() }))
-        }
         // Last: its dialog offers System Settings and takes focus away.
-        steps.append(Step(name: "Accessibility",
+        steps.append(Step(name: String(localized: "Accessibility"),
                           isSatisfied: { TypeService.isTrusted },
                           ask: { PasteService.requestTrust() }))
         return steps

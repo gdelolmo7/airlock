@@ -196,7 +196,7 @@ final class AgentsWidgetModel {
         installError = nil
         guard let source = HookBinaryStager.locateSourceHook(near: Bundle.main.executableURL) else {
             Self.log.error("connect: the hook binary is missing from the bundle")
-            installError = "Part of Airlock is missing. Reinstall it, then try again."
+            installError = String(localized: "Part of Airlock is missing. Reinstall it, then try again.")
             reload()
             return
         }
@@ -222,10 +222,10 @@ final class AgentsWidgetModel {
     /// System Settings that does not exist.
     static func connectFailure(_ error: any Error) -> String {
         if PlainProblem.isPermission(error) {
-            return "Your coding agent couldn't be connected: macOS didn't let Airlock change its settings file. "
-                + "Make sure that file isn't locked, then try again."
+            return String(localized: "Your coding agent couldn't be connected: macOS didn't let Airlock change its settings file. Make sure that file isn't locked, then try again.")
         }
-        return "Your coding agent couldn't be connected. \(PlainProblem.file(error))"
+        return String(localized: "Your coding agent couldn't be connected. \(PlainProblem.file(error))")
+
     }
 
     /// Re-read after hooks are installed or removed.
@@ -319,20 +319,16 @@ final class AgentsWidgetModel {
     var explanation: String {
         switch basis {
         case .chosen(true):
-            return "On because you turned it on. Connecting or disconnecting an agent won't change that."
+            return String(localized: "On because you turned it on. Connecting or disconnecting an agent won't change that.")
         case .chosen(false):
-            return "Off because you turned it off, so the Agents tab, the agent icons beside the notch and Claude usage are hidden. Connecting an agent won't change that."
+            return String(localized: "Off because you turned it off, so the Agents tab, the agent icons beside the notch and Claude usage are hidden. Connecting an agent won't change that.")
         case .hooksInstalled:
-            return "On because a coding agent is connected. A request waiting for your answer always shows, whatever this says, so an agent is never left waiting on nobody."
-        case .noHooksInstalled where GuideSwitch.isOn:
-            // With the guide on nothing is shown until someone says yes
-            // (card 3.02), so the switch reads off and this says so.
-            return "Off: no coding agent is connected on this Mac. Switch it on to connect Claude Code or Codex. Connecting one turns this on by itself."
+            return String(localized: "On because a coding agent is connected. A request waiting for your answer always shows, whatever this says, so an agent is never left waiting on nobody.")
         case .noHooksInstalled:
             // Reads "on" while nobody has chosen, because the Agents tab IS on
             // screen asking to be set up. Saying "off" here would describe a
             // switch the user can see in the other position.
-            return "On, but nothing is connected yet: the Agents tab is showing so you can connect from it. Once you do, the agent icons and Claude usage turn on too. Don't use coding agents? Switch this off and it stays off."
+            return String(localized: "On, but nothing is connected yet: the Agents tab is showing so you can connect from it. Once you do, the agent icons and Claude usage turn on too. Don't use coding agents? Switch this off and it stays off.")
         }
     }
 }

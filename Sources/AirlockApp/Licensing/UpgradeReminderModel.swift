@@ -11,7 +11,8 @@ import os
 /// quiets a kind for 14 days. What lives here is the part that cannot be
 /// pure: the preferences, the clock, and when the panel opens and closes.
 ///
-/// **Shown when the panel opens, gone when it closes.** It never opens the
+/// **Shown when the panel opens, gone when it closes, and back at every open
+/// until it is answered** with "Not now" or "See Plus". It never opens the
 /// notch by itself (only a gate or a question may), never plays a sound, and
 /// is never drawn instead of the widgets.
 @MainActor
@@ -28,16 +29,23 @@ final class UpgradeReminderModel {
     @ObservationIgnored var agentAsking: () -> Bool = { false }
     /// "You're on Free now" or a welcome is up: that is the day's one.
     @ObservationIgnored var otherCardUp: () -> Bool = { false }
+    /// Setup, a new version's card or one of the one-time questions fills
+    /// the panel, so no widget, and no card, would be seen this open.
+    @ObservationIgnored var panelTaken: () -> Bool = { false }
     /// The parts of Airlock this Mac uses now, for the week's card.
     @ObservationIgnored var uses: () -> Set<UpgradeReminder.Use> = { [] }
     /// Opens Settings › Plans.
     @ObservationIgnored var onSeePlus: () -> Void = {}
-    /// A card came on screen, and "Not now" on one, for usage counts. The
-    /// gallery's model never calls them.
+    /// A card came on screen (once, not at each open it comes back at), and
+    /// "Not now" on one, for usage counts. The gallery's model never calls them.
     @ObservationIgnored var onShown: (UpgradeReminder.Kind) -> Void = { _ in }
     @ObservationIgnored var onNotNow: (UpgradeReminder.Kind) -> Void = { _ in }
 
     @ObservationIgnored private var reminders: UpgradeReminders
+    /// The card up now was drawn and counted. A card is picked when the
+    /// panel opens but only counts once it is drawn: dictation or a spoken
+    /// answer can open the panel with the widgets, and the card, hidden.
+    @ObservationIgnored private var cardCounted = false
     /// Nil for the state gallery's, which keeps nothing.
     @ObservationIgnored private let defaults: UserDefaults?
 
@@ -87,7 +95,9 @@ final class UpgradeReminderModel {
     func islandOpened(now: Date = Date()) {
         guard defaults != nil, card == nil else { return }
         let onFree = onFree()
-        if onFree { change { $0.openedOnFree(now: now) } }
+        if onFree { change { $0.openedOnFree(now: now) } } else { change { $0.leftFree() } }
+        // Nothing is seen behind it: the card waits for the next open.
+        if panelTaken() { return }
         if otherCardUp() {
             if onFree { change { $0.anotherCardShown(now: now) } }
             return
@@ -95,9 +105,23 @@ final class UpgradeReminderModel {
         guard let due = reminders.due(onFree: onFree, callOn: callOn(), agentAsking: agentAsking(),
                                       uses: uses(), now: now) else { return }
         card = due
-        change { $0.shown(due, now: now) }
-        onShown(due.kind)
-        Self.log.info("free reminder shown: \(due.kind.rawValue, privacy: .public)")
+        cardCounted = false
+    }
+
+    /// The card was drawn: now it is the day's one. Called by the card's
+    /// view, so a card picked but never drawn is still due next open.
+    func cardAppeared(now: Date = Date()) {
+        guard defaults != nil, let card, !cardCounted else { return }
+        cardCounted = true
+        // Back from an earlier open, still waiting for an answer: counted then.
+        let back = reminders.unanswered == card.kind
+        change { $0.shown(card, now: now) }
+        if back {
+            Self.log.info("free reminder back: \(card.kind.rawValue, privacy: .public)")
+        } else {
+            onShown(card.kind)
+            Self.log.info("free reminder shown: \(card.kind.rawValue, privacy: .public)")
+        }
     }
 
     func islandClosed() {
@@ -110,6 +134,7 @@ final class UpgradeReminderModel {
     func seePlus() {
         if let card { Self.log.info("free reminder: see plus (\(card.kind.rawValue, privacy: .public))") }
         card = nil
+        change { $0.answered() }
         onSeePlus()
     }
 

@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import AirlockCore
 
@@ -33,6 +34,18 @@ enum GalleryCallNotesPanel {
                 let call = meet(since: 25)
                 return banner(.recording(call, since: call.startedAt),
                               record: record(of: call, event: weekly, said: opening))
+            },
+            GalleryState("K15a", area, "Panel: notes start, both sides heard") {
+                let call = meet(since: 6)
+                return banner(.recording(call, since: call.startedAt),
+                              record: record(of: call, event: weekly, said: opening),
+                              startCheck: check(mic: true, theirs: true))
+            },
+            GalleryState("K15b", area, "Panel: notes start, the other side refused") {
+                let call = meet(since: 50)
+                return banner(.recording(call, since: call.startedAt),
+                              record: record(of: call, event: weekly, said: opening),
+                              startCheck: check(mic: true, theirs: false, refused: true))
             },
             GalleryState("K16", area, "Panel: taking notes, two jots") {
                 let call = faceTime(since: 754)
@@ -124,6 +137,48 @@ enum GalleryCallNotesPanel {
                 return banner(.ready(folder: "/var/empty/weekly", call: call), stoppedAtLimit: true,
                               record: record(of: call, event: weekly, said: opening), notes: weeklyNotes)
             },
+            // On Free, a call whose invite had two or more others: they were
+            // all "Them", and Plus would have told them apart. Over the limit
+            // the voices join the limit's line rather than add one.
+            GalleryState("K93a", area, "Panel: Free, stopped at 30 min, the voices were all \"Them\" too") {
+                let call = meet(since: 41 * 60)
+                return banner(.ready(folder: "/var/empty/weekly", call: call), stoppedAtLimit: true,
+                              record: record(of: call, event: weekly, said: opening, ended: true),
+                              notes: weeklyNotes)
+            },
+            // With the server's key to seal to, Free goes on listening past
+            // 30 minutes and holds the rest for Plus (`LockedPart`).
+            GalleryState("K99", area, "Panel: Free, 26 min in, the rest will be kept") {
+                let call = faceTime(since: 26 * 60)
+                return banner(.recording(call, since: call.startedAt),
+                              record: record(of: call, event: withAna, said: launchTalk,
+                                             jots: ["Pricing copy by Thursday"]),
+                              listening: NotesListening(startedOn: PlanSnapshot(plan: .free, isPaid: false),
+                                                        call: call, at: RunningTime.now() - 26 * 60),
+                              locks: true)
+            },
+            GalleryState("K99a", area, "Panel: Free, 34 min in, still listening") {
+                let call = faceTime(since: 34 * 60)
+                return banner(.recording(call, since: call.startedAt), locked: true,
+                              record: record(of: call, event: withAna, said: launchTalk,
+                                             jots: ["Pricing copy by Thursday"]),
+                              locks: true)
+            },
+            GalleryState("K99b", area, "Panel: Free, locked past 30 min, writing") {
+                banner(.writing(faceTime(since: 42 * 60)), locked: true, event: withAna, locks: true)
+            },
+            GalleryState("K99c", area, "Panel: Free, notes ready, the last 11 minutes kept") {
+                let call = meet(since: 41 * 60)
+                return banner(.ready(folder: "/var/empty/weekly", call: call), locked: true,
+                              record: lockedRecord(of: call, event: weekly, said: opening, past: 11 * 60),
+                              notes: weeklyNotes, locks: true)
+            },
+            GalleryState("K96a", area, "Panel: Free, notes ready, everyone else was \"Them\"") {
+                let call = meet(since: 24 * 60)
+                return banner(.ready(folder: "/var/empty/weekly", call: call),
+                              record: record(of: call, event: weekly, said: opening, ended: true),
+                              notes: weeklyNotes)
+            },
         ]
     }
 
@@ -131,16 +186,26 @@ enum GalleryCallNotesPanel {
 
     private static func banner(_ phase: MeetingNotesFlow.Phase, pausedSince: Date? = nil,
                                endedBySleep: Bool = false, stoppedAtLimit: Bool = false,
+                               locked: Bool = false,
                                record: MeetingRecord? = nil, notes: MeetingNotes? = nil,
                                event: MeetingEvent? = nil,
                                allowanceUntil: Date? = nil, listening: NotesListening? = nil,
-                               notesPlace: NotesPlace = .mac) -> some View {
+                               notesPlace: NotesPlace = .mac, locks: Bool = false,
+                               startCheck: CallStartCheck? = nil) -> some View {
         let flow = MeetingNotesFlow(previewing: phase, pausedSince: pausedSince, endedBySleep: endedBySleep,
-                                    listening: listening, stoppedAtLimit: stoppedAtLimit)
+                                    listening: listening, stoppedAtLimit: stoppedAtLimit, locked: locked)
         let model = MeetingNotesModel(previewing: flow, record: record, notes: notes, event: event,
-                                      allowanceUntil: allowanceUntil)
+                                      allowanceUntil: allowanceUntil, locks: locks, startCheck: startCheck)
         model.previewNotesPlace = notesPlace
         return MeetingNotesBanner(meetings: model)
+    }
+
+    /// The start check after one look.
+    private static func check(mic: Bool, theirs: Bool, refused: Bool = false) -> CallStartCheck {
+        var check = CallStartCheck()
+        check.update(micHeard: mic, micRefused: false, theirsHeard: theirs, theirsNotAllowed: refused,
+                     lastCallRefused: false, now: Date())
+        return check
     }
 
     /// The card while notes are taken of the weekly sync on Meet, 19 minutes
@@ -181,13 +246,31 @@ enum GalleryCallNotesPanel {
     }
 
     private static func record(of call: OngoingCall, event: MeetingEvent?, said: [MeetingSegment],
-                               jots: [String] = []) -> MeetingRecord {
+                               jots: [String] = [], ended: Bool = false) -> MeetingRecord {
         var record = MeetingRecord(bundleID: call.bundleID, appName: call.appName, site: call.site,
-                                   startedAt: call.startedAt, languages: ["en-GB"], event: event)
+                                   startedAt: call.startedAt, endedAt: ended ? Date() : nil,
+                                   languages: ["en-GB"], event: event)
         said.forEach { record.add($0) }
         for (index, text) in jots.enumerated() {
             record.jot(text, at: 120 + Double(index) * 90)
         }
+        return record
+    }
+
+    /// A finished call locked at 30 minutes and heard `past` seconds more,
+    /// sealed to a key made up for the drawing.
+    static func lockedRecord(of call: OngoingCall, event: MeetingEvent?, said: [MeetingSegment],
+                             past: TimeInterval) -> MeetingRecord {
+        var record = record(of: call, event: event, said: said)
+        let from = PlanLimits.freeNotesListen
+        if let sealer = try? CallLock.Sealer(publicKey: Curve25519.KeyAgreement.PrivateKey().publicKey,
+                                             machine: nil, keptUntil: CallLock.keptUntil(startedAt: call.startedAt),
+                                             from: from) {
+            record.locked = sealer.part
+            record.add(MeetingSegment(speaker: .them, start: from + 20, end: from + 26,
+                                      text: "Made up, and sealed."), sealing: sealer)
+        }
+        record.endedAt = call.startedAt.addingTimeInterval(from + past)
         return record
     }
 

@@ -14,8 +14,9 @@ enum TrayRailDestination: String, Hashable, CaseIterable {
     var label: String {
         switch self {
         case .airDrop: return "AirDrop"
-        case .downloads: return "Downloads"
-        case .trash: return "Trash"
+        case .downloads: return String(localized: "Downloads")
+        case .trash: return String(localized: "Trash")
+
         }
     }
 

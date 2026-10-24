@@ -74,7 +74,7 @@ struct PermissionFixRow: View {
         VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
             if knownOldApproval {
                 ProblemCard(sentence: kind.oldApprovalSentence,
-                            button: running ? "Fixing…" : "Fix",
+                            button: running ? String(localized: "Fixing…") : String(localized: "Fix"),
                             action: { if !running { confirming = true } })
                 LookNote(kind.oldApprovalSteps)
             } else {
@@ -108,10 +108,10 @@ struct PermissionFixRow: View {
             // Still opens the list: the by-hand route (remove with –, add
             // back with +) is the next thing to try, and it lives there.
             if !kind.asksWithADialog, let url = kind.settingsURL {
-                result = "Nothing was changed. In the list that opened, remove Airlock with –, then add it back with +."
+                result = String(localized: "Nothing was changed. In the list that opened, remove Airlock with –, then add it back with +.")
                 NSWorkspace.shared.open(url)
             } else {
-                result = "Nothing was changed."
+                result = String(localized: "Nothing was changed.")
             }
             return
         }

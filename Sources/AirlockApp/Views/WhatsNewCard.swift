@@ -61,12 +61,25 @@ struct WhatsNewCard: View {
             }
 
             // Lines left off a card that folds several updates together. Said,
-            // so the short card is not mistaken for everything.
+            // so the short card is not mistaken for everything, and a link to
+            // the website's list, where the rest are. Nothing is fetched to
+            // draw it; the page opens only on a click.
             if card.moreCount > 0 {
-                Text(card.moreCount == 1 ? "and 1 more change" : "and \(card.moreCount) more changes")
+                Button { NSWorkspace.shared.open(WhatsNew.changelogURL(for: card.version)) } label: {
+                    HStack(spacing: 3) {
+                        Text(card.moreCount == 1 ? "and 1 more change" : "and \(card.moreCount) more changes")
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 8.5, weight: .semibold))
+                    }
                     .font(Theme.chrome(11))
-                    .foregroundStyle(Theme.textTertiary)
-                    .padding(.leading, 7)
+                    .foregroundStyle(Theme.textSecondary)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .clickable()
+                .help("Opens every change, on useairlock.app, in your browser.")
+                .accessibilityLabel("See \(card.moreCount) more changes on the website")
+                .padding(.leading, 7)
             }
 
             HStack {

@@ -13,7 +13,7 @@ import AirlockCore
 /// and the Dock icon has to stay for the click that brings them back.
 ///
 /// Panels that float over other apps (the notch, the window beside a live
-/// call, the drop catcher, the guide's overlays) are never reported, so they
+/// call, the drop catcher) are never reported, so they
 /// never count; they set `canHide = false` instead, so hiding the app from its
 /// Dock icon leaves them where they are.
 @MainActor

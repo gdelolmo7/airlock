@@ -37,7 +37,8 @@ final class SendableExemptionTests: XCTestCase {
             AVAudioEngine tap callback, delivered serially on one realtime thread. \
             No domain state — no model, no session. The converter is never used \
             concurrently, pendingInput never escapes the synchronous convert call, \
-            and the only values read from outside are two Floats behind a lock.
+            and the only values read from outside are two Floats and a flag, \
+            all behind a lock.
             """,
         "SystemAudioTap": """
             KNOWN NON-CONFORMING, deferred deliberately — see \

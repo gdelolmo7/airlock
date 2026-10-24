@@ -109,8 +109,8 @@ public enum MeetingTimeline {
     /// The windows pass the time of day as `clock` (`CallsCard.time`).
     public static func pauseLabel(_ pause: MeetingPause,
                                   clock: (TimeInterval) -> String = MeetingFiles.clock) -> String {
-        guard let end = pause.end else { return "Paused from \(clock(pause.start))" }
-        return "Paused \(clock(pause.start))–\(clock(end))"
+        guard let end = pause.end else { return String(localized: "Paused from \(clock(pause.start))") }
+        return String(localized: "Paused \(clock(pause.start))–\(clock(end))")
     }
 
     /// The changes of language the transcript marks: each one after a side's
@@ -134,7 +134,7 @@ public enum MeetingTimeline {
     /// "Catalan from 10:12", with the time of day as `clock` in the windows.
     public static func languageLabel(_ listening: MeetingListening,
                                      clock: (TimeInterval) -> String = MeetingFiles.clock) -> String {
-        let name = CallLanguageFollow.name(of: listening.language) ?? listening.language
-        return "\(name) from \(clock(listening.from))"
+        let name = CallLanguageFollow.shownName(of: listening.language) ?? listening.language
+        return String(localized: "\(name) from \(clock(listening.from))")
     }
 }

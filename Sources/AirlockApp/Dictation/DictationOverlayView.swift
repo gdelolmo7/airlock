@@ -28,10 +28,9 @@ struct DictationOverlayView: View {
     @Environment(DictationModel.self) private var dictation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The three things that decide which card is up.
+    /// The two things that decide which card is up.
     private struct Shown: Equatable {
         var silent: DictationModel.SilentHold?
-        var heard: DictationModel.HeardDictation?
         var notice: DictationHoldNotice?
     }
 
@@ -39,7 +38,7 @@ struct DictationOverlayView: View {
     @State private var lastShown = Shown()
 
     private var live: Shown {
-        Shown(silent: dictation.heardNothing, heard: dictation.heardDictation, notice: dictation.holdNotice)
+        Shown(silent: dictation.heardNothing, notice: dictation.holdNotice)
     }
 
     private var shown: Shown { frozen ? lastShown : live }
@@ -58,14 +57,6 @@ struct DictationOverlayView: View {
             HeardNothingCard(silent: silent,
                              chooseInput: { dictation.chooseInput() },
                              dismiss: { dictation.dismissHeardNothing() })
-        } else if let card = shown.heard {
-            HeardDictationCard(card: card,
-                               keyHint: dictation.askKeyHint,
-                               canAsk: dictation.canAskHeardDictation,
-                               type: { dictation.typeHeardDictation() },
-                               ask: { dictation.askHeardDictation() },
-                               guide: { dictation.guideHeardDictation() },
-                               dismiss: { dictation.dismissHeardDictation() })
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 if let notice = shown.notice {
@@ -85,9 +76,6 @@ struct DictationOverlayView: View {
     private var listening: some View {
         ListeningStrip(isListening: dictation.isListening,
                        isFinishing: dictation.isFinishing,
-                       isSorting: dictation.isSorting,
-                       isAsking: dictation.isAsking,
-                       askRoute: dictation.askRoute,
                        route: dictation.route,
                        destinationName: dictation.destinationName,
                        liveText: dictation.liveText,
@@ -100,7 +88,7 @@ struct DictationOverlayView: View {
 /// so a dictation that could not record looks like every other problem in
 /// the app (rule 6 of `docs/how-airlock-talks.md`).
 ///
-/// Plain values in, like the two cards below, so the state gallery draws the
+/// Plain values in, like the card below, so the state gallery draws the
 /// same card the notch does.
 struct HoldNoticeCard: View {
     let notice: DictationHoldNotice
@@ -128,77 +116,6 @@ struct HoldNoticeCard: View {
     }
 }
 
-/// An ask-key hold the sort read as dictation: words for a document or a
-/// coding agent, spoken on the asking key. Nothing has happened yet — no
-/// answer, no guide, no typing — and this is where the person says which.
-///
-/// "Type it" is the prominent one because a slip onto the ask key is the
-/// common case; the other two are one click for when the sort was wrong.
-/// Nothing is typed without that click: the key stated "ask", and only
-/// the person can restate it (see `DictationModel.askKey`).
-///
-/// Plain values in, so the state gallery can draw it without a dictation
-/// model — which owns the audio engine.
-struct HeardDictationCard: View {
-    let card: DictationModel.HeardDictation
-    /// `DictationModel.askKeyHint`.
-    let keyHint: String
-    /// The assistant can be off, and then there is nothing to ask.
-    let canAsk: Bool
-    let type: () -> Void
-    let ask: () -> Void
-    let guide: () -> Void
-    let dismiss: () -> Void
-
-    var body: some View {
-        let tint = Theme.running
-        return HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "keyboard")
-                .font(.system(size: 15))
-                .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
-                .background(tint.opacity(0.14), in: .circle)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(card.certain ? "Sounded like dictation" : "Type it, ask it, or be guided?")
-                        .font(Theme.chrome(11, .semibold))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text(keyHint)
-                        .font(Theme.chrome(10))
-                        .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1)
-                }
-
-                Text("“\(card.text)”")
-                    .font(Theme.chrome(11.5))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 6) {
-                    OverlayCardButton(title: card.app.map { "Type it into \($0)" } ?? "Type it",
-                                      prominent: true, tint: tint, perform: type)
-                    if canAsk {
-                        OverlayCardButton(title: "Ask", prominent: false, tint: tint, perform: ask)
-                    }
-                    OverlayCardButton(title: "Guide me", prominent: false, tint: tint, perform: guide)
-                    OverlayCardButton(title: "Esc", prominent: false, tint: tint, perform: dismiss)
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, 2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(Theme.rowFill, in: .rect(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(tint.opacity(0.4), lineWidth: 1)
-        }
-    }
-}
-
 /// The hold that produced no audio at all — and which of the two that was.
 ///
 /// It used to be one card saying the microphone was at fault, because the
@@ -206,7 +123,7 @@ struct HeardDictationCard: View {
 /// the wrong half of the story: the app closed the window before the input
 /// had started, and the card sent people to Settings to check hardware that
 /// was working. `SilentCapture` decides which of these it was; this only
-/// draws it. Plain values in, like `HeardDictationCard`.
+/// draws it. Plain values in, like `HoldNoticeCard`.
 struct HeardNothingCard: View {
     let silent: DictationModel.SilentHold
     let chooseInput: () -> Void
@@ -277,7 +194,7 @@ struct HeardNothingCard: View {
 
 /// The two cards' buttons.
 private struct OverlayCardButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let prominent: Bool
     var tint: Color = Theme.needs
     let perform: () -> Void
@@ -306,9 +223,6 @@ struct ListeningStrip: View {
     let isListening: Bool
     /// The key is up; the last words are still arriving.
     var isFinishing = false
-    let isSorting: Bool
-    let isAsking: Bool
-    let askRoute: GuideRouting.Route?
     let route: DictationRoute
     let destinationName: String?
     let liveText: String
@@ -345,7 +259,7 @@ struct ListeningStrip: View {
 
     /// The cloud alone, big enough to be the thing you look at, moving with
     /// your voice while the microphone is live and glancing about once it is
-    /// off and the words are being sorted or tidied. See `ListeningBloub`.
+    /// off and the words are being tidied. See `ListeningBloub`.
     ///
     /// **No wave under it** (owner's gallery walk, 2026-10-05: "remove the
     /// wave form, make the cloud bigger and react to sound"). The wave was
@@ -360,17 +274,14 @@ struct ListeningStrip: View {
             .frame(width: 40, height: 34)
     }
 
-    /// Blue for words going into a document, violet for a question to the
-    /// notch — the two keys, told apart before a word is said.
-    private var tint: Color { isAsking ? Theme.assistant : Theme.running }
+    private var tint: Color { Theme.running }
 
     /// Where the words are going, as one line: "Release to type into Notes",
-    /// "Release to ask", "Tidying up…".
+    /// "Release to copy it", "Tidying up…".
     ///
-    /// Asking is stated by the key you held, so that half is never a guess. The
-    /// type-or-copy half still comes from a focus probe — but its worst case is
-    /// a transcript on the clipboard rather than a sentence executed as
-    /// keyboard shortcuts, which is why it is allowed to be a heuristic at all.
+    /// Type-or-copy comes from a focus probe — its worst case is a transcript
+    /// on the clipboard rather than a sentence executed as keyboard shortcuts,
+    /// which is why it is allowed to be a heuristic at all.
     private var caption: some View {
         HStack(spacing: 5) {
             if isListening && !isFinishing {
@@ -398,26 +309,17 @@ struct ListeningStrip: View {
         guard isListening else {
             // The pause between letting go and anything happening is the model
             // working. Named, so it is not read as the app missing the key.
-            return isSorting ? "Working out what you meant…" : "Tidying up…"
+            return String(localized: "Tidying up…")
         }
         // Let go already: "Release to…" would be an instruction already
         // followed, and read as the key not having registered.
-        if isFinishing { return "Catching your last words…" }
-        if isAsking {
-            // With the guide on, the line says which way the words are leaning
-            // as they are spoken, so "how do I…" visibly becomes a guide.
-            switch askRoute {
-            case .guide: return "Release to be guided"
-            case .chat: return "Release to chat"
-            case .unsure, nil: return "Release to ask"
-            }
-        }
-        if route == .copy { return "Release to copy it" }
-        return "Release to type into \(destinationName ?? "the front app")"
+        if isFinishing { return String(localized: "Catching your last words…") }
+        if route == .copy { return String(localized: "Release to copy it") }
+        let destination = destinationName ?? String(localized: "the front app")
+        return String(localized: "Release to type into \(destination)")
     }
 
     private var symbol: String {
-        if isAsking { return askRoute == .guide ? "safari" : "sparkles" }
         return route == .copy ? "doc.on.clipboard" : "arrow.turn.down.right"
     }
 

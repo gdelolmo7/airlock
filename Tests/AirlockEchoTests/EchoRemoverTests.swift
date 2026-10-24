@@ -131,4 +131,80 @@ final class EchoRemoverTests: XCTestCase {
         XCTAssertLessThan(held, EchoRemover.maxWait + 0.15)
         XCTAssertEqual(returned + remover.finish().count, mic.count)
     }
+
+    /// Your voice over speakers that play next to nothing (a hiss, the
+    /// call's comfort noise), then the other side loud with you quiet:
+    /// what the filter learned from your voice must never come out as a
+    /// roar. On a call it did, for minutes, the filter's leftover thirty
+    /// times the microphone's. Whatever happens, no stretch comes out
+    /// louder than the microphone went in.
+    func testItNeverMakesTheMicrophoneLouder() {
+        let seconds = 24.0
+        let count = Int(seconds * Double(rate))
+        let hiss = Room.noise(count: count, level: 2e-4, seed: 20)
+        var far = Room.talk(seconds: seconds, level: 0.2, seed: 21)
+        // The other side silent but for the hiss for the first 10 seconds.
+        for index in 0..<count where index < 10 * rate { far[index] = 0 }
+        far = Room.add(far, hiss)
+        var near = Room.talk(seconds: seconds, level: 0.1, seed: 22)
+        for index in 0..<count where index >= 10 * rate { near[index] *= 0.05 }
+        let echo = macBookEcho(far)
+        let mic = Room.add(Room.add(echo, near), Room.noise(count: count, level: 1e-4, seed: 23))
+        let remover = EchoRemover()
+        let out = Room.run(remover, mic: mic, reference: far)
+
+        let tenth = rate / 10
+        var worst = -Double.infinity
+        var from = rate
+        while from + tenth <= count {
+            let span = from..<(from + tenth)
+            worst = max(worst, Room.decibels(Room.power(out[span]) / Room.power(mic[span])))
+            from += tenth
+        }
+        XCTAssertLessThan(worst, 1.5, "\(remover.currentReport)")
+        let late = Room.span(16, 24)
+        let reduction = Room.decibels(Room.power(mic[late]) / Room.power(out[late]))
+        XCTAssertGreaterThan(reduction, 15, "\(remover.currentReport)")
+    }
+
+    /// The room changing for real (a Bluetooth speaker taking over from the
+    /// Mac's own): the line-up follows, once fresh seconds agree, and the
+    /// echo goes again.
+    func testTheLineUpFollowsARoomThatChanges() {
+        let far = Room.talk(seconds: 30, level: 0.1, seed: 24)
+        let first = macBookEcho(far)
+        let second = Room.convolve(far, with: Room.room(delay: 4_800, gain: 0.4, seed: 25))
+        let change = 10 * rate
+        let echo = (0..<far.count).map { $0 < change ? first[$0] : second[$0] }
+        let mic = Room.add(echo, Room.noise(count: far.count, level: 1e-4, seed: 26))
+        let remover = EchoRemover()
+        let out = Room.run(remover, mic: mic, reference: far)
+
+        let report = remover.currentReport
+        XCTAssertEqual(report.delayMilliseconds ?? 0, 300, accuracy: 2, "\(report)")
+        let late = Room.span(22, 30)
+        let reduction = Room.decibels(Room.power(mic[late]) / Room.power(out[late]))
+        XCTAssertGreaterThan(reduction, 15, "\(report)")
+    }
+
+    /// A clear line-up and one stray reading of another delay, read from
+    /// the same seconds again: the line-up never moves (each move throws
+    /// away what the filter learned). The room's 40 ms is close enough to
+    /// the guess it starts from that it is never moved at all.
+    func testTheLineUpHoldsAgainstAStrayReading() {
+        let far = Room.talk(seconds: 30, level: 0.1, seed: 27)
+        let echo = macBookEcho(far)
+        // Two seconds where the microphone also hears the speakers' sound
+        // again, 0.8 s later and fainter, as off a far wall or the other
+        // side's own speakers.
+        let stray = Room.convolve(far, with: Room.room(delay: 12_800, gain: 0.2, seed: 28))
+        let mic = Room.add(Room.add(echo, (0..<far.count).map { (15 * rate..<17 * rate).contains($0) ? stray[$0] : 0 }),
+                           Room.noise(count: far.count, level: 1e-4, seed: 29))
+        let remover = EchoRemover()
+        _ = Room.run(remover, mic: mic, reference: far)
+
+        let report = remover.currentReport
+        XCTAssertEqual(report.realigned, 0, "\(report)")
+        XCTAssertEqual(report.delayMilliseconds ?? 0, 40, accuracy: 2, "\(report)")
+    }
 }

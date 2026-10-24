@@ -98,8 +98,8 @@ public struct License: Equatable, Sendable, Codable {
         /// forever, so the token never carries one.
         public var label: String {
             switch self {
-            case .monthly: return "Monthly"
-            case .yearly: return "Yearly"
+            case .monthly: return String(localized: "Monthly")
+            case .yearly: return String(localized: "Yearly")
             }
         }
     }

@@ -268,10 +268,10 @@ public enum OutputMute {
     ///   different claims and only one of them is being made.
     public static func spokenLevel(volume: Float, isMuted: Bool) -> String {
         let percent = Int((volume * 100).rounded())
-        guard isMuted else { return "\(percent) percent" }
+        guard isMuted else { return String(localized: "\(percent) percent") }
         // Nothing behind the mute: "muted, 0 percent" says the same thing twice,
         // and zero is not a level anybody is coming back to.
-        return percent > 0 ? "muted, \(percent) percent" : "muted"
+        return percent > 0 ? String(localized: "muted, \(percent) percent") : String(localized: "muted")
     }
 
     /// The level to write on the way OUT of mute, or nil when the device came

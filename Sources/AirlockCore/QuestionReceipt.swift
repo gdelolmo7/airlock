@@ -38,8 +38,8 @@ public struct QuestionReceipt: Codable, Sendable, Hashable {
 
     public var title: String {
         switch reason {
-        case .ignored: return "Asked in its terminal instead"
-        case .agentExited: return "Exited before you answered"
+        case .ignored: return String(localized: "Asked in its terminal instead")
+        case .agentExited: return String(localized: "Exited before you answered")
         }
     }
 }

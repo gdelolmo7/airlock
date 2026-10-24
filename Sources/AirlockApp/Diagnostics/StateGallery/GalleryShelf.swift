@@ -53,6 +53,43 @@ enum GalleryShelf {
                   error: TrayModel.couldNotTrash(CocoaError(.fileWriteNoPermission, userInfo: [
                       NSFilePathErrorKey: root.appendingPathComponent("tray/Invoice 0412.pdf").path,
                   ]))),
+            pocket("S16", "Drop box: a file near the top", .open),
+            pocket("S17", "Drop box: the file on it", .over),
+            pocket("S18", "Drop box: kept", .landed, note: .done(.shelf, count: 1)),
+            shelf("S19", "A phone photo over the shelf: the format row", items: files, targeted: true,
+                  pictures: onePhoto),
+            shelf("S20", "Three pictures on the JPG chip (and One PDF at the end)", items: files,
+                  targeted: true, pictures: threePictures, over: .format(.jpeg)),
+            shelf("S21", "A picture copy that failed", items: files,
+                  error: PictureConversionResult(target: .format(.png), made: 0, failures: [
+                      .init(name: "IMG_0042.heic", reason: PictureConversionResult.unreadable),
+                  ]).message),
+            pocket("S22", "Drop box: a photo near the top, formats over actions", .open,
+                   sources: [.picture(.heic)]),
+            pocket("S23", "Drop box: three pictures on the JPG chip", .over,
+                   sources: Array(repeating: .picture(.heic), count: 3), over: .choice(.picture(.jpeg))),
+            pocket("S24", "Drop box: the file on AirDrop", .over, over: .airDrop),
+            pocket("S25", "Drop box: a copy on its way", .landed, sources: [.picture(.heic)],
+                   note: .done(.choice(.picture(.png)), count: 1)),
+            pocket("S26", "Drop box: AirDrop refused", .landed,
+                   note: .refused(TrayModel.airDropUnavailable("Notes.txt"))),
+            pocket("S27", "Drop box on Free: a photo on WebP, with the Plus tag", .over,
+                   sources: [.picture(.jpeg)], over: .choice(.picture(.webp)), extras: false),
+            pocket("S28", "Drop box: a PDF on Split pages", .over, sources: [.pdf],
+                   over: .choice(.splitPages)),
+            pocket("S29", "Drop box: a film", .open, sources: [.video(isMP4: false)]),
+            pocket("S30", "Drop box: an MP3 on Write it out", .over, sources: [.audio(nil)],
+                   over: .choice(.writeItOut)),
+            pocket("S31", "Drop box: a Word file", .open, sources: [.document(.word)]),
+            pocket("S32", "Drop box: a folder and two files", .open, sources: [.folder, .pdf, .other]),
+            pocket("S33", "Drop box on Free: remove background dropped, left where it was", .landed,
+                   sources: [.picture(.heic)], note: .locked(.cutOut), extras: false),
+            pocket("S34", "Drop box on Free: WebP dropped, left where it was, with See Plus", .landed,
+                   sources: [.picture(.jpeg)], note: .locked(.picture(.webp), offerPlan: true), extras: false),
+            // A window of its own under the notch, not part of the island.
+            GalleryState("S35", area, "First three drags: the line under the notch") {
+                DragHintLabel()
+            },
         ]
     }
 
@@ -60,20 +97,53 @@ enum GalleryShelf {
 
     private static func shelf(_ id: String, _ name: String, items: [TrayItem],
                               ingesting: [String] = [], error: String? = nil, fix: TrayFix? = nil,
-                              targeted: Bool = false, rejection: String? = nil) -> GalleryState {
+                              targeted: Bool = false, rejection: String? = nil,
+                              pictures: [PictureSource] = [], over: PictureTarget? = nil) -> GalleryState {
         GalleryState(id, area, name) {
             TraySectionView()
                 .environment(TrayModel(previewing: items, ingesting: ingesting, lastError: error,
                                        lastErrorFix: fix, layout: WorkspaceLayout(root: root)))
-                .environment(drag(targeted: targeted, rejection: rejection))
+                .environment(drag(targeted: targeted, rejection: rejection, pictures: pictures, over: over))
         }
     }
 
-    /// A drag hovering over the panel, as the drop target reports it.
-    private static func drag(targeted: Bool, rejection: String?) -> NotchUIState {
+    /// The island as the drop box (`DropPocket`), at the box's own width: it
+    /// is all the island draws while it is up.
+    private static func pocket(_ id: String, _ name: String, _ phase: DropPocket.Phase,
+                               sources: [DropSource] = [], over: DropPocketTarget? = nil,
+                               note: DropPocketNote? = nil, extras: Bool = true) -> GalleryState {
+        let state = NotchUIState()
+        // Every ability on, so the gallery draws the whole box whatever this
+        // Mac's speech model says.
+        state.pocketOffer = DropOffer.make(sources: sources, abilities: DropAbilities(
+            writablePictures: DropReader.writablePictures, takesNotes: true))
+        state.pocketExtras = extras
+        state.overPocketTarget = over
+        state.pocketNote = note
+        return GalleryState(id, area, name, width: DropPocketLayout.width + 28) {
+            DropPocketView(phase: phase)
+                .environment(state)
+                .environment(NotchAppearanceModel(defaults: plainLook))
+                // Its ground is over-drawn for the island to clip; here
+                // nothing else would, and it covers the picture's label.
+                .clipped()
+        }
+    }
+
+    /// A suite nothing writes to, so the box is drawn on the default black
+    /// whatever look this Mac picked.
+    private static let plainLook = UserDefaults(suiteName: "com.airlock.state-gallery") ?? .standard
+
+    /// A drag hovering over the panel, as the drop target reports it. The
+    /// format row is this Mac's own: a format it can't write is not drawn.
+    private static func drag(targeted: Bool, rejection: String?, pictures: [PictureSource],
+                             over: PictureTarget?) -> NotchUIState {
         let state = NotchUIState()
         state.isDropTargeted = targeted
         state.dropRejection = rejection
+        state.pictureOffer = PictureOffer.make(sources: pictures,
+                                               writable: PictureConverter.writableTypeIdentifiers)
+        state.overPictureTarget = over
         return state
     }
 
@@ -107,4 +177,7 @@ enum GalleryShelf {
                                      sizeIsKnown: false)
     /// Walked, and nothing in it.
     private static let emptyFolder = item("New folder", 0, minutesAgo: 3, isDirectory: true)
+
+    private static let onePhoto: [PictureSource] = [.picture(.heic)]
+    private static let threePictures: [PictureSource] = [.picture(.heic), .picture(.png), .picture(.webp)]
 }

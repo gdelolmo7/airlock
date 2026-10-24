@@ -76,7 +76,8 @@ struct SoundSectionView: View {
 /// HDMI display, most receivers — and nothing is playing. The header still
 /// names the device; this says why there is no slider under it.
 struct OwnVolumeNote: View {
-    static let sentence = "This output's volume is set on the device itself."
+    static let sentence = String(localized: "This output's volume is set on the device itself.")
+
 
     var body: some View {
         Text(Self.sentence)

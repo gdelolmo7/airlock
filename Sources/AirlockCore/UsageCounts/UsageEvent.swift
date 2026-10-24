@@ -169,7 +169,8 @@ public struct UsageEvent: Equatable, Sendable {
         UsageEvent("plan_changed", ["from": .word(from.rawValue), "to": .word(to.rawValue)])
     }
 
-    /// One of Free's reminders came on screen in the notch. With
+    /// One of Free's reminders came on screen in the notch: once a card, not
+    /// again at the later opens it comes back at until answered. With
     /// `plansOpened`, `checkoutOpened` and `planChanged`, the whole way from
     /// seeing Plus to paying for it.
     public static func reminderShown(_ kind: UpgradeReminder.Kind) -> UsageEvent {

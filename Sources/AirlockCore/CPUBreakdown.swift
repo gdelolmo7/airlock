@@ -108,12 +108,12 @@ public struct CPUBreakdown: Equatable, Sendable {
     /// What the leftover is called while it holds only what the list could
     /// never have named: other users' processes, which are macOS's own, and
     /// the owner's processes too small for a row.
-    public static let backgroundName = "macOS & background"
+    public static let backgroundName = String(localized: "macOS & background")
 
     /// What it is called once an app that would have had a row is inside it.
     /// "macOS & background" around a 3% Spotify would be false, and the
     /// vaguer name is always true.
-    public static let everythingElseName = "Everything else"
+    public static let everythingElseName = String(localized: "Everything else")
 
     public var leftoverName: String {
         leftoverHoldsApps ? Self.everythingElseName : Self.backgroundName

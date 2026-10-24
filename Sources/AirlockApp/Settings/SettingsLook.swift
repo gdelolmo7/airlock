@@ -58,12 +58,16 @@ struct LookPageHeader: View {
 
 /// A small heading over a group of rows inside "More options".
 struct LookGroupLabel: View {
-    let text: String
+    let text: Text
 
-    init(_ text: String) { self.text = text }
+    init(_ text: LocalizedStringKey) { self.text = Text(text) }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ text: S) { self.text = Text(text) }
 
     var body: some View {
-        Text(text.uppercased())
+        text
+            .textCase(.uppercase)
             .font(Theme.label)
             .foregroundStyle(Theme.textTertiary)
             .padding(.leading, 12)
@@ -222,11 +226,20 @@ struct LookColumn<Content: View>: View {
 /// The optional second line is short, a few words, never a paragraph: the
 /// paragraphs live behind "More options".
 struct LookRow<Trailing: View>: View {
-    let title: String
+    let title: Text
     var subtitle: String?
     @ViewBuilder var trailing: () -> Trailing
 
-    init(_ title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
+    init(_ title: LocalizedStringKey, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.init(title: Text(title), subtitle: subtitle, trailing: trailing)
+    }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ title: S, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.init(title: Text(title), subtitle: subtitle, trailing: trailing)
+    }
+
+    init(title: Text, subtitle: String?, @ViewBuilder trailing: @escaping () -> Trailing) {
         self.title = title
         self.subtitle = subtitle
         self.trailing = trailing
@@ -235,7 +248,7 @@ struct LookRow<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                title
                     .font(Theme.chrome(12))
                     .foregroundStyle(Theme.textPrimary)
                 if let subtitle {
@@ -253,19 +266,31 @@ struct LookRow<Trailing: View>: View {
 }
 
 extension LookRow where Trailing == EmptyView {
-    init(_ title: String, subtitle: String? = nil) {
-        self.init(title, subtitle: subtitle) { EmptyView() }
+    init(_ title: LocalizedStringKey, subtitle: String? = nil) {
+        self.init(title: Text(title), subtitle: subtitle) { EmptyView() }
+    }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ title: S, subtitle: String? = nil) {
+        self.init(title: Text(title), subtitle: subtitle) { EmptyView() }
     }
 }
 
 /// A row that is a switch. The whole row flips it, not just the knob.
 struct LookToggleRow: View {
-    let title: String
+    let title: Text
     var subtitle: String?
     @Binding var isOn: Bool
 
-    init(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>) {
-        self.title = title
+    init(_ title: LocalizedStringKey, subtitle: String? = nil, isOn: Binding<Bool>) {
+        self.title = Text(title)
+        self.subtitle = subtitle
+        _isOn = isOn
+    }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ title: S, subtitle: String? = nil, isOn: Binding<Bool>) {
+        self.title = Text(title)
         self.subtitle = subtitle
         _isOn = isOn
     }
@@ -273,8 +298,8 @@ struct LookToggleRow: View {
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        LookRow(title, subtitle: subtitle) {
-            Toggle(title, isOn: $isOn)
+        LookRow(title: title, subtitle: subtitle) {
+            Toggle(isOn: $isOn) { title }
                 .toggleStyle(LookSwitchStyle())
                 .labelsHidden()
         }
@@ -302,12 +327,21 @@ extension View {
 
 /// A value shown as a small key-cap-like chip, as in "⌃ Control".
 struct LookChip: View {
-    let text: String
+    let text: Text
     var showsArrows = false
+
+    init(text: String, showsArrows: Bool = false) {
+        self.init(text: Text(text), showsArrows: showsArrows)
+    }
+
+    init(text: Text, showsArrows: Bool = false) {
+        self.text = text
+        self.showsArrows = showsArrows
+    }
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(text)
+            text
                 .font(Theme.chrome(11.5, .medium))
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
@@ -326,11 +360,17 @@ struct LookChip: View {
 
 /// A choice: the chip is the button, and the menu lists the options.
 struct LookMenu<Items: View>: View {
-    let value: String
+    let value: Text
     @ViewBuilder var items: () -> Items
 
-    init(_ value: String, @ViewBuilder items: @escaping () -> Items) {
-        self.value = value
+    init(_ value: LocalizedStringKey, @ViewBuilder items: @escaping () -> Items) {
+        self.value = Text(value)
+        self.items = items
+    }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ value: S, @ViewBuilder items: @escaping () -> Items) {
+        self.value = Text(value)
         self.items = items
     }
 
@@ -356,14 +396,24 @@ struct LookMenu<Items: View>: View {
 /// `large` is the size a window's own footer uses (the welcome window),
 /// and `isDefault` answers Return there.
 struct LookButton: View {
-    let title: String
+    let title: Text
     var prominent = false
     var large = false
     var isDefault = false
     let action: () -> Void
 
-    init(_ title: String, prominent: Bool = false, large: Bool = false,
+    init(_ title: LocalizedStringKey, prominent: Bool = false, large: Bool = false,
          isDefault: Bool = false, action: @escaping () -> Void) {
+        self.init(title: Text(title), prominent: prominent, large: large, isDefault: isDefault, action: action)
+    }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ title: S, prominent: Bool = false, large: Bool = false,
+                            isDefault: Bool = false, action: @escaping () -> Void) {
+        self.init(title: Text(title), prominent: prominent, large: large, isDefault: isDefault, action: action)
+    }
+
+    private init(title: Text, prominent: Bool, large: Bool, isDefault: Bool, action: @escaping () -> Void) {
         self.title = title
         self.prominent = prominent
         self.large = large
@@ -375,7 +425,7 @@ struct LookButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(title)
+            title
                 .font(Theme.chrome(large ? 13 : 11.5, .semibold))
                 .foregroundStyle(prominent ? Theme.pill : Theme.textPrimary)
                 .padding(.horizontal, large ? 14 : 10)
@@ -394,16 +444,22 @@ struct LookButton: View {
 
 /// A value at the end of a row, in the quieter colour: "12 items".
 struct LookValue: View {
-    let text: String
+    let text: Text
     var monospaced = false
 
-    init(_ text: String, monospaced: Bool = false) {
-        self.text = text
+    init(_ text: LocalizedStringKey, monospaced: Bool = false) {
+        self.text = Text(text)
+        self.monospaced = monospaced
+    }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ text: S, monospaced: Bool = false) {
+        self.text = Text(text)
         self.monospaced = monospaced
     }
 
     var body: some View {
-        Text(text)
+        text
             .font(monospaced ? Theme.chrome(11.5).monospaced() : Theme.chrome(11.5))
             .foregroundStyle(Theme.textSecondary)
             .multilineTextAlignment(.trailing)
@@ -527,7 +583,8 @@ struct LookSideTabs: View {
         let onCalls = calls?.wrappedValue == true
         VStack(alignment: .leading, spacing: 2) {
             if let calls {
-                tab("Calls", symbol: "phone", help: "Every call's notes, what was said, and its recording.",
+                tab(String(localized: "Calls"), symbol: "phone",
+                    help: String(localized: "Every call's notes, what was said, and its recording."),
                     selected: onCalls) { calls.wrappedValue = true }
                 LookGroupLabel("Settings")
                     .padding(.top, 6)
@@ -589,7 +646,7 @@ struct LookSidebar: View {
         VStack(alignment: .leading, spacing: 12) {
             // It searches the settings only; the calls have their own field
             // above their list.
-            LookSearchField(text: $query, hint: calls == nil ? "Search" : "Search settings",
+            LookSearchField(text: $query, hint: calls == nil ? String(localized: "Search") : String(localized: "Search settings"),
                             focusRequest: focusRequest)
             LookSideTabs(pages: pages, selection: $selection, calls: calls)
             Spacer(minLength: 0)
@@ -612,7 +669,7 @@ struct LookSidebar: View {
 /// "Search", in the row box's fill. Esc clears it.
 struct LookSearchField: View {
     @Binding var text: String
-    var hint = "Search"
+    var hint = String(localized: "Search")
     var focusRequest = 0
     @FocusState private var focused: Bool
 

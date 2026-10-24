@@ -1,4 +1,5 @@
 import AVFoundation
+import AirlockCore
 import AirlockObjC
 import Speech
 
@@ -44,13 +45,14 @@ final class AudioCapture {
         var errorDescription: String? {
             switch self {
             case .noConverter(let from, let to):
-                return "Can't convert microphone audio (\(from) → \(to))."
+                return String(localized: "Can't convert microphone audio (\(from) → \(to)).")
             case .engineFailed(let reason):
-                return "The microphone couldn't start — \(reason)"
+                return String(localized: "The microphone couldn't start — \(reason)")
             case .unusableFormat(let format):
-                return "The microphone couldn't start — the input device offers no audio (\(format))."
+                return String(localized: "The microphone couldn't start — the input device offers no audio (\(format)).")
             case .raised:
-                return "The microphone couldn't start — macOS's audio system refused. Try again."
+                return String(localized: "The microphone couldn't start — macOS's audio system refused. Try again.")
+
             }
         }
     }
@@ -85,15 +87,25 @@ final class AudioCapture {
     /// The engine can no longer be trusted but this hold is still using it.
     /// It is replaced at the next `stop()` — never mid-hold.
     private var engineIsStale = false
+    /// When the running engine started, and nil while none is running. What
+    /// `stopWhenSettled` measures its wait from.
+    private var startedAt: Date?
+    /// Counts successful starts, so a stop that waited can tell whether the
+    /// engine it waited on is still the one running.
+    private var starts = 0
+    private let settleCeiling: TimeInterval
 
-    /// Both parameters exist for the tests. An engine in manual rendering mode
+    /// Every parameter exists for the tests. An engine in manual rendering mode
     /// has an input node, a tap and a start but no hardware, so no microphone
-    /// and no permission check; and the real log is a file in the user's
-    /// Library, which a test run must never write.
+    /// and no permission check; the real log is a file in the user's Library,
+    /// which a test run must never write; and such an engine never delivers a
+    /// buffer, so every settled stop would otherwise cost a test a second.
     init(makeEngine: @escaping () -> AVAudioEngine = { AVAudioEngine() },
-         log: @escaping (String) -> Void = dictationLog) {
+         log: @escaping (String) -> Void = dictationLog,
+         settleCeiling: TimeInterval = MicrophoneSettle.ceiling) {
         self.makeEngine = makeEngine
         self.log = log
+        self.settleCeiling = settleCeiling
         engine = makeEngine()
         watch(engine)
     }
@@ -231,6 +243,8 @@ final class AudioCapture {
             try guarded("prepare") { engine.prepare() }
             try guarded("start") { try engine.start() }
             isRunning = true
+            startedAt = Date()
+            starts &+= 1
             return stream
         } catch {
             abandonStart(after: error)
@@ -251,6 +265,7 @@ final class AudioCapture {
                 engineIsStale = true
             }
             isRunning = false
+            startedAt = nil
             // The other end of the tap format line a start writes. Without it
             // the log cannot tell a microphone that was let go from one left on,
             // which macOS reports as sound input still running.
@@ -263,6 +278,35 @@ final class AudioCapture {
         // `pipeline` deliberately survives: `peakLevel` is read after stopping,
         // to tell "you said nothing" from "no audio ever arrived".
         if engineIsStale { replaceEngine() }
+    }
+
+    /// `stop()`, once the engine has delivered its first buffer or the ceiling
+    /// has passed — see `MicrophoneSettle` for the crash a sooner stop caused.
+    ///
+    /// Every planned end of a hold comes through here. `stop()` itself stays
+    /// immediate for the paths that must not wait: the rescue from a stalled
+    /// hold, and `start()` clearing whatever came before. A stop that comes
+    /// after the first buffer, which is nearly every one that is not a
+    /// shortcut, waits for nothing.
+    func stopWhenSettled() async {
+        if isRunning, let startedAt, !(pipeline?.hasDelivered ?? false) {
+            let run = starts
+            var settled: Bool {
+                MicrophoneSettle.mayStop(startedAt: startedAt,
+                                         heardFirstBuffer: pipeline?.hasDelivered ?? false,
+                                         now: Date(), ceiling: settleCeiling)
+            }
+            while isRunning, starts == run, !settled {
+                do { try await Task.sleep(for: .milliseconds(10)) } catch { break }
+            }
+            // Another stop got there first, and perhaps a new hold started
+            // since: that engine is not this wait's to stop.
+            guard isRunning, starts == run else { return }
+            let waited = Int(Date().timeIntervalSince(startedAt) * 1000)
+            log("  waited for the microphone to settle — \(waited) ms after start, "
+                + (pipeline?.hasDelivered == true ? "first buffer in" : "no buffer by the ceiling"))
+        }
+        stop()
     }
 
     /// Why a format cannot carry audio, or nil when it can.
@@ -314,6 +358,7 @@ final class AudioCapture {
         continuation = nil
         pipeline = nil
         isRunning = false
+        startedAt = nil
         replaceEngine()
     }
 
@@ -412,10 +457,10 @@ final class AudioCapture {
 ///
 /// `@unchecked Sendable` is justified here on its merits: a tap is delivered
 /// serially on one thread, so the converter is never used concurrently, and the
-/// only values read from outside are two `Float`s behind a lock. The type holds
-/// no domain state — no model reference, no session — which is what keeps
-/// CLAUDE.md's "concurrency by the compiler" rule meaningful everywhere it can
-/// still be enforced.
+/// only values read from outside are two `Float`s and a flag, all behind a lock.
+/// The type holds no domain state — no model reference, no session — which is
+/// what keeps CLAUDE.md's "concurrency by the compiler" rule meaningful
+/// everywhere it can still be enforced.
 ///
 /// It used to say "and deliberately nowhere else". That stopped being true one
 /// day later, when `SystemAudioTap` landed with the same excuse and a far weaker
@@ -429,6 +474,9 @@ private final class Pipeline: @unchecked Sendable {
     private let lock = NSLock()
     private var peakValue: Float = 0
     private var recentValue: Float = 0
+    /// Behind the lock, like the two levels: set on the audio thread, read on
+    /// the main actor by `stopWhenSettled`.
+    private var deliveredValue = false
     /// The buffer the input block is to hand over, and nil once it has.
     ///
     /// An instance field rather than a captured local because
@@ -454,6 +502,13 @@ private final class Pipeline: @unchecked Sendable {
         return peakValue
     }
 
+    /// Whether any buffer has reached the tap — silent ones included, since a
+    /// quiet room still proves the input thread is running.
+    var hasDelivered: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return deliveredValue
+    }
+
     /// Reads and clears the running peak — a meter wants "how loud just now",
     /// while `peak` answers "was there ever any audio at all", and those are
     /// different questions.
@@ -471,15 +526,17 @@ private final class Pipeline: @unchecked Sendable {
     }
 
     private func observe(_ buffer: AVAudioPCMBuffer) {
-        guard let channels = buffer.floatChannelData else { return }
         var loudest: Float = 0
-        for channel in 0..<Int(buffer.format.channelCount) {
-            let samples = channels[channel]
-            for frame in 0..<Int(buffer.frameLength) {
-                loudest = max(loudest, abs(samples[frame]))
+        if let channels = buffer.floatChannelData {
+            for channel in 0..<Int(buffer.format.channelCount) {
+                let samples = channels[channel]
+                for frame in 0..<Int(buffer.frameLength) {
+                    loudest = max(loudest, abs(samples[frame]))
+                }
             }
         }
         lock.lock()
+        deliveredValue = true
         peakValue = max(peakValue, loudest)
         recentValue = max(recentValue, loudest)
         lock.unlock()

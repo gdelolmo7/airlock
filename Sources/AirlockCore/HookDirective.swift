@@ -19,10 +19,30 @@ public struct HookDirective: Codable, Sendable, Hashable {
 
     public var action: Action
     public var reason: String?
+    /// An answer to a question, by the question's own text: what the agent's
+    /// tool takes as its answers. Set only by `answered`.
+    public var answers: [String: String]?
 
-    public init(action: Action, reason: String? = nil) {
+    public init(action: Action, reason: String? = nil, answers: [String: String]? = nil) {
         self.action = action
         self.reason = reason
+        self.answers = answers
+    }
+
+    /// The user's answer to a question an agent asked.
+    ///
+    /// An allow carrying the answers, which the hook fills into the question's
+    /// own input: Claude then takes them as the user's answer, exactly as if it
+    /// had been given in the terminal. `reason` is what the hook sends instead
+    /// when it cannot do that (a tool input it cannot read), the deny every
+    /// answer used to be: the agent still hears the answer, as a refusal that
+    /// Claude prints as a hook error.
+    ///
+    /// No answers means that same deny, straight away.
+    public static func answered(_ answers: [String: String], reply: String) -> HookDirective {
+        let reason = "The user answered from Airlock: \(reply)"
+        guard !answers.isEmpty else { return HookDirective(action: .deny, reason: reason) }
+        return HookDirective(action: .allow, reason: reason, answers: answers)
     }
 
     /// A person's answer on the card.

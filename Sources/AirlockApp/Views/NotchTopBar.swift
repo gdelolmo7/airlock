@@ -24,24 +24,12 @@ struct NotchTopBar: View {
     @Environment(NotchUIState.self) private var uiState
     @Environment(NotchAppearanceModel.self) private var appearance
     @Environment(DictationModel.self) private var dictation
-    #if AIRLOCK_GUIDE
-    @Environment(GuideController.self) private var guide
-    #endif
-    @Environment(AssistantModel.self) private var assistant
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// A guide has the panel. Never, without the guide.
-    private var guiding: Bool {
-        #if AIRLOCK_GUIDE
-        guide.content != nil
-        #else
-        false
-        #endif
-    }
-    /// A mode has the band: dictating, guiding or typing. There is no tab on
-    /// screen then, so nothing that acts on one is offered.
+    /// A mode has the band: dictating. There is no tab on screen then, so
+    /// nothing that acts on one is offered.
     private var inAMode: Bool {
-        dictation.isActive || guiding || assistant.isCommandBarOpen
+        dictation.isActive
     }
 
     /// The selected tab's capsule is ONE shape that slides from tab to tab
@@ -62,18 +50,6 @@ struct NotchTopBar: View {
                     // use without letting go is worse than no navigation —
                     // it invites a click that would end the recording.
                     RecordingBadge(isListening: dictation.isListening)
-                } else if guiding {
-                    // A guide is a mode too. The panel below is the task, and
-                    // a highlighted Home tab above it said the opposite — live,
-                    // it read as "the guide is on the home tab, and it's empty".
-                    guideBadge
-                    iconButton("chevron.up", tint: Theme.textSecondary, label: "Collapse", action: onCollapse)
-                } else if assistant.isCommandBarOpen {
-                    // The typing bar opens an empty notch, so there is no tab
-                    // to be on — a highlighted Home over nothing would say the
-                    // Home tab is empty. Same treatment as the guide's badge.
-                    typingBadge
-                    iconButton("chevron.up", tint: Theme.textSecondary, label: "Collapse", action: onCollapse)
                 } else {
                     ForEach(sides.leading) { tab in
                         tabButton(tab)
@@ -82,7 +58,7 @@ struct NotchTopBar: View {
                     // (`NotchRootView`), and the panel's resize is the kit's.
                     .animation(Motion.swap.animation(reduceMotion: reduceMotion),
                                value: uiState.selectedTab)
-                    iconButton("chevron.up", tint: Theme.textSecondary, label: "Collapse", action: onCollapse)
+                    iconButton("chevron.up", tint: Theme.textSecondary, label: String(localized: "Collapse"), action: onCollapse)
                 }
                 Spacer(minLength: 0)
             }
@@ -99,7 +75,7 @@ struct NotchTopBar: View {
                 // was next to the tab in the strip.
                 if !inAMode {
                     if let onClear, uiState.selectedTab == .agents {
-                        iconButton("xmark.circle", tint: Theme.textTertiary, label: "Clear all sessions", action: onClear)
+                        iconButton("xmark.circle", tint: Theme.textTertiary, label: String(localized: "Clear all sessions"), action: onClear)
                     }
                     ForEach(sides.trailing) { tab in
                         tabButton(tab)
@@ -115,11 +91,11 @@ struct NotchTopBar: View {
                 if !inAMode {
                 iconButton(uiState.isArranging ? "checkmark" : "rectangle.on.rectangle",
                            tint: uiState.isArranging ? Theme.running : Theme.textSecondary,
-                           label: uiState.isArranging ? "Done arranging" : "Arrange this tab") {
+                           label: uiState.isArranging ? String(localized: "Done arranging") : String(localized: "Arrange this tab")) {
                     withAnimation(Motion.swap.animation(reduceMotion: reduceMotion)) { uiState.isArranging.toggle() }
                 }
                 }
-                iconButton("gear", tint: Theme.textSecondary, label: "Settings", action: onOpenSettings)
+                iconButton("gear", tint: Theme.textSecondary, label: String(localized: "Settings"), action: onOpenSettings)
                 // Battery last, hard against the edge — it's the one item macOS
                 // itself always parks at the far right of a menu bar.
                 if battery.isEnabled, let state = battery.state {
@@ -129,23 +105,6 @@ struct NotchTopBar: View {
             .frame(width: gutterWidth, alignment: .trailing)
             .padding(.trailing, 10)
         }
-    }
-
-    /// Stands where the tabs do, so the band never reflows between modes — the
-    /// panel is already animating open, and chrome shifting sideways underneath
-    /// that reads as a glitch rather than a state change.
-    ///
-    /// Both modes wear the cloud (2026-10-01): the owner never saw the logo,
-    /// because the open panel never drew it. A keyboard icon and the word
-    /// "Type" said what the field was for, which the field already says.
-    private var guideBadge: some View {
-        AirlockMark(title: "Guiding")
-            .accessibilityLabel("Guide in progress")
-    }
-
-    private var typingBadge: some View {
-        AirlockMark()
-            .accessibilityLabel("Airlock, typing")
     }
 
     /// The agents pill carries the session count, so dropping the old "2 agents"
@@ -199,7 +158,7 @@ struct NotchTopBar: View {
         // unlabelled buttons — the same hole `CompactSlot.accessibilityLabel`
         // exists to close, and the phrasing follows it: a badge rendered as a
         // numeral is read as a numeral, true and useless.
-        .accessibilityLabel(badge.map { "\(tab.label), \($0) session\($0 == 1 ? "" : "s")" } ?? tab.label)
+        .accessibilityLabel(badge.map { $0 == 1 ? String(localized: "\(tab.label), 1 session") : String(localized: "\(tab.label), \($0) sessions") } ?? tab.label)
         // Which tab you are on is carried by a capsule fill and nothing else.
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }

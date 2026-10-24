@@ -68,16 +68,13 @@ enum WaveTapDiagnosis: Equatable {
     func message(player: String) -> String {
         switch self {
         case .following:
-            return "Following \(player)."
+            return String(localized: "Following \(player).")
         case .starting:
-            return "Listening to \(player)…"
+            return String(localized: "Listening to \(player)…")
         case .deniedCapture:
-            return "The wave can't hear \(player): macOS is keeping its sound from Airlock. "
-                + "Allow system audio recording in Privacy & Security."
+            return String(localized: "The wave can't hear \(player): macOS is keeping its sound from Airlock. Allow system audio recording in Privacy & Security.")
         case .neverDelivered:
-            return "No sound is reaching the wave from \(player), which usually means it is stuck on an "
-                + "output device it can't reach. Switching output device, or reopening \(player), "
-                + "brings it back."
+            return String(localized: "No sound is reaching the wave from \(player), which usually means it is stuck on an output device it can't reach. Switching output device, or reopening \(player), brings it back.")
         }
     }
 
@@ -381,10 +378,10 @@ final class MediaWidgetModel {
         guard reactiveWave, isEnabled else { return nil }
         if let tapFailure { return tapFailure }
         guard let player = state?.player, state?.isPlaying == true else {
-            return "Waiting for something to play."
+            return String(localized: "Waiting for something to play.")
         }
         guard tap != nil else {
-            guard waveResting else { return "Starting…" }
+            guard waveResting else { return String(localized: "Starting…") }
             // A verdict from before the quiet close still stands: closing the
             // tap granted no permission and moved no output.
             return tapDiagnosis.isProblem ? tapDiagnosis.message(player: player.displayName)
@@ -409,13 +406,12 @@ final class MediaWidgetModel {
     }
 
     /// The tap would not start at all. Static so the gallery draws it.
-    nonisolated static let tapRefused = "macOS didn't let Airlock hear the music, so the wave uses its own animation."
+    nonisolated static let tapRefused = String(localized: "macOS didn't let Airlock hear the music, so the wave uses its own animation.")
 
     /// The tap closed after minutes of hearing nothing. Says what brings it
     /// back, so a wave that stopped following is not read as broken.
     nonisolated static func restingSentence(player: String) -> String {
-        "Nothing has come from \(player) for a few minutes, so the wave stopped listening. "
-            + "It listens again at the next song, or when you pause and play."
+        String(localized: "Nothing has come from \(player) for a few minutes, so the wave stopped listening. It listens again at the next song, or when you pause and play.")
     }
 
     /// Observable on purpose, unlike `hasHeardAudio` beneath it: this is the one
@@ -585,20 +581,21 @@ final class MediaWidgetModel {
     private(set) var runningPlayers: Set<MediaPlayerKind> = []
 
     static func refusedSentence(player: String) -> String {
-        "Airlock isn't allowed to control \(player), so it can't show what's playing."
+        String(localized: "Airlock isn't allowed to control \(player), so it can't show what's playing.")
     }
 
     /// The dormant card's caption. Open but stopped is not "last played in" —
     /// the player is right there, it just has nothing loaded.
     static func dormantCaption(player: String, ago: String, isRunning: Bool) -> String {
-        isRunning ? "Stopped in \(player) · \(ago)" : "Last played in \(player) · \(ago)"
+        isRunning ? String(localized: "Stopped in \(player) · \(ago)") : String(localized: "Last played in \(player) · \(ago)")
     }
 
     /// The dormant card's button. The same action either way — opening a
     /// running app brings it forward — but "Open" for an open app reads as
     /// the card not knowing.
     static func dormantButton(player: String, isRunning: Bool) -> String {
-        isRunning ? "Show \(player)" : "Open \(player)"
+        isRunning ? String(localized: "Show \(player)") : String(localized: "Open \(player)")
+
     }
 
     /// Bring the player that owned the dormant track back.

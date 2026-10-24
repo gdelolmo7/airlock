@@ -61,18 +61,34 @@ struct TraySectionView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 76, maximum: 96), spacing: 8)]
 
+    /// Pictures over the shelf, and only pictures: the format row. A refused
+    /// drag has its reason to show instead, and anything else has no format to
+    /// become.
+    private var showsFormats: Bool {
+        isDropTarget && rejection == nil && !uiState.pictureOffer.isEmpty
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            shelf
-                .background(GeometryReader { proxy in
-                    Color.clear.preference(key: ShelfHeightKey.self, value: proxy.size.height)
-                })
-            // Matched to the shelf so the two read as one row. Under the kit's
-            // `.fixedSize()` the panel is laid out at ideal height, so
-            // `maxHeight: .infinity` does not stretch — the height has to be
-            // measured and passed across.
-            TrayRailView(height: shelfHeight)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                shelf
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: ShelfHeightKey.self, value: proxy.size.height)
+                    })
+                // Matched to the shelf so the two read as one row. Under the kit's
+                // `.fixedSize()` the panel is laid out at ideal height, so
+                // `maxHeight: .infinity` does not stretch — the height has to be
+                // measured and passed across.
+                TrayRailView(height: shelfHeight)
+            }
+            // Under the shelf and the rail, never between them: the AirDrop box
+            // stays exactly where the hand already is.
+            if showsFormats {
+                PictureFormatRow()
+                    .transition(.opacity)
+            }
         }
+        .animation(Motion.swap.animation(reduceMotion: reduceMotion), value: showsFormats)
         .onPreferenceChange(ShelfHeightKey.self) { height in
             if height > 0 { shelfHeight = height }
         }
@@ -152,7 +168,7 @@ struct TraySectionView: View {
     /// and would otherwise sit there for the rest of the session.
     private func notice(_ message: String, dismiss: (() -> Void)?) -> some View {
         ProblemCard(sentence: message, tone: dismiss == nil ? .needs : .stopped,
-                    button: dismiss == nil ? nil : "Close", action: dismiss)
+                    button: dismiss == nil ? nil : String(localized: "Close"), action: dismiss)
     }
 
     /// Centred glyph over label, filling the dashed area — an empty shelf should
@@ -380,6 +396,121 @@ private struct TrayRailView: View {
     }
 }
 
+/// The formats a dragged picture can be copied into, one chip each. Shown only
+/// while pictures hover the shelf. A drop on a chip puts a copy in that format
+/// on the shelf and leaves the picture where it was; a drop anywhere else does
+/// what it always did. The chips take no drops of their own: the catcher takes
+/// every drop and routes it by where it landed, as it does for the rail.
+private struct PictureFormatRow: View {
+    @Environment(NotchUIState.self) private var uiState
+
+    private var offer: PictureOffer { uiState.pictureOffer }
+    private var over: PictureTarget? { uiState.overPictureTarget }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // What a drop on the chip under the pointer makes, said before the
+            // drop rather than discovered after it.
+            Text(over.map { $0.action(count: offer.count) } ?? String(localized: "Or drop on a format to get a copy in it"))
+                .font(Theme.chrome(10, .medium))
+                .foregroundStyle(over == nil ? Theme.textTertiary : Theme.textPrimary)
+                .lineLimit(1)
+            PictureChipColumns {
+                ForEach(offer.targets, id: \.self) { target in
+                    chip(target)
+                }
+            }
+            .frame(height: PictureRowLayout.height)
+            // The same publishing as the rail's, for the same reasons.
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: PictureRowKey.self, value: proxy.frame(in: .global))
+                }
+            )
+            .onPreferenceChange(PictureRowKey.self) { frame in
+                if frame.width > 0 { uiState.pictureRowFrame = frame }
+            }
+            // A row that is gone takes no drops: the router asks this frame.
+            .onDisappear { uiState.pictureRowFrame = nil }
+        }
+        .animation(MotionEffect.pointer, value: over)
+    }
+
+    private func chip(_ target: PictureTarget) -> some View {
+        PictureChip(label: target.label, on: over == target, font: Theme.chrome(11, .semibold))
+    }
+}
+
+/// One chip, lit while the drag is on it. The panel's format row and the drop
+/// box's two rows all draw these. `tag` names the plan a chip comes with, on a
+/// plan that leaves it out: it is still there to drop on, and says so.
+struct PictureChip: View {
+    let label: String
+    let on: Bool
+    let font: Font
+    var tag: AirlockPlan? = nil
+
+    var body: some View {
+        Text(label)
+            .font(font)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .foregroundStyle(on ? Theme.textPrimary : Theme.textSecondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(on ? Theme.running.opacity(0.16) : Theme.rowFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(on ? Theme.running : Theme.rowStroke, lineWidth: on ? 1.5 : 1)
+                    )
+            )
+            .overlay(alignment: .top) {
+                if let tag {
+                    PlanChipTag(plan: tag).offset(y: -7)
+                }
+            }
+    }
+}
+
+/// The small plan name over a chip, the drop box's version of `PlanTag`:
+/// fixed type, since the box is a fixed size.
+struct PlanChipTag: View {
+    let plan: AirlockPlan
+
+    var body: some View {
+        Text(plan.label.uppercased())
+            .font(Theme.fixed(9, .bold))
+            .tracking(0.4)
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(PlanTag.tint(plan)))
+            .accessibilityLabel("\(plan.label) plan")
+    }
+}
+
+/// Equal chips, laid out by `PictureRowLayout`, which is also what the drop
+/// router hit-tests with: the chip that lights up is the chip a drop lands on.
+struct PictureChipColumns: Layout {
+    var spacing = PictureRowLayout.spacing
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let ideal = CGSize(width: CGFloat(subviews.count) * 56, height: PictureRowLayout.height)
+        return proposal.replacingUnspecifiedDimensions(by: ideal)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                       cache: inout ()) {
+        let width = PictureRowLayout.chipWidth(rowWidth: bounds.width, count: subviews.count, spacing: spacing)
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: bounds.minX + CGFloat(index) * (width + spacing),
+                                      y: bounds.minY),
+                          proposal: ProposedViewSize(width: width, height: bounds.height))
+        }
+    }
+}
+
 /// Why one click can only ever trash one file.
 ///
 /// The remove x appears under the pointer, and the tile it sits on answers a
@@ -448,12 +579,12 @@ enum TrayTileDetails {
         // placeholder 0 until that walk reports back — so an unmeasured folder
         // gets no size at all, and a measured empty one says so in words.
         if item.sizeIsKnown {
-            parts.append(item.isDirectory && item.size == 0 ? "empty" : TrayFormat.size(item.size))
+            parts.append(item.isDirectory && item.size == 0 ? String(localized: "empty") : TrayFormat.size(item.size))
         }
         // `.distantPast` is `reload`'s stand-in for a modification date the
         // filesystem would not give up.
         if item.modified > .distantPast {
-            parts.append("modified \(TrayFormat.date(item.modified))")
+            parts.append(String(localized: "modified \(TrayFormat.date(item.modified))"))
         }
         return parts
     }
@@ -468,19 +599,22 @@ enum TrayTileDetails {
             let ext = item.url.pathExtension.uppercased()
             return ext.isEmpty ? size : "\(ext) · \(size)"
         }
-        guard item.sizeIsKnown else { return "Folder" }
-        return item.size == 0 ? "Folder · Empty" : "Folder · \(TrayFormat.size(item.size))"
+        guard item.sizeIsKnown else { return String(localized: "Folder") }
+        return item.size == 0
+            ? String(localized: "Folder · Empty")
+            : String(localized: "Folder · \(TrayFormat.size(item.size))")
     }
 
     /// What the tile under an arriving file says, where a size will go.
-    static let arrivingSubtitle = "Adding…"
+    static let arrivingSubtitle = String(localized: "Adding…")
 
     /// The tooltip. The gesture is the one thing that is always true, so it is
     /// what remains when both facts are missing.
     static func help(for item: TrayItem) -> String {
         let parts = parts(for: item)
-        guard !parts.isEmpty else { return "Double-click to open" }
-        return "\(parts.joined(separator: " · ")) — double-click to open"
+        guard !parts.isEmpty else { return String(localized: "Double-click to open") }
+        let facts = parts.joined(separator: " · ")
+        return String(localized: "\(facts) — double-click to open")
     }
 }
 
@@ -880,7 +1014,8 @@ private struct TrayIngestingTileView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.white.opacity(0.05))
                 .frame(height: 56)
-                .overlay { WaitingIndicator(words: "Adding \(name)…", dotsOnly: true) }
+                .overlay { WaitingIndicator(words: String(localized: "Adding \(name)…"), dotsOnly: true)
+ }
 
             // The real tile's two lines, in the real tile's frame: with the
             // name alone it was shorter, and the grid centred it lower than the
@@ -908,6 +1043,14 @@ private struct ShelfHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+private struct PictureRowKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next.width > 0 { value = next }
     }
 }
 

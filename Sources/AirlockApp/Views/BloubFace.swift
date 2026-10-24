@@ -74,44 +74,21 @@ struct BloubFace: Equatable {
     /// WHICH slot wins — only what the face in it should say.
     struct Ambient: Equatable {
         var isListening = false
-        var isThinking = false
         var batteryCritical = false
         var meetingSoon = false
         var isOffline = false
-        /// A guided task is running. Nil at every other moment.
-        var guide: GuidePresentation.Compact?
 
         static let none = Ambient()
     }
 
     static func resolve(slot: CompactSlot, ambient: Ambient) -> BloubFace {
-        // 1. Airlock itself, first — a key is physically held or an answer is
-        //    being written. It outranks agent state because it is a gesture the
+        // 1. Airlock itself, first — a dictation key is physically held. It
+        //    outranks agent state because it is a gesture the
         //    user is making RIGHT NOW, and because it is the one rung that means
         //    anything to somebody who never starts an agent.
-        if ambient.isListening || ambient.isThinking {
+        if ambient.isListening {
             return BloubFace(expression: .attentive, tint: .assistant,
                              motion: .working, isDimmed: false)
-        }
-
-        // 1b. A guide in progress. Below a held key (the user is speaking to
-        //     it, maybe to start the next one) and above agents: the person is
-        //     following bloub step by step, so the face beside the steps is
-        //     the guide's. The design gives each state its own face.
-        if let guide = ambient.guide {
-            switch guide {
-            case .listening:
-                return BloubFace(expression: .attentive, tint: .assistant, motion: .working, isDimmed: false)
-            case .looking:
-                return BloubFace(expression: .curious, tint: .assistant, motion: .working, isDimmed: false)
-            case .guiding(_, _, let offTrack, _):
-                return BloubFace(expression: offTrack ? .confused : .attentive,
-                                 tint: offTrack ? .attention : .working, motion: .breathing, isDimmed: false)
-            case .noProgress:
-                return BloubFace(expression: .sleepy, tint: .resting, motion: .still, isDimmed: false)
-            case .done:
-                return BloubFace(expression: .happy, tint: .done, motion: .still, isDimmed: false)
-            }
         }
 
         // 2. The agent rungs, when the ladder picked one. These are unreachable

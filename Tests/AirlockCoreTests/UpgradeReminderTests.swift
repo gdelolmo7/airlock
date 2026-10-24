@@ -2,7 +2,8 @@ import XCTest
 @testable import AirlockCore
 
 /// Free's reminders: at most one a day across every kind, never during a call
-/// or while an agent is asking, and "Not now" quiets a kind for 14 days.
+/// or while an agent is asking, "Not now" quiets a kind for 14 days, and one
+/// shown stays until it is answered.
 final class UpgradeReminderTests: XCTestCase {
     private var calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
@@ -35,6 +36,7 @@ final class UpgradeReminderTests: XCTestCase {
         let first = due(reminders, at: day(10, 16, 11))
         XCTAssertEqual(first, .clipboardFull, "the clipboard's one-off goes first")
         reminders.shown(first!, now: day(10, 16, 11))
+        reminders.answered()
 
         reminders.agentAskedInTerminal(asking: "api-server", answering: "storefront",
                                        now: day(10, 16, 15), calendar: calendar)
@@ -95,12 +97,66 @@ final class UpgradeReminderTests: XCTestCase {
         XCTAssertEqual(due(reminders, at: day(10, 16, 10)), .clipboardFull)
     }
 
+    // MARK: - Until it is answered
+
+    func testAShownCardComesBackUntilItIsAnswered() {
+        var reminders = UpgradeReminders()
+        reminders.copiesLetGo(1, now: day(10, 16, 9), calendar: calendar)
+        reminders.shown(.clipboardFull, now: day(10, 16, 11))
+        XCTAssertEqual(due(reminders, at: day(10, 16, 12)), .clipboardFull, "the same one, later that day")
+        XCTAssertEqual(due(reminders, at: day(10, 20, 9)), .clipboardFull, "and days later")
+        XCTAssertNil(due(reminders, at: day(10, 20, 9), callOn: true), "still never in the way")
+        XCTAssertNil(due(reminders, at: day(10, 20, 9), agentAsking: true))
+        XCTAssertNil(due(reminders, at: day(10, 20, 9), onFree: false))
+
+        reminders.answered()
+        XCTAssertNil(reminders.unanswered)
+        XCTAssertNil(due(reminders, at: day(10, 21, 9)), "See Plus answered it")
+    }
+
+    func testNotNowAnswersItAndOnlyItsOwnKind() {
+        var reminders = UpgradeReminders()
+        reminders.copiesLetGo(1, now: day(10, 16, 9), calendar: calendar)
+        reminders.shown(.clipboardFull, now: day(10, 16, 11))
+        reminders.notNow(.agents, now: day(10, 16, 11), calendar: calendar)
+        XCTAssertEqual(reminders.unanswered, .clipboard)
+        reminders.notNow(.clipboard, now: day(10, 16, 12), calendar: calendar)
+        XCTAssertNil(reminders.unanswered)
+        XCTAssertNil(due(reminders, at: day(10, 17, 9)))
+    }
+
+    /// It comes back as it reads now, and waits while there is nothing true
+    /// to say with it.
+    func testABackCardReadsAsItDoesNow() {
+        var reminders = UpgradeReminders()
+        reminders.agentAskedInTerminal(asking: "api", answering: "web", now: day(10, 6, 9), calendar: calendar)
+        reminders.shown(due(reminders, at: day(10, 6, 10))!, now: day(10, 6, 10))
+        reminders.agentAskedInTerminal(asking: "docs", answering: nil, now: day(10, 6, 14), calendar: calendar)
+        XCTAssertEqual(due(reminders, at: day(10, 8)), .agentInTerminal(asking: "docs", answering: nil))
+
+        var week = UpgradeReminders()
+        week.openedOnFree(now: day(10, 1))
+        week.shown(.firstWeek(uses: [.callNotes]), now: day(10, 9))
+        XCTAssertNil(due(week, at: day(10, 10)), "nothing in use, nothing true to say")
+        XCTAssertEqual(due(week, at: day(10, 11), uses: [.callNotes, .agents]),
+                       .firstWeek(uses: [.callNotes, .agents]))
+    }
+
+    func testLeavingFreeDropsIt() {
+        var reminders = UpgradeReminders()
+        reminders.copiesLetGo(1, now: day(10, 16, 9), calendar: calendar)
+        reminders.shown(.clipboardFull, now: day(10, 16, 11))
+        reminders.leftFree()
+        XCTAssertNil(due(reminders, at: day(10, 20)), "back on Free later, the clipboard's one-off is spent")
+    }
+
     // MARK: - Each kind's own rule
 
     func testTheClipboardCardShowsOnceEver() {
         var reminders = UpgradeReminders()
         reminders.copiesLetGo(1, now: day(10, 16), calendar: calendar)
         reminders.shown(.clipboardFull, now: day(10, 16, 11))
+        reminders.answered()
         reminders.copiesLetGo(40, now: day(10, 20), calendar: calendar)
         XCTAssertNil(due(reminders, at: day(10, 20, 12)))
         XCTAssertNil(due(reminders, at: day(12, 20, 12)))
@@ -113,6 +169,7 @@ final class UpgradeReminderTests: XCTestCase {
 
         reminders.agentAskedInTerminal(asking: "api", answering: "web", now: day(10, 6, 9), calendar: calendar)
         reminders.shown(due(reminders, at: day(10, 6, 10))!, now: day(10, 6, 10))
+        reminders.answered()
         reminders.agentAskedInTerminal(asking: "api", answering: "web", now: day(10, 10, 9), calendar: calendar)
         XCTAssertNil(due(reminders, at: day(10, 10, 10)), "four days on")
         reminders.agentAskedInTerminal(asking: "api", answering: "web", now: day(10, 13, 11), calendar: calendar)
@@ -123,6 +180,7 @@ final class UpgradeReminderTests: XCTestCase {
         var reminders = UpgradeReminders()
         reminders.agentAskedInTerminal(asking: "api", answering: "web", now: day(10, 6, 9), calendar: calendar)
         reminders.shown(due(reminders, at: day(10, 6, 10))!, now: day(10, 6, 10))
+        reminders.answered()
         XCTAssertNil(due(reminders, at: day(10, 13, 10)))
     }
 
@@ -142,7 +200,9 @@ final class UpgradeReminderTests: XCTestCase {
         reminders.copiesLetGo(63, now: day(10, 20), calendar: calendar)
         reminders.agentAskedInTerminal(asking: "api", answering: "web", now: day(10, 28, 9), calendar: calendar)
         reminders.shown(due(reminders, at: day(10, 28, 10))!, now: day(10, 28, 10))
+        reminders.answered()
         reminders.shown(.clipboardFull, now: day(10, 29))
+        reminders.answered()
         XCTAssertNil(due(reminders, at: day(10, 31, 10)), "not before the month is over")
 
         guard case let .monthlyRecap(month) = due(reminders, at: day(11, 1, 9)) else {
@@ -154,6 +214,7 @@ final class UpgradeReminderTests: XCTestCase {
                                                   "older copies let go from the clipboard",
                                                   "agent question went to the terminal"])
         reminders.shown(.monthlyRecap(month), now: day(11, 1, 9))
+        reminders.answered()
         XCTAssertNil(due(reminders, at: day(11, 2, 9)), "once a month")
         XCTAssertNil(due(reminders, at: day(11, 30, 9)))
     }
@@ -162,6 +223,7 @@ final class UpgradeReminderTests: XCTestCase {
         var reminders = UpgradeReminders()
         reminders.copiesLetGo(5, now: day(10, 20), calendar: calendar)
         reminders.shown(.clipboardFull, now: day(10, 20, 11))
+        reminders.answered()
         reminders.copiesLetGo(2, now: day(11, 1, 8), calendar: calendar)
         guard case let .monthlyRecap(month) = due(reminders, at: day(11, 1, 9)) else {
             return XCTFail("October's recap, with November already counting")
@@ -174,6 +236,7 @@ final class UpgradeReminderTests: XCTestCase {
         XCTAssertNil(due(reminders, at: day(11, 1)))
         reminders.copiesLetGo(5, now: day(8, 20), calendar: calendar)
         reminders.shown(.clipboardFull, now: day(8, 20, 11))
+        reminders.answered()
         XCTAssertNil(due(reminders, at: day(10, 1)), "August is not last month in October")
     }
 
@@ -210,6 +273,7 @@ final class UpgradeReminderTests: XCTestCase {
         reminders.openedOnFree(now: day(10, 1))
         reminders.copiesLetGo(1, now: day(10, 3), calendar: calendar)
         reminders.shown(.clipboardFull, now: day(10, 3))
+        reminders.answered()
         XCTAssertNil(due(reminders, at: day(10, 9), uses: [.clipboard]))
 
         var dropped = UpgradeReminders()
@@ -275,5 +339,6 @@ final class UpgradeReminderTests: XCTestCase {
         reminders.shown(.clipboardFull, now: day(10, 16, 11))
         let back = try JSONDecoder().decode(UpgradeReminders.self, from: JSONEncoder().encode(reminders))
         XCTAssertEqual(back, reminders)
+        XCTAssertEqual(back.unanswered, .clipboard, "still waiting for an answer after a relaunch")
     }
 }

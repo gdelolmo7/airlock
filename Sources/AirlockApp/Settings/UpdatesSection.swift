@@ -43,12 +43,12 @@ struct UpdatesSection: View {
     /// makes", which stopped being true with the licence server and the
     /// guide. What is true about the check itself is what it says now.
     static let notes = [
-        "Airlock asks once, on its second launch, whether it may check for updates — and does nothing if you say no. A check fetches one small file and sends nothing about you.",
-        "Whatever arrives is checked against a signing key built into this copy of the app, so a web host that has been taken over can serve anything it likes and the update is refused rather than run.",
+        String(localized: "Airlock asks once, on its second launch, whether it may check for updates — and does nothing if you say no. A check fetches one small file and sends nothing about you."),
+        String(localized: "Whatever arrives is checked against a signing key built into this copy of the app, so a web host that has been taken over can serve anything it likes and the update is refused rather than run."),
     ]
 
     private var lastCheckLabel: String {
-        guard let lastCheck else { return "Never" }
+        guard let lastCheck else { return String(localized: "Never") }
         return lastCheck.formatted(date: .abbreviated, time: .shortened)
     }
 }
@@ -62,7 +62,7 @@ struct LaunchAtLoginProblem: View {
     let note: String
 
     var body: some View {
-        ProblemCard(sentence: note, tone: .needs, button: "Open Login Items") {
+        ProblemCard(sentence: note, tone: .needs, button: String(localized: "Open Login Items")) {
             guard let url = URL(string:
                 "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") else { return }
             NSWorkspace.shared.open(url)

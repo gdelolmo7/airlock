@@ -24,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${AIRLOCK_VERSION:-1.0.26}"
+VERSION="${AIRLOCK_VERSION:-1.1.0}"
 BUILD_NUM="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 BUNDLE_ID="${AIRLOCK_BUNDLE_ID:-com.airlock.app}"
 
@@ -154,6 +154,15 @@ for sound in Resources/Sounds/*.wav; do
 	cp "$sound" "$APP/Contents/Resources/"
 done
 
+# The words in every language the app speaks: en.lproj and es.lproj, compiled
+# from the String Catalogs. In the main bundle, because that is where Text and
+# String(localized:) look; `swift run` has no bundle and so stays in English.
+# InfoPlist is the permission prompts macOS shows on the app's behalf.
+for catalog in Resources/Localizable.xcstrings Resources/InfoPlist.xcstrings; do
+	xcrun xcstringstool compile "$catalog" --output-directory "$APP/Contents/Resources" \
+		--serialization-format binary
+done
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -161,6 +170,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>es</string>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Airlock</string>
 	<key>CFBundleIconFile</key>
@@ -212,7 +226,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Airlock shows your next meetings in the notch with one-click join links.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Usage counts and crash reports are sent only if you say yes, and never carry what you type, say, copy or see. Airlock looks at your screen only when you ask, and keeps no copy of what it saw.</string>
+	<string>Usage counts and crash reports are sent only if you say yes, and never carry what you type, say, copy or see.</string>
 </dict>
 </plist>
 PLIST
@@ -237,6 +251,20 @@ else
   echo "  licensing: no public key (every copy will stay on trial)"
 fi
 
+# The call lock (scripts/setup-call-lock-key.sh). With it, a Free call goes on
+# being heard past its 30 minutes and the rest is locked on the Mac, for a paid
+# plan to open through <base>/unlock. Without it, Free's notes stop at 30
+# minutes as they always did. Package with it only once the licence server
+# holds the private half, or Plus can't open what this build locks.
+CALL_LOCK_KEY_FILE="Configuration/call-lock-public-key.txt"
+CALL_LOCK_KEY="$([[ -f "$CALL_LOCK_KEY_FILE" ]] && tr -d '[:space:]' < "$CALL_LOCK_KEY_FILE" || true)"
+if [[ -n "$CALL_LOCK_KEY" ]]; then
+  /usr/libexec/PlistBuddy -c "Add :ALCallLockPublicKey string $CALL_LOCK_KEY" "$APP/Contents/Info.plist"
+  echo "  call lock: public key embedded (Free calls past 30 min are locked)"
+else
+  echo "  call lock: no public key (Free's notes stop at 30 min)"
+fi
+
 # The licence server (worker/): <base>/activate swaps a Lemon Squeezy key for a
 # signed token, <base>/refresh renews one. Absent, neither happens — a
 # hand-issued token still verifies and works offline forever, and nothing else
@@ -245,15 +273,6 @@ fi
 #
 # https only, and checked here as well as in the app — a licence key posted over
 # plain http is one an airport network can read and replay.
-# The screen guide is a prototype and not public yet (the owner's call,
-# 2026-10-06): only a build asked for with AIRLOCK_GUIDE=1 carries it.
-if [[ "${AIRLOCK_GUIDE:-}" == 1 ]]; then
-  /usr/libexec/PlistBuddy -c "Add :ALGuide bool true" "$APP/Contents/Info.plist"
-  echo "  guide: built in (not for the public download)"
-else
-  echo "  guide: left out"
-fi
-
 if [[ -n "${AIRLOCK_LICENSE_API_URL:-}" ]]; then
   if [[ "$AIRLOCK_LICENSE_API_URL" != https://* ]]; then
     echo "✗ AIRLOCK_LICENSE_API_URL must be https" >&2

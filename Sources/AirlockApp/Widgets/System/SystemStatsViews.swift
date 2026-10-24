@@ -40,7 +40,7 @@ struct SystemStatsContent: View {
                          // The list under the rings is held to this exact figure.
                          percent: stats.map { Double(CPUBreakdown.displayedPercent(of: $0.cpuPercent)) },
                          tint: LoadRing.tint(stats?.cpuPercent ?? 0, busyAt: 75, fullAt: 90),
-                         detail: "Processor")
+                         detail: String(localized: "Processor"))
                 // The Mac did not say. No ring, rather than one reading 0%.
                 // Before the first reading nobody knows yet, so it is drawn
                 // waiting with the others: most Macs do report one.
@@ -48,15 +48,15 @@ struct SystemStatsContent: View {
                     let gpu = stats?.gpuPercent
                     LoadRing(label: "GPU", order: 1, percent: gpu,
                              tint: LoadRing.tint(gpu ?? 0, busyAt: 75, fullAt: 90),
-                             detail: "Graphics")
+                             detail: String(localized: "Graphics"))
                 }
-                LoadRing(label: "Memory", order: 2, percent: stats?.memoryPercent,
+                LoadRing(label: String(localized: "Memory"), order: 2, percent: stats?.memoryPercent,
                          // macOS keeps memory full on purpose — it caches — so
                          // memory is only worth a colour much later than the CPU.
                          tint: LoadRing.tint(stats?.memoryPercent ?? 0, busyAt: 88, fullAt: 95),
                          detail: stats.map {
-                             String(format: "%.1f of %.0f GB in use", $0.memoryUsedGB, $0.memoryTotalGB)
-                         } ?? "Memory")
+                             String(format: String(localized: "%.1f of %.0f GB in use"), $0.memoryUsedGB, $0.memoryTotalGB)
+                         } ?? String(localized: "Memory"))
             }
             .padding(.top, 10)
             CPUByAppView(apps: apps)
@@ -164,7 +164,7 @@ private struct CPUByAppView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The list's heading on an idle Mac.
-    static let nothingBusy = "Nothing busy"
+    static let nothingBusy = String(localized: "Nothing busy")
     /// Between the rings and the list.
     private static let gap: CGFloat = 8
     private static let rowSpacing: CGFloat = 3
@@ -187,7 +187,8 @@ private struct CPUByAppView: View {
             // One quiet line: a list is the difference between two sweeps, and
             // until the second is in there is nothing honest to rank.
             if room >= Self.gap + captionHeight {
-                caption(trailing: "Measuring…")
+                caption(trailing: String(localized: "Measuring…"))
+
                     .padding(.top, Self.gap)
                     .reportsYieldingHeight()
             }

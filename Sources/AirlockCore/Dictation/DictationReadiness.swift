@@ -26,11 +26,11 @@ public struct DictationReadiness: Equatable, Sendable {
         public var message: String {
             switch self {
             case .disabled:
-                return "Dictation is turned off."
+                return String(localized: "Dictation is turned off.")
             case .microphoneUndetermined:
-                return "Dictation needs access to your microphone."
+                return String(localized: "Dictation needs access to your microphone.")
             case .microphoneDenied:
-                return "Microphone access was denied — turn it on in System Settings › Privacy & Security › Microphone."
+                return String(localized: "Microphone access was denied — turn it on in System Settings › Privacy & Security › Microphone.")
             case .noSpeechModel(let locale):
                 return DictationHoldNotice.noSpeechModelSentence(locale: locale)
             case .notBundled:

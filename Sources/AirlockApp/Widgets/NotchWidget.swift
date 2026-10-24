@@ -119,12 +119,12 @@ enum NotchTab: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .home: return "Home"
-        case .dashboard: return "Dashboard"
-        case .tray: return "Shelf"
-        case .clipboard: return "Clipboard"
-        case .calls: return "Calls"
-        case .agents: return "Agents"
+        case .home: return String(localized: "Home")
+        case .dashboard: return String(localized: "Dashboard")
+        case .tray: return String(localized: "Shelf")
+        case .clipboard: return String(localized: "Clipboard")
+        case .calls: return String(localized: "Calls")
+        case .agents: return String(localized: "Agents")
         }
     }
 

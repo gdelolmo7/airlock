@@ -6,7 +6,7 @@ import XCTest
 final class DictationHoldNoticeTests: XCTestCase {
     private static let every: [DictationHoldNotice] = [
         .microphoneDenied, .noSpeechModel(locale: "en_US"), .notBundled, .microphoneFailedToStart,
-        .microphoneAllowed(key: "⌃ Control", asking: false), .nothingCaught(key: "⌃ Control"), .copiedNowhereToType,
+        .microphoneAllowed(key: "⌃ Control"), .nothingCaught(key: "⌃ Control"), .copiedNowhereToType,
         .copiedAfterKeyOrClick, .reachedLimit, .tidyingFailed, .secureInput(holder: "1Password"), .secureInput(holder: nil),
     ]
 
@@ -16,10 +16,8 @@ final class DictationHoldNoticeTests: XCTestCase {
                        "The microphone couldn't start. Try again in a moment.")
         XCTAssertEqual(DictationHoldNotice.notBundled.sentence,
                        "Dictation only works in the installed Airlock app.")
-        XCTAssertEqual(DictationHoldNotice.microphoneAllowed(key: "⌃ Control", asking: false).sentence,
+        XCTAssertEqual(DictationHoldNotice.microphoneAllowed(key: "⌃ Control").sentence,
                        "Microphone allowed. Hold ⌃ Control again to dictate.")
-        XCTAssertEqual(DictationHoldNotice.microphoneAllowed(key: "⌥ Option", asking: true).sentence,
-                       "Microphone allowed. Hold ⌥ Option again to ask.")
         XCTAssertEqual(DictationHoldNotice.nothingCaught(key: "⌃ Control").sentence,
                        "Didn't catch anything. Hold ⌃ Control and try again.")
         XCTAssertEqual(DictationHoldNotice.secureInput(holder: nil).sentence,
@@ -117,6 +115,21 @@ final class DictationHoldNoticeTests: XCTestCase {
         // Copying is the one thing the flag changes: nothing copied, nothing said about it.
         XCTAssertNil(DictationHoldNotice.afterDelivery(copied: false, afterKeyOrClick: true,
                                                        reachedLimit: false, tidyingFailed: false))
+    }
+
+    /// Words copied because Airlock may not type yet say why, and the button
+    /// leads to the switch. It is a problem, unlike the other copies: it
+    /// happens on every hold until Accessibility is on.
+    func testWordsCopiedBecauseAirlockCantTypeYetSayWhyAndOfferTheSwitch() {
+        let notice = DictationHoldNotice.copiedCantTypeYet
+        XCTAssertEqual(notice.sentence,
+                       "Airlock isn't allowed to type yet, so your words are on the clipboard.")
+        XCTAssertEqual(notice.tone, .problem)
+        XCTAssertEqual(notice.fix, .letAirlockType)
+        XCTAssertEqual(notice.fix?.button, "Let Airlock type")
+        XCTAssertEqual(notice.closesAfter, 10, "a card with a button stays long enough to decide")
+        XCTAssertFalse(notice.sentence.contains("Accessibility"),
+                       "the card names what changes, the list that opens names the permission")
     }
 
     /// The reason is the framework's own enum case — it reads as code.

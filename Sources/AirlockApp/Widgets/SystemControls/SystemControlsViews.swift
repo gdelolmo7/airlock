@@ -256,7 +256,7 @@ struct KeepAwakeStrip: View {
             .help("Back to the lengths")
             .accessibilityLabel("Back to the lengths")
 
-            step(time, by: -1, symbol: "minus", spoken: "\(KeepAwakeTimer.untilStep) minutes earlier")
+            step(time, by: -1, symbol: "minus", spoken: String(localized: "\(KeepAwakeTimer.untilStep) minutes earlier"))
             // A minute's tick is enough: the only thing that changes on its
             // own is "tomorrow", when the clock passes the time being set.
             TimelineView(.everyMinute) { context in
@@ -268,7 +268,7 @@ struct KeepAwakeStrip: View {
                     .lineLimit(1)
                     .fixedSize()
             }
-            step(time, by: 1, symbol: "plus", spoken: "\(KeepAwakeTimer.untilStep) minutes later")
+            step(time, by: 1, symbol: "plus", spoken: String(localized: "\(KeepAwakeTimer.untilStep) minutes later"))
         }
     }
 
@@ -294,7 +294,9 @@ struct KeepAwakeStrip: View {
     }
 
     private func start(_ time: KeepAwakeTimer.TimeOfDay) -> some View {
-        KeepAwakeChip(title: "Start", spoken: "Start keeping this Mac awake", isPrimary: true) {
+        KeepAwakeChip(title: String(localized: "Start"), spoken: String(localized: "Start keeping this Mac awake"),
+                      isPrimary: true) {
+
             pick(.until(time))
         }
     }

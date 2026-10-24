@@ -40,9 +40,9 @@ public enum SubmittedPrompt: Equatable, Sendable {
         /// The session row's activity line.
         public var activity: String {
             switch self {
-            case .finished: return "Background task finished"
-            case .failed: return "Background task failed"
-            case .stopped: return "Background task stopped"
+            case .finished: return String(localized: "Background task finished")
+            case .failed: return String(localized: "Background task failed")
+            case .stopped: return String(localized: "Background task stopped")
             }
         }
     }

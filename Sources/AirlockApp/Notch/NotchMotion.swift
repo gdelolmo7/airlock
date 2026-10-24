@@ -47,13 +47,13 @@ enum NotchMotion {
 
 /// Every movement the app makes is one of five, and each is defined here once
 /// (card C1). A screen asks for a motion by name, never for a number, so the
-/// island, the tabs, the guide and the cards all move the same way.
+/// island, the tabs and the cards all move the same way.
 ///
 /// - **Open:** the island grows out of the notch.
 /// - **Close:** it tucks back in, a little quicker than Open: leaving should
 ///   never feel slow.
 /// - **Swap:** content changes inside a frame that stays still — a tab, a
-///   guide step, a list making room. Only the content moves.
+///   list making room. Only the content moves.
 /// - **Confirm:** a small settle when something is approved, finishes or is
 ///   reached.
 /// - **Nudge:** a gentle "look at me" when something needs you. A few beats,
@@ -63,7 +63,7 @@ enum NotchMotion {
 /// Each motion has a calm version: a plain fade over a short ease, nothing
 /// growing, sliding or bouncing.
 ///
-/// The bloub, the listening cloud and the guide ring keep their own
+/// The bloub, and the listening cloud keep their own
 /// choreography; their timing is read from these (`SteppedSpring(_:motion:)`).
 ///
 /// **Resting states, never keyframes** (build 628): a motion here moves a
@@ -270,17 +270,6 @@ enum MotionEffect {
     static let twinkleDown = Animation.easeInOut(duration: twinkleDownDuration)
     static let twinkleUpDuration: Double = 0.28
     static let twinkleDownDuration: Double = 0.34
-
-    // The guide's ring. It travels across the whole screen rather than inside
-    // the island, so its arrival is its own effect; moving to the next button
-    // is still a Swap and reaching it a Confirm.
-
-    /// The first ring of a run drawing itself on around its button. Off under
-    /// Reduce Motion, where the ring is simply there.
-    static let ringDrawOn = Animation.easeInOut(duration: 0.6)
-    /// The halo swelling once and fading back when the ring lands on a new
-    /// button, a beat after it arrives. Off under Reduce Motion.
-    static let ringPulse = Animation.easeOut(duration: 1.4).delay(0.2)
 }
 
 /// Confirm: a small settle the moment `settled` turns true — dips a touch and

@@ -86,33 +86,28 @@ struct OnboardingView: View {
 
     private var title: String {
         switch model.step {
-        case .welcome: return "Welcome to Airlock"
-        case .agents: return "Connect your agents"
-        case .features: return "The rest of it"
-        case .permissions: return "Optional permissions"
-        case .finish: return model.anyHookInstalled ? "You're set up" : "Almost there"
+        case .welcome: return String(localized: "Welcome to Airlock")
+        case .agents: return String(localized: "Connect your agents")
+        case .features: return String(localized: "The rest of it")
+        case .permissions: return String(localized: "Optional permissions")
+        case .finish: return model.anyHookInstalled ? String(localized: "You're set up") : String(localized: "Almost there")
         }
     }
 
     private var subtitle: String {
         switch model.step {
         case .welcome:
-            return "Your notch becomes a control surface for terminal coding agents — "
-                + "approve what they want to run, see what they're doing, and jump back to the terminal."
+            return String(localized: "Your notch becomes a control surface for terminal coding agents — approve what they want to run, see what they're doing, and jump back to the terminal.")
         case .agents:
-            return "Connect your coding agents so they can ask you from the notch. "
-                + "Nothing else here matters until this is done."
+            return String(localized: "Connect your coding agents so they can ask you from the notch. Nothing else here matters until this is done.")
         case .features:
-            return "Three things the notch does that have nothing to do with agents — "
-                + "and the keys that reach them."
+            return String(localized: "Three things the notch does that have nothing to do with agents — and the keys that reach them.")
         case .permissions:
-            return "Each one is optional — the app works without them, and you can change "
-                + "your mind any time in Settings › \(SettingsPane.permissions.title)."
+            return String(localized: "Each one is optional — the app works without them, and you can change your mind any time in Settings › \(SettingsPane.permissions.title).")
         case .finish:
             return model.anyHookInstalled
-                ? "Start an agent in your terminal and the notch will come alive on its own."
-                : "You skipped connecting an agent, so the notch will show your widgets but no sessions. "
-                    + "Settings › \(SettingsPane.agents.title) has the same buttons whenever you want them."
+                ? String(localized: "Start an agent in your terminal and the notch will come alive on its own.")
+                : String(localized: "You skipped connecting an agent, so the notch will show your widgets but no sessions. Settings › \(SettingsPane.agents.title) has the same buttons whenever you want them.")
         }
     }
 
@@ -160,9 +155,9 @@ struct OnboardingView: View {
 
     private var primaryLabel: String {
         switch model.step {
-        case .finish: return "Done"
-        case .agents where model.anyHookInstalled: return "Continue"
-        default: return "Continue"
+        case .finish: return String(localized: "Done")
+        case .agents where model.anyHookInstalled: return String(localized: "Continue")
+        default: return String(localized: "Continue")
         }
     }
 }
@@ -175,18 +170,17 @@ private struct WelcomeStep: View {
     var body: some View {
         VStack(spacing: 10) {
             Row(symbol: "bell.badge",
-                title: "It asks before anything risky runs",
-                detail: "Approve or deny from the notch, or set rules that decide for you.")
+                title: String(localized: "It asks before anything risky runs"),
+                detail: String(localized: "Approve or deny from the notch, or set rules that decide for you."))
             Row(symbol: "arrow.uturn.backward",
-                title: "It gets you back to the terminal",
-                detail: "One click jumps to the exact iTerm tab or tmux pane a session is running in.")
+                title: String(localized: "It gets you back to the terminal"),
+                detail: String(localized: "One click jumps to the exact iTerm tab or tmux pane a session is running in."))
             Row(symbol: "mic",
-                title: "It types what you say",
-                detail: "Hold a key anywhere, speak, let go. Transcribed and tidied up on this "
-                    + "Mac, in any of 30 languages — two of them at once if you switch mid-sentence.")
+                title: String(localized: "It types what you say"),
+                detail: String(localized: "Hold a key anywhere, speak, let go. Transcribed and tidied up on this Mac, in any of 30 languages — two of them at once if you switch mid-sentence."))
             Row(symbol: "tray.full",
-                title: "It holds your files and your day",
-                detail: "A drop shelf, clipboard history, calendar and what's playing, all in the notch.")
+                title: String(localized: "It holds your files and your day"),
+                detail: String(localized: "A drop shelf, clipboard history, calendar and what's playing, all in the notch."))
             // The same question the panel's first screen puts, off unless
             // switched on, and only in a build that could send counts.
             if model.offersUsageCounts {
@@ -312,8 +306,7 @@ private struct AgentsStep: View {
                 }
 
                 Label {
-                    Text("If Airlock isn’t running, your agents behave exactly as they do today. "
-                         + "Disconnecting is one button in Settings.")
+                    Text("If Airlock isn’t running, your agents behave exactly as they do today. Disconnecting is one button in Settings.")
                 } icon: {
                     Image(systemName: "checkmark.shield")
                 }
@@ -340,8 +333,7 @@ private struct AgentsStep: View {
                 .foregroundStyle(.secondary)
             Text("Agents are off.")
                 .font(.system(size: 13, weight: .medium))
-            Text("The Agents tab, the session icons beside the notch and the Claude usage figures are hidden. "
-                 + "Everything else — the clipboard, the shelf, dictation, calendar and media — works as before.")
+            Text("The Agents tab, the session icons beside the notch and the Claude usage figures are hidden. Everything else — the clipboard, the shelf, dictation, calendar and media — works as before.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -438,7 +430,7 @@ private struct FeaturesStep: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            FeatureCard(symbol: "mic", title: "Dictate anywhere") {
+            FeatureCard(symbol: "mic", title: String(localized: "Dictate anywhere")) {
                 Toggle("", isOn: Binding(get: { model.dictationEnabled },
                                          set: { model.setDictationEnabled($0) }))
                     .labelsHidden()
@@ -457,31 +449,28 @@ private struct FeaturesStep: View {
                 this Mac, so nothing leaves it. Settings › \(SettingsPane.voice.title) changes the \
                 key and picks the microphone.
                 """)
-                KeyRow(keys: [model.holdKeyName], label: "hold to talk, release to insert")
-                if let askKey = model.askKeyName {
-                    KeyRow(keys: [askKey], label: "hold this one instead to ask a question")
-                }
+                KeyRow(keys: [model.holdKeyName], label: String(localized: "hold to talk, release to insert"))
                 SecondLanguageRow()
             }
 
-            FeatureCard(symbol: "doc.on.clipboard", title: "Clipboard history") {
+            FeatureCard(symbol: "doc.on.clipboard", title: String(localized: "Clipboard history")) {
                 EmptyView()
             } content: {
                 Text("Everything you copy, kept and searchable. Pin what you reuse.")
                 if model.clipboardHotkeyEnabled {
-                    KeyRow(keys: [model.clipboardHotkeyName], label: "open it from anywhere")
+                    KeyRow(keys: [model.clipboardHotkeyName], label: String(localized: "open it from anywhere"))
                 } else {
                     Text("The shortcut is off — turn it on in Settings › \(SettingsPane.clipboard.title).")
                         .font(.system(size: 11.5))
                         .foregroundStyle(.orange)
                 }
-                KeyRow(keys: ["⌘1", "…", "⌘9"], label: "paste one of the most recent")
-                KeyRow(keys: ["⌥1", "…", "⌥9"], label: "paste one of your pins")
-                KeyRow(keys: ["⌥P"], label: "pin or unpin what's selected")
-                KeyRow(keys: ["⌥⌫"], label: "delete what's selected")
+                KeyRow(keys: ["⌘1", "…", "⌘9"], label: String(localized: "paste one of the most recent"))
+                KeyRow(keys: ["⌥1", "…", "⌥9"], label: String(localized: "paste one of your pins"))
+                KeyRow(keys: ["⌥P"], label: String(localized: "pin or unpin what's selected"))
+                KeyRow(keys: ["⌥⌫"], label: String(localized: "delete what's selected"))
             }
 
-            FeatureCard(symbol: "checkmark.shield", title: "Decide once, not every time") {
+            FeatureCard(symbol: "checkmark.shield", title: String(localized: "Decide once, not every time")) {
                 EmptyView()
             } content: {
                 Text("""
@@ -547,14 +536,12 @@ private struct SecondLanguageRow: View {
 
     private var note: String {
         guard model.dictationEnabled else {
-            return "Turn dictation on to choose the languages it listens for."
+            return String(localized: "Turn dictation on to choose the languages it listens for.")
         }
         if model.secondDictationLanguage.isEmpty, let suggestion = model.suggestedSecondLanguage {
-            return "This Mac also uses \(suggestion.name). Dictation hears "
-                + "\(model.dictationPrimaryName) and nothing else until you add a second language."
+            return String(localized: "This Mac also uses \(suggestion.name). Dictation hears \(model.dictationPrimaryName) and nothing else until you add a second language.")
         }
-        return "Both are heard at once and whichever came out clearer is kept, so you can switch "
-            + "language mid-sentence. The second one downloads the first time you pick it."
+        return String(localized: "Both are heard at once and whichever came out clearer is kept, so you can switch language mid-sentence. The second one downloads the first time you pick it.")
     }
 }
 
@@ -616,7 +603,7 @@ private struct KeyRow: View {
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(keys.filter { $0 != "…" }.joined(separator: " to ")): \(label)")
+        .accessibilityLabel("\(keys.filter { $0 != "…" }.joined(separator: String(localized: " to "))): \(label)")
     }
 }
 
@@ -624,9 +611,17 @@ private struct KeyRow: View {
 
 private struct PermissionsStep: View {
     @Environment(OnboardingModel.self) private var model
+    /// Hold to talk's three switches, walked one at a time, as in the panel.
+    @State private var switches: DictationSwitches?
+    @State private var openedFor: DictationSwitches.Step?
 
     var body: some View {
         VStack(spacing: 12) {
+            // The gallery's stand-in first: it draws without running `.task`.
+            if model.walksDictationSwitches, let switches = model.previewSwitches ?? switches {
+                holdToTalk(switches)
+            }
+
             if let problem = model.calendarCard, problem.isProblem {
                 // Refused, or otherwise stuck: the same sentence and button as
                 // the calendar widget and Settings, in Settings' look because
@@ -638,7 +633,7 @@ private struct PermissionsStep: View {
                     ProblemCard(icon: "calendar", sentence: problem.sentence,
                                 button: problem.remedy.button,
                                 action: problem.remedy == .nothing ? nil : { model.performCalendarRemedy() })
-                    Text(OnboardingAgentText.calendarLater(next: "Continue"))
+                    Text(OnboardingAgentText.calendarLater(next: String(localized: "Continue")))
                         .font(.system(size: 11.5))
                         .foregroundStyle(.secondary)
                 }
@@ -649,11 +644,11 @@ private struct PermissionsStep: View {
             } else {
                 PermissionCard(
                     symbol: "calendar",
-                    title: "Calendar",
-                    detail: "Shows today's agenda in the notch. Read-only, and only the calendars you pick.",
+                    title: String(localized: "Calendar"),
+                    detail: String(localized: "Shows today's agenda in the notch. Read-only, and only the calendars you pick."),
                     granted: model.calendarGranted,
-                    grantedLabel: "Granted",
-                    action: "Grant Access") { model.performCalendarRemedy() }
+                    grantedLabel: String(localized: "Granted"),
+                    action: String(localized: "Grant Access")) { model.performCalendarRemedy() }
 
                 // Under the problem card the card already says it.
                 if let note = model.calendar.accessNote {
@@ -672,13 +667,38 @@ private struct PermissionsStep: View {
             // No button: there is nothing to do until macOS asks.
             PermissionCard(
                 symbol: "terminal",
-                title: "Automation",
-                detail: "The first time you jump back to a terminal, macOS will ask to let Airlock control it. "
-                    + "That question is expected — say yes and the jump works from then on.",
+                title: String(localized: "Automation"),
+                detail: String(localized: "The first time you jump back to a terminal, macOS will ask to let Airlock control it. That question is expected — say yes and the jump works from then on."),
                 granted: false,
                 grantedLabel: "",
                 action: nil) {}
         }
+        // A switch flipped in System Settings ticks the walk without a click
+        // back into this window. The hold key is re-measured first: a tap
+        // built before Input Monitoring was on stays deaf until rebuilt.
+        .watchingPermissions { _ in
+            model.dictation.recheckHoldKey()
+            switches = model.readDictationSwitches()
+        }
+        .task { switches = model.readDictationSwitches() }
+    }
+
+    private func holdToTalk(_ switches: DictationSwitches) -> some View {
+        var detail = switches.instruction(key: model.holdKeyName)
+        if let step = switches.current, step == openedFor {
+            detail += " " + DictationSwitches.ticksByItself
+        }
+        return PermissionCard(
+            symbol: "mic",
+            title: String(localized: "Hold to talk"),
+            detail: detail,
+            granted: switches.isDone,
+            grantedLabel: String(localized: "Ready"),
+            action: switches.button,
+            tag: switches.stepLabel) {
+                if switches.opensList { openedFor = switches.current }
+                model.performDictationStep(switches)
+            }
     }
 }
 
@@ -687,6 +707,8 @@ private struct PermissionCard: View {
     let granted: Bool, grantedLabel: String
     /// nil for a heads-up with nothing to press.
     let action: String?
+    /// Beside the title, for a card that walks steps ("2 of 3 · …").
+    var tag: String? = nil
     let perform: () -> Void
 
     var body: some View {
@@ -697,7 +719,18 @@ private struct PermissionCard: View {
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 13, weight: .medium))
+                // The tag goes under the title when both don't fit on one
+                // line: the Spanish pane names are about twice as long.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        titleText
+                        if let tag { tagText(tag) }
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        titleText
+                        if let tag { tagText(tag).fixedSize(horizontal: false, vertical: true) }
+                    }
+                }
                 Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -715,6 +748,12 @@ private struct PermissionCard: View {
         }
         .padding(13)
         .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+    }
+
+    private var titleText: some View { Text(title).font(.system(size: 13, weight: .medium)) }
+
+    private func tagText(_ tag: String) -> some View {
+        Text(tag).font(.system(size: 11.5, weight: .medium)).foregroundStyle(.orange)
     }
 }
 
@@ -734,8 +773,8 @@ private struct FinishStep: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Open at login").font(.system(size: 13, weight: .medium))
                     Text(model.isBundled
-                         ? "It lives in the menu bar and uses nothing while idle."
-                         : "Needs the packaged app — unavailable from a dev build.")
+                         ? String(localized: "It lives in the menu bar and uses nothing while idle.")
+                         : String(localized: "Needs the packaged app — unavailable from a dev build."))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
@@ -771,9 +810,9 @@ private struct FinishStep: View {
                 Text("Where to find everything")
                     .font(.system(size: 12, weight: .medium))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Hint(symbol: "cursorarrow", text: "Hover the notch to peek, click to keep it open.")
-                Hint(symbol: "menubar.arrow.up.rectangle", text: "The ◐ in your menu bar opens Settings and this guide.")
-                Hint(symbol: "square.and.arrow.down", text: "Drag any file onto the notch to drop it on the shelf.")
+                Hint(symbol: "cursorarrow", text: String(localized: "Hover the notch to peek, click to keep it open."))
+                Hint(symbol: "menubar.arrow.up.rectangle", text: String(localized: "The ◐ in your menu bar opens Settings and this guide."))
+                Hint(symbol: "square.and.arrow.down", text: String(localized: "Drag any file to the top of the screen to keep it, AirDrop it or change its format."))
             }
             .padding(13)
             .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
@@ -782,7 +821,7 @@ private struct FinishStep: View {
                 model.revealNotch()
                 revealed = true
             } label: {
-                Label(revealed ? "Look up — that's it" : "Show me the notch",
+                Label(revealed ? String(localized: "Look up — that's it") : String(localized: "Show me the notch"),
                       systemImage: revealed ? "arrow.up" : "eye")
             }
             .onboardingGlassButton()

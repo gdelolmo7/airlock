@@ -20,7 +20,7 @@ public enum PolicyScope: Equatable, Hashable, Sendable {
     /// full path is drawn underneath it wherever this is shown.
     public var label: String {
         switch self {
-        case .everywhere: return "Everywhere"
+        case .everywhere: return String(localized: "Everywhere")
         case .project(let root): return URL(fileURLWithPath: root).lastPathComponent
         }
     }

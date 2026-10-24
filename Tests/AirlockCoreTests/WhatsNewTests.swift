@@ -68,13 +68,19 @@ final class WhatsNewTests: XCTestCase {
         XCTAssertEqual(decide("", seen: nil), .nothing)
     }
 
+    /// "and 4 more changes" opens the website's list at the version just installed.
+    func testMoreChangesOpensTheChangelogAtThisVersion() {
+        XCTAssertEqual(WhatsNew.changelogURL(for: "1.0.27").absoluteString,
+                       "https://useairlock.app/changelog#v1.0.27")
+    }
+
     // MARK: - Two updates in a row
 
     /// The owner's question: 1.0.17 straight to 1.0.19 must not lose 1.0.18.
     func testASkippedVersionIsFoldedInNewestFirst() {
         let catalog = [notes("1.0.19", 1), notes("1.0.18", 2), notes("1.0.17", 1)]
         let card = shown(decide("1.0.19", seen: "1.0.17", in: catalog))
-        XCTAssertEqual(card?.label, "new since 1.0.17")
+        XCTAssertEqual(card?.label, "1.0.19 \u{00B7} new since 1.0.17")
         XCTAssertEqual(card?.title, WhatsNew.foldedTitle)
         XCTAssertEqual(card?.items.map(\.text), ["1.0.19 line 1", "1.0.18 line 1", "1.0.18 line 2"])
         XCTAssertEqual(card?.version, "1.0.19")

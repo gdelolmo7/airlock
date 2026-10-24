@@ -50,12 +50,12 @@ public enum NotesPlace: Equatable, Sendable {
     /// Under "Take notes" in the notch.
     public var offerLine: String {
         switch self {
-        case .online: "Words only, no audio kept. Notes are written online; nothing said is kept there."
-        case .mac: "Words only, written on this Mac. No audio is kept."
-        case .needsAppleIntelligence: "Words only, no audio kept. Turn on Apple Intelligence for notes and to-dos."
-        case .transcriptOnly(.upgrade): "Words only, no audio kept. This Mac keeps the transcript; Plus also writes notes."
-        case .transcriptOnly(.switchOn): "Words only, no audio kept. Switch on Write notes online in Settings for notes."
-        case .transcriptOnly(.none): "Words only, no audio kept. This Mac keeps the transcript."
+        case .online: String(localized: "Words only, no audio kept. Notes are written online; nothing said is kept there.")
+        case .mac: String(localized: "Words only, written on this Mac. No audio is kept.")
+        case .needsAppleIntelligence: String(localized: "Words only, no audio kept. Turn on Apple Intelligence for notes and to-dos.")
+        case .transcriptOnly(.upgrade): String(localized: "Words only, no audio kept. This Mac keeps the transcript; Plus also writes notes.")
+        case .transcriptOnly(.switchOn): String(localized: "Words only, no audio kept. Switch on Write notes online in Settings for notes.")
+        case .transcriptOnly(.none): String(localized: "Words only, no audio kept. This Mac keeps the transcript.")
         }
     }
 
@@ -63,13 +63,13 @@ public enum NotesPlace: Equatable, Sendable {
     /// notes when a call starts."
     public var settingsLine: String {
         switch self {
-        case .online(macFallback: true): "Written online, or on your Mac without internet"
-        case .online(macFallback: false): "Written online, or once you're back online"
-        case .mac: "Written on your Mac"
-        case .needsAppleIntelligence: "Turn on Apple Intelligence for notes; until then, the transcript only"
-        case .transcriptOnly(.upgrade): "This Mac keeps the transcript; Plus also writes notes"
-        case .transcriptOnly(.switchOn): "This Mac keeps the transcript; switch on Write notes online for notes"
-        case .transcriptOnly(.none): "This Mac keeps the transcript"
+        case .online(macFallback: true): String(localized: "Written online, or on your Mac without internet")
+        case .online(macFallback: false): String(localized: "Written online, or once you're back online")
+        case .mac: String(localized: "Written on your Mac")
+        case .needsAppleIntelligence: String(localized: "Turn on Apple Intelligence for notes; until then, the transcript only")
+        case .transcriptOnly(.upgrade): String(localized: "This Mac keeps the transcript; Plus also writes notes")
+        case .transcriptOnly(.switchOn): String(localized: "This Mac keeps the transcript; switch on Write notes online for notes")
+        case .transcriptOnly(.none): String(localized: "This Mac keeps the transcript")
         }
     }
 }

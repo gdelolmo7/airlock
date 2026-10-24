@@ -14,12 +14,14 @@ final class CallTapWatchTests: XCTestCase {
     /// returning every action that was not `.none`, by second.
     private func run(_ watch: inout CallTapWatch, from: Int = 1, to: Int, since: Int = 0,
                      lastSound: (Int) -> Int?, speaking: (Int) -> Bool = { _ in true },
-                     playing: (Int) -> Bool = { _ in false }) -> [Int: CallTapWatch.Action] {
+                     playing: (Int) -> Bool = { _ in false },
+                     others: (Int) -> Bool = { _ in false }) -> [Int: CallTapWatch.Action] {
         var actions: [Int: CallTapWatch.Action] = [:]
         for second in from...to {
             let action = watch.look(now: start + Double(second), callTapSince: start + Double(since),
                                     callTapLastSound: lastSound(second).map { start + Double($0) },
-                                    speakersSpeaking: speaking(second), callAppPlaying: { playing(second) })
+                                    speakersSpeaking: speaking(second), callAppPlaying: { playing(second) },
+                                    othersPlaying: { others(second) })
             if action != .none { actions[second] = action }
         }
         return actions
@@ -153,6 +155,71 @@ final class CallTapWatchTests: XCTestCase {
             _ = watch.look(now: start + Double(second), callTapSince: start,
                            callTapLastSound: start + Double(second - 1), speakersSpeaking: false,
                            callAppPlaying: { asked += 1; return true })
+        }
+        XCTAssertEqual(asked, 0)
+    }
+
+    // MARK: Things that only look like a dead call tap
+
+    /// The Discord call: Discord plays the whole time and sends exact zeros
+    /// while nobody talks, so everything the Mac plays reads zero too. A
+    /// quiet start of the call, not a dead tap: nothing is started again.
+    func testACallAppThatPlaysSilenceIsNotADeadTap() {
+        XCTAssertTrue(CallTapWatch.silentBetweenWords("com.hnc.Discord"))
+        var watch = CallTapWatch(silentBetweenWords: true)
+        let actions = run(&watch, to: 600, lastSound: { _ in nil }, speaking: { _ in false },
+                          playing: { _ in true })
+        XCTAssertTrue(actions.isEmpty, "\(actions)")
+        XCTAssertEqual(watch.restarts, 0)
+    }
+
+    /// Then another app played a voice while Discord stayed silent. It used
+    /// to take over as the other side for the rest of the call; it is not
+    /// the call, so the call tap is left as it is.
+    func testAnotherAppsVoiceIsNotTheCall() {
+        var watch = CallTapWatch(silentBetweenWords: true)
+        let actions = run(&watch, to: 600, lastSound: { _ in nil }, speaking: { $0 >= 160 },
+                          playing: { _ in true }, others: { $0 >= 150 })
+        XCTAssertTrue(actions.isEmpty, "\(actions)")
+        XCTAssertFalse(watch.usingSpeakers)
+    }
+
+    /// The same for any call app: with another app playing, the Mac's voice
+    /// never moves the other side to the speakers. The call app playing on
+    /// into a deaf tap still starts both taps again.
+    func testAVoiceWhileAnotherAppPlaysNeverSwitches() {
+        var watch = CallTapWatch()
+        XCTAssertTrue(run(&watch, to: 300, lastSound: { _ in 60 }, others: { _ in true }).isEmpty)
+        var playing = CallTapWatch()
+        let actions = run(&playing, to: 200, lastSound: { _ in 60 }, playing: { _ in true },
+                          others: { _ in true })
+        XCTAssertEqual(actions, [70: .restartBoth, 90: .restartBoth, 150: .restartBoth], "\(actions)")
+        XCTAssertFalse(playing.usingSpeakers)
+    }
+
+    /// A call tap that really is deaf on such an app: the Mac plays a voice
+    /// and nothing but the call app plays, so the speakers still stand in.
+    func testADeafTapOnASilentAppStillFallsBack() {
+        var watch = CallTapWatch(silentBetweenWords: true)
+        let actions = run(&watch, to: 120, lastSound: { _ in 60 }, playing: { _ in true })
+        XCTAssertEqual(actions, [70: .restartCallTap, 90: .useSpeakers], "\(actions)")
+    }
+
+    /// Another app stopping lets the Mac's voice count again.
+    func testTheVoiceCountsOnceTheOtherAppStops() {
+        var watch = CallTapWatch()
+        let actions = run(&watch, to: 200, lastSound: { _ in 60 }, others: { $0 < 100 })
+        XCTAssertEqual(actions, [100: .restartCallTap, 120: .useSpeakers], "\(actions)")
+    }
+
+    /// Other apps are asked about only once the call tap has been quiet.
+    func testOtherAppsAreAskedOnlyWhenTheCallTapIsQuiet() {
+        var watch = CallTapWatch()
+        var asked = 0
+        for second in 1...120 {
+            _ = watch.look(now: start + Double(second), callTapSince: start,
+                           callTapLastSound: start + Double(second - 1), speakersSpeaking: true,
+                           callAppPlaying: { true }, othersPlaying: { asked += 1; return true })
         }
         XCTAssertEqual(asked, 0)
     }

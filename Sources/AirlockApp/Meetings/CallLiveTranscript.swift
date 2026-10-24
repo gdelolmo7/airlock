@@ -204,7 +204,7 @@ final class LiveTranscriptWindowController {
             contentRect: NSRect(x: 0, y: 0, width: width, height: 640),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered, defer: false)
-        panel.title = "Live transcript"
+        panel.title = String(localized: "Live transcript")
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
         // Its own close button is in the header, with the call's name.
@@ -307,7 +307,8 @@ struct LiveTranscriptView: View {
                 let named = naming.flatMap { record.voices.contains($0) && actions.canName($0) ? $0 : nil }
                 LiveTranscriptHeader(record: record, stage: stage, escapes: named == nil, actions: actions)
                 LiveTranscriptLines(record: record, stage: stage, ground: CallsLook.sidebar,
-                                    hearing: stage.isLive ? CallLive.speaking(live.hearing, paused: stage == .paused)
+                                    hearing: stage.isLive ? CallLive.speaking(live.hearing, paused: stage == .paused,
+                                                                                in: record)
                                                           : [],
                                     scrolledAwayFor: scrolledAwayFor,
                                     canName: actions.canName, name: { naming = $0 })
@@ -442,7 +443,7 @@ private struct LiveTranscriptClose: View {
 
 private struct LiveTranscriptIconButton: View {
     let symbol: String
-    let help: String
+    let help: LocalizedStringKey
     let action: () -> Void
     @State private var hovered = false
 
@@ -553,7 +554,7 @@ private struct LiveTranscriptRow: View {
             .padding(.leading, LiveLook.underName)
             .padding(.top, LiveLook.runGap - LiveLook.rowGap)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(record.label(for: turn)): \(turn.text)")
+            .accessibilityLabel("\(MeetingRecord.shownLabel(record.label(for: turn))): \(turn.text)")
             .accessibilityValue(marked ? "Marked" : "")
         case .speech(let turn, let marked):
             let name = record.label(for: turn)
@@ -565,7 +566,7 @@ private struct LiveTranscriptRow: View {
                         if let voice = record.voice(of: turn), canName(voice) {
                             LiveTranscriptName(name: name, seat: seat) { self.name(voice) }
                         } else {
-                            Text(name)
+                            Text(MeetingRecord.shownLabel(name))
                                 .font(Theme.chrome(12, .semibold))
                                 .foregroundStyle(CallsLook.colour(for: seat))
                                 .lineLimit(1)
@@ -637,7 +638,7 @@ private struct LiveTranscriptName: View {
     var body: some View {
         let colour = CallsLook.colour(for: seat)
         Button(action: action) {
-            Text(name)
+            Text(MeetingRecord.shownLabel(name))
                 .font(Theme.chrome(12, .semibold))
                 .foregroundStyle(colour)
                 .underline(hovered, color: colour.opacity(0.55))
@@ -682,7 +683,7 @@ private struct LiveTranscriptHearingRow: View {
         HStack(alignment: .top, spacing: 10) {
             CallPersonAvatar(name: name, seat: seat, size: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
+                Text(MeetingRecord.shownLabel(name))
                     .font(Theme.chrome(12, .semibold))
                     .foregroundStyle(CallsLook.colour(for: seat))
                     .lineLimit(1)
@@ -788,12 +789,12 @@ private struct LiveTranscriptOutcome: View {
 
     private var title: String {
         switch stage {
-        case .ready: "Your notes are ready"
-        case .writing: "Writing your notes…"
+        case .ready: String(localized: "Your notes are ready")
+        case .writing: String(localized: "Writing your notes…")
         case .tooLittleSaid: CallNotesPanel.tooLittleSaid
-        case .later: "Call saved"
-        case .tooShort: "Too short to keep"
-        case .failed: "The notes stopped"
+        case .later: String(localized: "Call saved")
+        case .tooShort: String(localized: "Too short to keep")
+        case .failed: String(localized: "The notes stopped")
         case .listening, .paused: ""
         }
     }
@@ -801,10 +802,10 @@ private struct LiveTranscriptOutcome: View {
     private var detail: String? {
         switch stage {
         case .ready(let todos): CallLive.readyDetail(todos: todos)
-        case .writing: "They'll be ready in a moment."
-        case .tooLittleSaid: "The transcript is kept in Calls."
-        case .later: "Its notes will be written online later."
-        case .tooShort: "A call this short isn't saved, unless it comes back."
+        case .writing: String(localized: "They'll be ready in a moment.")
+        case .tooLittleSaid: String(localized: "The transcript is kept in Calls.")
+        case .later: String(localized: "Its notes will be written online later.")
+        case .tooShort: String(localized: "A call this short isn't saved, unless it comes back.")
         case .failed(let reason): reason
         case .listening, .paused: nil
         }
@@ -867,12 +868,12 @@ private struct LiveTranscriptFoot: View {
 /// Pause, Resume and Stop at the window's foot: small and quiet, so the
 /// transcript stays what the window is for.
 private struct LiveFootButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let symbol: String
     let action: () -> Void
     @State private var hovered = false
 
-    init(_ title: String, symbol: String, action: @escaping () -> Void) {
+    init(_ title: LocalizedStringKey, symbol: String, action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
         self.action = action
@@ -908,12 +909,12 @@ private struct LiveFootButton: View {
 
 /// "Open notes" across the card in blue; "Close" beside it, quiet.
 private struct LiveCardButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let prominent: Bool
     let action: () -> Void
     @State private var hovered = false
 
-    init(_ title: String, prominent: Bool = false, action: @escaping () -> Void) {
+    init(_ title: LocalizedStringKey, prominent: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.prominent = prominent
         self.action = action

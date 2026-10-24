@@ -29,7 +29,7 @@ enum ClaudeStyleHookDecoder {
     static let permissionNoticePrefix = "Claude needs your permission"
 
     /// The row's line while Claude summarises the conversation to make room.
-    static let compactingLine = "Summarising the conversation so far…"
+    static let compactingLine = String(localized: "Summarising the conversation so far…")
 
     /// The tool that hands Claude's plan to the person to approve. Never a
     /// card — see the PermissionRequest case.
@@ -103,7 +103,7 @@ enum ClaudeStyleHookDecoder {
                 .trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty {
                 return made([.promptSubmitted(prompt: prompt)])
             }
-            return made([.activity(summary: "Working…")])
+            return made([.activity(summary: SessionState.workingLine)])
 
         case "PermissionRequest" where gatesPermissions:
             let tool = (root["tool_name"] as? String) ?? "Tool"
@@ -114,7 +114,7 @@ enum ClaudeStyleHookDecoder {
             // you": escaping that dialog fires no hook at all (not even Stop),
             // so a waiting state would have nothing to end it.
             if tool == Self.planTool {
-                return [make(.activity(summary: "Plan ready for review in Claude"))]
+                return [make(.activity(summary: String(localized: "Plan ready for review in Claude")))]
             }
             guard Self.promptOpensCard(tool: tool, mode: root["permission_mode"] as? String) else {
                 return []
@@ -255,7 +255,7 @@ enum ClaudeStyleHookDecoder {
     /// Claude is working out what it would do, and saying so keeps the row
     /// honest.
     static func passiveSummary(mode: String, activity: String) -> String {
-        mode == "plan" ? "Planning · \(activity)" : activity
+        mode == "plan" ? String(localized: "Planning · \(activity)") : activity
     }
 
     /// Build a rich permission card from a `PreToolUse` tool input.
@@ -294,7 +294,7 @@ enum ClaudeStyleHookDecoder {
             // agent heard back about one and nothing about the others.
             let questions = input.map(QuestionPrompt.parseAll) ?? []
             var request = PermissionRequest(id: id, toolName: tool,
-                                            summary: questions.first?.question ?? "Claude has a question",
+                                            summary: questions.first?.question ?? String(localized: "Claude has a question"),
                                             activity: activity, refusal: refusal, createdAt: now)
             request.questions = questions
             return request

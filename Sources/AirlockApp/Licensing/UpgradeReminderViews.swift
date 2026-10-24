@@ -120,7 +120,8 @@ struct UpgradeReminderCard: View {
             .buttonStyle(.plain)
             .clickable()
             .fixedSize()
-            .accessibilityHint(reminder.notNowHint ?? "Closes this card. It won't come back.")
+            .accessibilityHint(reminder.notNowHint ?? String(localized: "Closes this card. It won't come back."))
+
 
             Spacer(minLength: 8)
             if let hint = reminder.notNowHint {

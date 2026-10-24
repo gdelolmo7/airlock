@@ -162,8 +162,11 @@ enum GalleryLicence {
             GalleryState("L27", area, "Welcome to Plus") {
                 welcome(.plus)
             },
-            GalleryState("L27a", area, "Welcome to Pro") {
+            GalleryState("L27a", area, "Welcome to Pro (from Plus)") {
                 welcome(.pro)
+            },
+            GalleryState("L27f", area, "Welcome to Pro (straight from Free)") {
+                welcome(.pro, from: .free)
             },
             GalleryState("L27b", area, "Welcome to Plus: redo the last call's notes") {
                 welcome(.plus, redo: .offered)
@@ -315,8 +318,9 @@ enum GalleryLicence {
 
     /// The welcome card at the width of the panel's stack. `redo` draws the
     /// row at that stage, for a call named the way the notch names one.
-    private static func welcome(_ plan: AirlockPlan, redo: WelcomeCardView.Redo.Stage? = nil) -> some View {
-        let card = WelcomeCard(plan)!
+    private static func welcome(_ plan: AirlockPlan, from: AirlockPlan? = nil,
+                                redo: WelcomeCardView.Redo.Stage? = nil) -> some View {
+        let card = WelcomeCard(plan, from: from)!
         let row = redo.map {
             WelcomeCardView.Redo(question: card.redoQuestion(title: "Budget review", when: "today", minutes: 42),
                                  stage: $0)

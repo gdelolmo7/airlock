@@ -27,7 +27,7 @@ public struct AppleIntelligenceSetup: Equatable, Sendable {
 
         public var title: String {
             switch self {
-            case .openSystemSettings: "Open System Settings"
+            case .openSystemSettings: String(localized: "Open System Settings")
             }
         }
 
@@ -40,35 +40,33 @@ public struct AppleIntelligenceSetup: Equatable, Sendable {
     }
 
     /// What the notes are, said once so each line can lead with it.
-    public static let purpose = "Writes your call notes and to-dos on this Mac."
+    public static let purpose = String(localized: "Writes your call notes and to-dos on this Mac.")
 
     public static func row(_ availability: ModelAvailability) -> AppleIntelligenceSetup {
         switch availability {
         case .ready:
-            return AppleIntelligenceSetup(tag: nil, detail: "On. \(purpose)", button: nil, isOn: true)
+            return AppleIntelligenceSetup(tag: nil, detail: String(localized: "On. \(purpose)"), button: nil, isOn: true)
         case .needsAppleIntelligence:
             return AppleIntelligenceSetup(
-                tag: "switched off",
-                detail: "\(purpose) Turn it on in System Settings. If it isn't there, "
-                    + "your Mac's language or region doesn't have it yet.",
+                tag: String(localized: "switched off"),
+                detail: String(localized: "\(purpose) Turn it on in System Settings. If it isn't there, your Mac's language or region doesn't have it yet."),
                 button: .openSystemSettings, isOn: false)
         case .deviceNotEligible:
             return AppleIntelligenceSetup(
-                tag: "not on this Mac",
-                detail: "This Mac can't run it. On Free, calls get a transcript but no notes. "
-                    + "Plus writes notes online on any Mac.",
+                tag: String(localized: "not on this Mac"),
+                detail: String(localized: "This Mac can't run it. On Free, calls get a transcript but no notes. Plus writes notes online on any Mac."),
                 button: nil, isOn: false)
         case .modelNotReady:
             return AppleIntelligenceSetup(
-                tag: "downloading",
-                detail: "\(purpose) macOS is still downloading it, and call notes work once it finishes.",
+                tag: String(localized: "downloading"),
+                detail: String(localized: "\(purpose) macOS is still downloading it, and call notes work once it finishes."),
                 button: nil, isOn: false)
         case .unknown:
             // A reason this build doesn't know: say what it is for and where
             // it lives, without guessing what is wrong.
             return AppleIntelligenceSetup(
                 tag: nil,
-                detail: "\(purpose) It's in System Settings, under Apple Intelligence & Siri.",
+                detail: String(localized: "\(purpose) It's in System Settings, under Apple Intelligence & Siri."),
                 button: .openSystemSettings, isOn: false)
         }
     }

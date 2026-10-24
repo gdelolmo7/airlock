@@ -325,8 +325,7 @@ public extension AppMix {
     static let formThreshold: Int? = nil
 
     /// Pure on purpose. The view layer of this card is out of reach of any
-    /// assertion — `PanelSnapshot` renders only `ActionCardView`, and
-    /// `LevelsRowsSnapshot` draws a picture to look at rather than a check — so
+    /// assertion — `LevelsRowsSnapshot` draws a picture to look at rather than a check — so
     /// the one decision worth protecting is extracted to where `swift test`
     /// can see it.
     ///

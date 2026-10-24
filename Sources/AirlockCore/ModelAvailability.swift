@@ -39,16 +39,15 @@ public enum ModelAvailability: Equatable, Sendable {
         case .ready:
             return nil
         case .needsAppleIntelligence:
-            return "Turn on Apple Intelligence in System Settings to enable \(feature)."
+            return String(localized: "Turn on Apple Intelligence in System Settings to enable \(feature).")
         case .deviceNotEligible:
-            return "This Mac can't run Apple's on-device model, so \(feature) is unavailable."
+            return String(localized: "This Mac can't run Apple's on-device model, so \(feature) is unavailable.")
         case .modelNotReady:
-            return "Apple's on-device model is still downloading. "
-                + "\(Self.capitalised(feature)) will start working once it finishes."
+            return String(localized: "Apple's on-device model is still downloading. \(Self.capitalised(feature)) will start working once it finishes.")
         case .unknown:
             // Not the reason: it is the framework's own enum case, which reads
             // as code. Dictation logs it at start (`DictationModel.start`).
-            return "\(Self.capitalised(feature)) isn't available on this Mac right now."
+            return String(localized: "\(Self.capitalised(feature)) isn't available on this Mac right now.")
         }
     }
 

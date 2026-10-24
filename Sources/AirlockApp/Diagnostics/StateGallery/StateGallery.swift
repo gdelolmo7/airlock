@@ -16,15 +16,12 @@ import AirlockCore
 /// **It leaves no trace, and that is structural rather than careful.** It is
 /// handled at the very top of `applicationDidFinishLaunching`, before the
 /// identity migration, the bridge, the island, any widget model or any
-/// permission check exists — the same place as `--snapshot`, for the same
-/// reason. What it draws is built from values: guide states come from a real
-/// `GuideSession` driven by made-up replies (so the words are the shipping
-/// words), never from the guide client; the licence is
+/// permission check exists. What it draws is built from values: the licence is
 /// `LicenseModel(previewing:)`, which reads and writes nothing. And nothing in a
 /// picture can be pressed (`allowsHitTesting(false)`): an agent card's "Jump"
 /// is a real AppleScript call, and the gallery is for looking.
 ///
-/// **What it is not**, the same caveat as `PanelSnapshot`: these are the VIEWS,
+/// **What it is not**: these are the VIEWS,
 /// not the composited island — no glass, no notch above them, no height budget.
 /// "Is the wording right, is anything unfinished" is answerable here; "does it
 /// fit on a 13-inch screen" is not.
@@ -49,22 +46,12 @@ enum StateGallery {
     /// Every state, in inventory order. One line per area, like the widget
     /// registry: an area is a file of its own under `StateGallery/`.
     static var all: [GalleryState] {
-        guideStates + GalleryIsland.states + GalleryAgents.states + GalleryWidgets.states
+        GalleryIsland.states + GalleryAgents.states + GalleryWidgets.states
             + GalleryClipboard.states + GalleryShelf.states + GalleryDictation.states
-            + GalleryAssistant.states + GalleryLicence.states + GalleryOnboarding.states
+            + GalleryLicence.states + GalleryOnboarding.states
             + GallerySettings.states + GalleryMeetings.states + GalleryLiveTranscript.states
             + GalleryCallNotesPanel.states
-            + GalleryCallAnswers.states
             + GalleryMotion.states
-    }
-
-    /// The guide's area, first in the inventory, only in a build that has it.
-    private static var guideStates: [GalleryState] {
-        #if AIRLOCK_GUIDE
-        GalleryGuide.states + GalleryWelcome.states
-        #else
-        []
-        #endif
     }
 
     static func run(_ request: Request) {
@@ -143,16 +130,13 @@ private final class RetinaWindow: NSWindow {
 /// One row of the inventory, drawn.
 struct GalleryState: Identifiable {
     /// What the state sits on. The island's states are drawn on the panel's
-    /// black; the guide's floating card on a stand-in desktop, since it is a
-    /// window of its own; Settings and the welcome on a window ground.
+    /// black; Settings and the welcome on a window ground.
     enum Ground {
         /// The expanded notch panel: black, rounded, `width` wide.
         case panel
         /// The compact island: the view is the trailing half, drawn beside a
         /// stand-in notch.
         case compact
-        /// A window of its own over the desktop (the guide's bubble).
-        case floating
         /// A standard window (Settings, welcome, purchase).
         case window
     }
@@ -261,12 +245,6 @@ struct GalleryFrame: View {
             .frame(minWidth: 320)
             .fixedSize()
             .background(Color.black, in: .rect(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
-        case .floating:
-            state.draw()
-                .padding(28)
-                .background(LinearGradient(colors: [Color(red: 0.32, green: 0.36, blue: 0.45),
-                                                    Color(red: 0.20, green: 0.22, blue: 0.30)],
-                                           startPoint: .topLeading, endPoint: .bottomTrailing))
         case .window:
             state.draw()
                 // What the Settings window sets at its root.

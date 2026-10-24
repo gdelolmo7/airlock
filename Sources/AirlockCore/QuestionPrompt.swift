@@ -112,7 +112,7 @@ public struct QuestionWalk: Equatable, Sendable {
 
     /// "2 of 3" — nil for one question, which has nothing to count.
     public var position: String? {
-        questions.count > 1 ? "\(step + 1) of \(questions.count)" : nil
+        questions.count > 1 ? String(localized: "\(step + 1) of \(questions.count)") : nil
     }
 
     /// What the questions before this one were answered with, as one line —
@@ -142,9 +142,9 @@ public struct QuestionWalk: Equatable, Sendable {
         if step > 0 { step -= 1 }
     }
 
-    /// ONE answer for the whole ask, for the deny-with-reason path every answer
-    /// has always taken — the agent reads it after "The user answered from
-    /// Airlock: ".
+    /// ONE answer for the whole ask, in words — the agent reads it after "The
+    /// user answered from Airlock: " when the answers cannot go into the
+    /// question itself (see `HookDirective.answered`).
     ///
     /// A single question is sent exactly as it always was: the bare answer.
     /// Every ask before this one got that shape, and one answer has nothing to
@@ -160,6 +160,25 @@ public struct QuestionWalk: Equatable, Sendable {
         return zip(questions, answers).map { question, answer in
             "\(quoted(label(for: question, among: questions)))=\(quoted(answer))"
         }.joined(separator: ", ")
+    }
+
+    /// The answers the way Claude's `AskUserQuestion` takes them: by the
+    /// question's text, a multi-select as its labels joined with ", ", which is
+    /// what the card already sends, and anything typed as it was typed.
+    ///
+    /// Empty when the map could not tell the questions apart — two with the
+    /// same text, or answers that do not line up with the questions — so the
+    /// answer goes as `reply` instead, rather than as one that drops a question.
+    public static func answersByQuestion(_ questions: [QuestionPrompt], answers: [String]) -> [String: String] {
+        guard !questions.isEmpty, questions.count == answers.count else { return [:] }
+        let map = Dictionary(zip(questions.map(\.question), answers), uniquingKeysWith: { first, _ in first })
+        return map.count == questions.count ? map : [:]
+    }
+
+    /// The finished walk's `answersByQuestion`.
+    public var answersByQuestion: [String: String] {
+        guard !answers.contains(nil) else { return [:] }
+        return Self.answersByQuestion(questions, answers: answers.map { $0 ?? "" })
     }
 
     /// The header, unless it is missing or another question in the same ask

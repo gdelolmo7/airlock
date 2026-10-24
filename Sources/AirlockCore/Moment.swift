@@ -14,10 +14,6 @@ public enum Moment: String, CaseIterable, Sendable {
     case agentFinished
     /// Never announced yet: nothing detects a failed agent (M5).
     case agentFailed
-    case guideStep
-    case guideDone
-    case guideLost
-    case guideEnded
     /// The pointer reached a shown island (M10's tick).
     case pointerArrived
     case islandOpened
@@ -49,10 +45,6 @@ public enum Moment: String, CaseIterable, Sendable {
         case .denied: "M3"
         case .agentFinished: "M4"
         case .agentFailed: "M5"
-        case .guideStep: "M6"
-        case .guideDone: "M7"
-        case .guideLost: "M8"
-        case .guideEnded: "M9"
         case .pointerArrived, .islandOpened: "M10"
         case .islandClosed: "M11"
         case .tabChanged: "M12"
@@ -98,34 +90,3 @@ public struct MomentDedupe: Sendable {
     }
 }
 
-#if AIRLOCK_GUIDE
-extension Moment {
-    /// Which guide moment, if any, a phase change is (M6–M9), with a detail
-    /// for the log.
-    ///
-    /// A step is news when it is a new step, not when the same one comes back
-    /// after a check found it not done yet. Lost is news on the way in only.
-    /// An ending is a give-up only when there is something to say about it:
-    /// stopping by hand and finishing are not failures.
-    public static func guide(from before: GuideSession.Phase, step stepBefore: Int,
-                             to after: GuideSession.Phase, step stepAfter: Int) -> (Moment, String?)? {
-        switch after {
-        case .pointing:
-            let wasShowing = [.pointing, .notSure, .checking, .offTrack].contains(before)
-            guard !wasShowing || stepAfter != stepBefore else { return nil }
-            return (.guideStep, "step \(stepAfter)")
-        case .notSure, .offTrack:
-            guard before != after else { return nil }
-            return (.guideLost, after == .offTrack ? "off track" : "not sure")
-        case .done:
-            guard before != .done else { return nil }
-            return (.guideDone, "after \(stepAfter) steps")
-        case .ended(let reason):
-            guard before != after, GuidePresentation.endMessage(reason) != nil else { return nil }
-            return (.guideEnded, String(describing: reason))
-        case .idle, .listening, .looking, .checking:
-            return nil
-        }
-    }
-}
-#endif

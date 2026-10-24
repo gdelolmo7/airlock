@@ -21,9 +21,9 @@ public struct CalendarAccessCard: Equatable, Sendable {
 
         public var button: String? {
             switch self {
-            case .ask: "Grant Calendar Access"
-            case .openSystemSettings: "Open System Settings"
-            case .tryAgain: "Try again"
+            case .ask: String(localized: "Grant Calendar Access")
+            case .openSystemSettings: String(localized: "Open System Settings")
+            case .tryAgain: String(localized: "Try again")
             case .nothing: nil
             }
         }
@@ -36,15 +36,15 @@ public struct CalendarAccessCard: Equatable, Sendable {
     public let isProblem: Bool
 
     public static let invitation =
-        "See your next meetings here, with one-click join for Zoom, Meet and Teams links."
+        String(localized: "See your next meetings here, with one-click join for Zoom, Meet and Teams links.")
     /// The button says where to go, so the sentence only says what happened.
-    public static let refused = "Calendar access was refused, so your meetings can't show here."
+    public static let refused = String(localized: "Calendar access was refused, so your meetings can't show here.")
     public static let managed =
-        "Whoever manages this Mac has turned calendar access off, so your meetings can't show here."
-    public static let addOnly = "Airlock can only add events, so your meetings can't show here."
+        String(localized: "Whoever manages this Mac has turned calendar access off, so your meetings can't show here.")
+    public static let addOnly = String(localized: "Airlock can only add events, so your meetings can't show here.")
     public static let suppressed =
-        "macOS didn't show its question. Quit Airlock, open it again from Finder, then try again."
-    public static let couldNotAsk = "Calendar access couldn't be asked for. Try again in a moment."
+        String(localized: "macOS didn't show its question. Quit Airlock, open it again from Finder, then try again.")
+    public static let couldNotAsk = String(localized: "Calendar access couldn't be asked for. Try again in a moment.")
 
     /// nil when the agenda can show.
     public static func card(status: CalendarAuthorization,

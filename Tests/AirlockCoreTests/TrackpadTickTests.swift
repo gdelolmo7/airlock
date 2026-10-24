@@ -17,7 +17,7 @@ final class TrackpadTickTests: XCTestCase {
 
     func testBackgroundNewsNeverTicks() {
         for moment in [Moment.gateArrived, .agentFinished, .agentFailed, .copied,
-                       .guideStep, .islandOpened, .usageLimitClose] {
+                       .islandOpened, .usageLimitClose] {
             XCTAssertNil(moment.tick, "\(moment) happens without a hand on the trackpad")
         }
     }

@@ -135,7 +135,7 @@ public enum MeetingNaming {
     /// without words here gets "You", Airlock's name for you, never "you"
     /// inside somebody else's sentence.
     private static func second(in page: String, of record: MeetingRecord) -> Second? {
-        // The headings are Airlock's own, and English.
+        // The headings are Airlock's own and say nothing about the call.
         let prose = page.split(separator: "\n").filter { !$0.hasPrefix("#") }.joined(separator: "\n")
         guard let language = CallLanguage.decide(engine: record.languages, reading: CallLanguage.reading(of: prose)),
               language.code != "en" else { return nil }

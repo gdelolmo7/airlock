@@ -23,7 +23,7 @@ enum GalleryAgents {
     static var states: [GalleryState] {
         [
             .notYet("A1", area, "Agents tab with a count",
-                    why: "The count is on the tab strip (NotchTopBar), which needs the guide, dictation, assistant and battery models; the guide's init starts a workspace observer. Waits for a top-bar seam."),
+                    why: "The count is on the tab strip (NotchTopBar), which needs the dictation and battery models. Waits for a top-bar seam."),
             .notYet("A2", area, "\"Clear all sessions\"",
                     why: "The button is on the tab strip (NotchTopBar) — same models as A1."),
             setup("A3", "Not set up", .noHooksInstalled),

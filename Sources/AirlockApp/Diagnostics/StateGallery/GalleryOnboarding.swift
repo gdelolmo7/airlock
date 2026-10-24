@@ -96,6 +96,33 @@ enum GalleryOnboarding {
             GalleryState("O20", area, "Set up before counts existed: usage counts, asked once") {
                 UsageQuestionCard()
             },
+            // Hold to talk's three switches, one at a time: the microphone is
+            // asked, the other two are switches in a list that opens.
+            GalleryState("O21", area, "Setup: hold to talk, 1 of 3 (microphone)") {
+                panel(at: .permissions, switches: walk(.notAsked))
+            },
+            GalleryState("O21a", area, "Setup: hold to talk, microphone refused") {
+                panel(at: .permissions, switches: walk(.refused))
+            },
+            GalleryState("O21b", area, "Setup: hold to talk, 2 of 3 (Input Monitoring)") {
+                panel(at: .permissions, switches: walk(.allowed))
+            },
+            GalleryState("O21c", area, "Setup: hold to talk, 3 of 3 (Accessibility)") {
+                panel(at: .permissions, switches: walk(.allowed, keyNoticed: true))
+            },
+            GalleryState("O21d", area, "Setup: hold to talk, ready") {
+                panel(at: .permissions, switches: walk(.allowed, keyNoticed: true, canType: true))
+            },
+            GalleryState("O21e", area, "Setup window: hold to talk, 2 of 3", ground: .window,
+                         width: windowWidth) {
+                window(at: .permissions, switches: walk(.allowed))
+            },
+            GalleryState("O21f", area, "Setup: hold to talk, microphone turned off by the Mac's manager") {
+                panel(at: .permissions, switches: walk(.blocked))
+            },
+            GalleryState("O21g", area, "Setup: hold to talk, Input Monitoring on but an old approval") {
+                panel(at: .permissions, switches: walk(.allowed, keyApprovalIsOld: true))
+            },
         ]
     }
 
@@ -106,12 +133,12 @@ enum GalleryOnboarding {
     /// it is drawn here with `onboardingFlatGlass`: bordered buttons, same words.
     static let windowWidth: CGFloat = 640
 
-    /// The once-only notice after the rename (L10), with the guide on so
-    /// every permission row Settings can show is named.
+    /// The once-only notice after the rename (L10), naming every permission
+    /// row Settings can show.
     static func permissionsAgain(_ area: String) -> GalleryState {
         GalleryState("L10", area, "Permissions again after the rename", ground: .window,
                      width: PermissionsAgainView.width) {
-            PermissionsAgainView(names: PermissionsAgainView.names(guideOn: true))
+            PermissionsAgainView(names: PermissionsAgainView.names)
         }
     }
 
@@ -136,13 +163,12 @@ enum GalleryOnboarding {
                               basis: AgentsPresence.Basis, calendar: CalendarWidgetModel,
                               resumed: Bool = false,
                               appleIntelligence: ModelAvailability = .ready) -> OnboardingModel {
-        let assistant = AssistantModel()
-        assistant.previewAvailability = appleIntelligence
+        let dictation = DictationModel()
+        dictation.previewCleanupAvailability = appleIntelligence
         let model = OnboardingModel(settings: SettingsModel(previewing: agents),
                                     calendar: calendar,
-                                    dictation: DictationModel(),
+                                    dictation: dictation,
                                     clipboard: ClipboardWidgetModel(history: ClipboardHistory(items: [])),
-                                    assistant: assistant,
                                     agentsWidget: AgentsWidgetModel(previewing: basis))
         // The first and last steps as a release build draws them, with the
         // usage-counts and crash-reports questions, whether or not this
@@ -154,21 +180,36 @@ enum GalleryOnboarding {
     }
 
     /// Every tab on, which is what a first run with the agents half on shows.
+    /// `switches` stands in for this Mac's dictation switches, and shows the
+    /// hold to talk walk whether or not dictation is on here.
     private static func panel(at step: OnboardingPlan.Step, agents: [SettingsModel.AgentRow] = unwired,
                               basis: AgentsPresence.Basis = .noHooksInstalled,
                               calendar: CalendarWidgetModel = CalendarWidgetModel(),
                               resumed: Bool = false,
-                              appleIntelligence: ModelAvailability = .ready) -> some View {
-        PanelOnboardingView(maxContentHeight: 420, tabs: NotchTab.allCases)
-            .environment(model(at: step, agents: agents, basis: basis, calendar: calendar, resumed: resumed,
-                               appleIntelligence: appleIntelligence))
+                              appleIntelligence: ModelAvailability = .ready,
+                              switches: DictationSwitches? = nil) -> some View {
+        let wizard = model(at: step, agents: agents, basis: basis, calendar: calendar, resumed: resumed,
+                           appleIntelligence: appleIntelligence)
+        wizard.previewSwitches = switches
+        return PanelOnboardingView(maxContentHeight: 420, tabs: NotchTab.allCases)
+            .environment(wizard)
             .environment(NotchUIState())
     }
 
     private static func window(at step: OnboardingPlan.Step,
-                               calendar: CalendarWidgetModel = CalendarWidgetModel()) -> some View {
-        OnboardingView()
-            .environment(model(at: step, agents: unwired, basis: .noHooksInstalled, calendar: calendar))
+                               calendar: CalendarWidgetModel = CalendarWidgetModel(),
+                               switches: DictationSwitches? = nil) -> some View {
+        let wizard = model(at: step, agents: unwired, basis: .noHooksInstalled, calendar: calendar)
+        wizard.previewSwitches = switches
+        return OnboardingView()
+            .environment(wizard)
             .environment(\.onboardingFlatGlass, true)
+    }
+
+    /// Hold to talk's walk, at one step each.
+    private static func walk(_ microphone: DictationSwitches.Microphone, keyNoticed: Bool = false,
+                             canType: Bool = false, keyApprovalIsOld: Bool = false) -> DictationSwitches {
+        DictationSwitches(microphone: microphone, keyNoticed: keyNoticed, canType: canType,
+                          keyApprovalIsOld: keyApprovalIsOld)
     }
 }

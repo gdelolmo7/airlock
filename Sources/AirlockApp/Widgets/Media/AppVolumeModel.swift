@@ -107,7 +107,7 @@ final class AppVolumeModel {
     /// Short on purpose — two lines at the default text size in the narrowest
     /// panel, whose side column leaves the caption ~164pt. Measured there by
     /// `LevelFailureCaptionTests`, not counted in characters.
-    static let levelNotApplied = "Playing at its normal volume. Move the slider to try again."
+    static let levelNotApplied = String(localized: "Playing at its normal volume. Move the slider to try again.")
 
     /// Every sentence `failures` can hold. Listed, and listed here, so that
     /// `LevelFailureCaptionTests` lays each one out in the narrowest card: a
@@ -119,7 +119,7 @@ final class AppVolumeModel {
     /// app. The row's own caption says "move the slider", and when the cause
     /// is the recording permission that advice loops forever — macOS offers
     /// no way to read that permission, so this says "may" and opens the page.
-    static let permissionHint = "Levels not sticking? Airlock may need to record system audio."
+    static let permissionHint = String(localized: "Levels not sticking? Airlock may need to record system audio.")
 
     /// What a ROW says, given what `failures` holds for it. The Multi-Output
     /// refusal is about the output, not the app, so the same sentence under

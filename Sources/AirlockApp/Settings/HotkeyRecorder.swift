@@ -18,7 +18,7 @@ import SwiftUI
 /// currently bound to somewhere else in the app.
 struct HotkeyRecorder: View {
     /// What the shortcut does, on the left of the row.
-    let title: String
+    let title: Text
     @Binding var binding: GlobalHotkey.Binding
     /// Checked live, so a clash is stated while the key is still fresh in mind
     /// rather than discovered later when the gesture silently does two things.
@@ -29,9 +29,17 @@ struct HotkeyRecorder: View {
     @State private var lastRejection: String?
     @Environment(\.isEnabled) private var isEnabled
 
-    init(_ title: String, binding: Binding<GlobalHotkey.Binding>,
+    init(_ title: LocalizedStringKey, binding: Binding<GlobalHotkey.Binding>,
          conflict: @escaping (GlobalHotkey.Binding) -> String?) {
-        self.title = title
+        self.title = Text(title)
+        _binding = binding
+        self.conflict = conflict
+    }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ title: S, binding: Binding<GlobalHotkey.Binding>,
+                            conflict: @escaping (GlobalHotkey.Binding) -> String?) {
+        self.title = Text(title)
         _binding = binding
         self.conflict = conflict
     }
@@ -39,7 +47,7 @@ struct HotkeyRecorder: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
-                Text(title)
+                title
                     .font(Theme.chrome(12))
                     .foregroundStyle(Theme.textPrimary)
                 Spacer(minLength: 8)
@@ -47,7 +55,7 @@ struct HotkeyRecorder: View {
                     LookButton("Cancel") { stop() }
                 }
                 Button(action: toggle) {
-                    LookChip(text: isRecording ? "Press keys…" : binding.displayName)
+                    LookChip(text: isRecording ? String(localized: "Press keys…") : binding.displayName)
                         .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .strokeBorder(isRecording ? Theme.running : .clear, lineWidth: 1))
                         .contentShape(.rect)
@@ -108,13 +116,13 @@ struct HotkeyRecorder: View {
         // global — so the recorder refuses rather than letting somebody
         // discover it by pressing "v".
         guard modifiers != 0 else {
-            lastRejection = "Add a modifier — ⌘, ⌥, ⌃ or ⇧. A key on its own would be taken from every app."
+            lastRejection = String(localized: "Add a modifier — ⌘, ⌥, ⌃ or ⇧. A key on its own would be taken from every app.")
             return
         }
         // Shift alone shifts. Together with another modifier it is a fine part
         // of a chord, but by itself it is how capital letters are typed.
         guard modifiers != UInt32(shiftKey) else {
-            lastRejection = "Shift on its own types capitals — add ⌘, ⌥ or ⌃."
+            lastRejection = String(localized: "Shift on its own types capitals — add ⌘, ⌥ or ⌃.")
             return
         }
 

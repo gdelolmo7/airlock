@@ -34,8 +34,8 @@ public enum UsageAlert {
         /// As a sentence says it: "Claude's 5-hour limit".
         public var name: String {
             switch self {
-            case .fiveHour: return "5-hour"
-            case .sevenDay: return "weekly"
+            case .fiveHour: return String(localized: "5-hour")
+            case .sevenDay: return String(localized: "weekly")
             }
         }
     }
@@ -68,10 +68,14 @@ public enum UsageAlert {
         /// What VoiceOver says, and what the notice means in words.
         public var sentence: String {
             switch self {
-            case let .nearLimit(window, percent):
-                return "Claude's \(window.name) limit is \(percent)% used"
-            case .reset(let window):
-                return "Claude's \(window.name) limit has reset"
+            case let .nearLimit(.fiveHour, percent):
+                return String(localized: "Claude's 5-hour limit is \(percent)% used")
+            case let .nearLimit(.sevenDay, percent):
+                return String(localized: "Claude's weekly limit is \(percent)% used")
+            case .reset(.fiveHour):
+                return String(localized: "Claude's 5-hour limit has reset")
+            case .reset(.sevenDay):
+                return String(localized: "Claude's weekly limit has reset")
             }
         }
     }

@@ -13,15 +13,15 @@ public enum CallsCard {
     /// every call is one click further in the notes window ("All calls").
     public static let limit = 6
 
-    public static let title = "Calls"
-    public static let allCalls = "All calls"
+    public static let title = String(localized: "Calls")
+    public static let allCalls = String(localized: "All calls")
     /// What the tab says while call notes are on and nothing is saved yet.
     /// Said rather than hidden, so the tab is where somebody who just
     /// switched notes on expects their first call to land.
-    public static let emptyTitle = "No calls yet"
-    public static let emptyLine = "Notes from your calls will show here."
+    public static let emptyTitle = String(localized: "No calls yet")
+    public static let emptyLine = String(localized: "Notes from your calls will show here.")
     /// The empty tab's second line: a meeting with no call needs the button.
-    public static let emptyRoomLine = "For a meeting in the room, press Take notes."
+    public static let emptyRoomLine = String(localized: "For a meeting in the room, press Take notes.")
 
     /// The tab's button for notes by hand (`MeetingNotesFlow.handButton`):
     /// notes of a meeting in the room, of the call that is on, or "Stop
@@ -29,8 +29,8 @@ public enum CallsCard {
     /// is nothing to press.
     public static func handLabel(_ button: MeetingNotesFlow.HandButton) -> String? {
         switch button {
-        case .takeNotes, .takeNotesOfCall: "Take notes"
-        case .stop: "Stop notes"
+        case .takeNotes, .takeNotesOfCall: String(localized: "Take notes")
+        case .stop: String(localized: "Stop notes")
         case .busy: nil
         }
     }
@@ -38,9 +38,9 @@ public enum CallsCard {
     /// What the same button does, said on hover.
     public static func handHelp(_ button: MeetingNotesFlow.HandButton) -> String {
         switch button {
-        case .takeNotes: "Takes notes of a meeting in the room, through this Mac's microphone"
-        case .takeNotesOfCall: "Takes notes of the call you're on"
-        case .stop: "Stops the notes and writes them up"
+        case .takeNotes: String(localized: "Takes notes of a meeting in the room, through this Mac's microphone")
+        case .takeNotesOfCall: String(localized: "Takes notes of the call you're on")
+        case .stop: String(localized: "Stops the notes and writes them up")
         case .busy: ""
         }
     }
@@ -191,8 +191,8 @@ public enum CallsCard {
     public static func todos(_ count: Int) -> String? {
         switch count {
         case ..<1: return nil
-        case 1: return "1 to-do"
-        default: return "\(count) to-dos"
+        case 1: return String(localized: "1 to-do")
+        default: return String(localized: "\(count) to-dos")
         }
     }
 
@@ -201,15 +201,15 @@ public enum CallsCard {
     public static func weekLine(_ count: Int) -> String? {
         switch count {
         case ..<1: return nil
-        case 1: return "1 call this week"
-        default: return "\(count) calls this week"
+        case 1: return String(localized: "1 call this week")
+        default: return String(localized: "\(count) calls this week")
         }
     }
 
     /// "12 min": whole minutes, never under one, as the notes page header
     /// counts them (`MeetingFiles.header`).
     public static func length(from start: Date, to end: Date) -> String {
-        "\(max(1, Int((end.timeIntervalSince(start) / 60).rounded()))) min"
+        String(localized: "\(max(1, Int((end.timeIntervalSince(start) / 60).rounded()))) min")
     }
 
     /// "Today 14:30 · 12 min", "Yesterday 09:05 · 40 min", "Mon 6 Oct 14:30 ·
@@ -219,7 +219,7 @@ public enum CallsCard {
                             calendar: Calendar = .current) -> String {
         let day = dayName(of: start, now: now, calendar: calendar, weekday: .abbreviated)
         let time = start.formatted(timeStyle(calendar))
-        guard let end else { return "\(day) \(time) · now" }
+        guard let end else { return String(localized: "\(day) \(time) · now") }
         return "\(day) \(time) · \(length(from: start, to: end))"
     }
 
@@ -295,10 +295,10 @@ public enum CallsCard {
                                 weekday: Date.FormatStyle.Symbol.Weekday) -> String {
         let style = Date.FormatStyle(locale: calendar.locale ?? .current, calendar: calendar,
                                      timeZone: calendar.timeZone)
-        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if calendar.isDate(date, inSameDayAs: now) { return String(localized: "Today") }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
            calendar.isDate(date, inSameDayAs: yesterday) {
-            return "Yesterday"
+            return String(localized: "Yesterday")
         }
         if calendar.isDate(date, equalTo: now, toGranularity: .year) {
             return date.formatted(style.weekday(weekday).day().month(.abbreviated))

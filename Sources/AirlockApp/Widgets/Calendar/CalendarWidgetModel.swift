@@ -245,7 +245,7 @@ final class CalendarWidgetModel {
     private func map(_ event: EKEvent) -> CalendarEvent {
         CalendarEvent(
             id: event.eventIdentifier ?? UUID().uuidString,
-            title: event.title ?? "Untitled",
+            title: event.title ?? String(localized: "Untitled"),
             start: event.startDate,
             end: event.endDate,
             calendarID: event.calendar?.calendarIdentifier ?? "",
@@ -324,21 +324,21 @@ final class CalendarWidgetModel {
     /// 24 hours" above a picked day's list too, which is the one thing that
     /// list is not.
     static func scopeLabel(selectedDay: Date?, now: Date = Date(), calendar cal: Calendar = .current) -> String {
-        guard let day = selectedDay else { return "Next 24 hours" }
-        if cal.isDate(day, inSameDayAs: now) { return "Today" }
+        guard let day = selectedDay else { return String(localized: "Next 24 hours") }
+        if cal.isDate(day, inSameDayAs: now) { return String(localized: "Today") }
         if let tomorrow = cal.date(byAdding: .day, value: 1, to: now), cal.isDate(day, inSameDayAs: tomorrow) {
-            return "Tomorrow"
+            return String(localized: "Tomorrow")
         }
         if let yesterday = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(day, inSameDayAs: yesterday) {
-            return "Yesterday"
+            return String(localized: "Yesterday")
         }
         return day.formatted(.dateTime.weekday(.wide).day())
     }
 
     /// Shown in place of "No meetings" when the person has unticked every
     /// calendar: the list is empty because of a choice, not a quiet week.
-    static let nothingTicked = "No calendars are ticked, so no meetings can show here."
-    static let chooseCalendars = "Choose Calendars"
+    static let nothingTicked = String(localized: "No calendars are ticked, so no meetings can show here.")
+    static let chooseCalendars = String(localized: "Choose Calendars")
 
     /// Ask for full calendar access. Only ever called from an explicit user
     /// action — no TCC prompt ambushes at launch.
@@ -364,7 +364,7 @@ final class CalendarWidgetModel {
 
     func requestAccess() async {
         guard AppBundle.isBundled else {
-            accessNote = "Calendar access only works in the installed Airlock app."
+            accessNote = String(localized: "Calendar access only works in the installed Airlock app.")
             return
         }
         do {
@@ -408,14 +408,15 @@ final class CalendarWidgetModel {
         case .granted:
             return nil
         case .promptSuppressed:
-            return "macOS didn't show its question. Quit Airlock, open it again from Finder, then try again."
+            return String(localized: "macOS didn't show its question. Quit Airlock, open it again from Finder, then try again.")
         case .declined:
-            return "Calendar access is turned off. Turn it on in System Settings."
+            return String(localized: "Calendar access is turned off. Turn it on in System Settings.")
         case .standingDenial:
-            return "Calendar access is turned off for Airlock. Turn it on in System Settings."
+            return String(localized: "Calendar access is turned off for Airlock. Turn it on in System Settings.")
         case .inconclusive:
             // macOS's own words were logged where they were caught.
-            return thrown == nil ? nil : "Calendar access couldn't be asked for. Try again in a moment."
+            return thrown == nil ? nil : String(localized: "Calendar access couldn't be asked for. Try again in a moment.")
+
         }
     }
 
@@ -484,6 +485,7 @@ final class CalendarWidgetModel {
     func join(_ event: CalendarEvent) {
         guard let meeting = event.meeting else { return }
         UsageCounts.shared.record(.used(.meetingJoined))
+        FirstStepsModel.shared.note(.joinMeeting)
         if let appURL = meeting.appURL, NSWorkspace.shared.open(appURL) {
             onNavigateAway?()
             return

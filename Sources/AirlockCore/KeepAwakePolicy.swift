@@ -29,7 +29,7 @@ public enum KeepAwakePolicy {
     /// for a second and say nothing about why it went out.
     public static func refusal(cutoff: Int, percentage: Int?, onBattery: Bool) -> String? {
         guard shouldStop(cutoff: cutoff, percentage: percentage, onBattery: onBattery) else { return nil }
-        return "The battery is below \(cutoff)%, where keep awake stops. Plug in, or lower the cutoff in Settings."
+        return String(localized: "The battery is below \(cutoff)%, where keep awake stops. Plug in, or lower the cutoff in Settings.")
     }
 
     // MARK: - While an agent works (card Awake 1)
@@ -70,7 +70,7 @@ public enum KeepAwakePolicy {
     /// has seen it (`keepsStoppedNotice`), because the person it is for is
     /// often away when it happens.
     public static func stoppedMessage(cutoff: Int) -> String {
-        "Keep awake stopped: the battery went below \(cutoff)%."
+        String(localized: "Keep awake stopped: the battery went below \(cutoff)%.")
     }
 
     /// How long the line stays once the panel has first shown it. Five

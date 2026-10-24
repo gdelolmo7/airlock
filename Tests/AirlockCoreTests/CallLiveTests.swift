@@ -129,6 +129,30 @@ final class CallLiveTests: XCTestCase {
         XCTAssertTrue(CallLive.speaking([.me: heard], paused: true).isEmpty)
     }
 
+    /// On speakers, the microphone hears the other side: their words, being
+    /// said, are not drawn under your name, whether they come back while
+    /// they are still talking or just after their line was written down.
+    func testTheOtherSidesWordsComingBackAreNotYours() {
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        let now = start + 30
+        var record = MeetingRecord(bundleID: "com.hnc.Discord", appName: "Discord", startedAt: start)
+        let them = CallLive.Hearing(speaker: .them, text: "we could move the launch to next friday instead",
+                                    since: start + 25)
+        let echo = CallLive.Hearing(speaker: .me, text: "could move the launch to next friday",
+                                    since: start + 25.3)
+        XCTAssertEqual(CallLive.speaking([.me: echo, .them: them], in: record, now: now).map(\.speaker),
+                       [.them])
+        // Their line already written down, your echo of it still coming.
+        record.add(MeetingSegment(speaker: .them, start: 25, end: 29.5,
+                                  text: "We could move the launch to next Friday instead."))
+        XCTAssertTrue(CallLive.speaking([.me: echo], in: record, now: now).isEmpty)
+        // Your own words, about the same thing, stay.
+        let reply = CallLive.Hearing(speaker: .me, text: "friday is too late for the shop", since: start + 29.8)
+        XCTAssertEqual(CallLive.speaking([.me: reply], in: record, now: now + 2).map(\.speaker), [.me])
+        // Without the record, as before: shown.
+        XCTAssertEqual(CallLive.speaking([.me: echo, .them: them]).map(\.speaker), [.me, .them])
+    }
+
     func testWordsCarryOnTheirSidesLastTurnUntilALongSilence() {
         let start = Date(timeIntervalSince1970: 1_000)
         let turn = MeetingSegment(speaker: .me, start: 10, end: 20, text: "Okay, so this is the test.")

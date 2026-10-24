@@ -92,9 +92,10 @@ final class SecretScanTests: XCTestCase {
 
     private let licencePublicKey = Data((0..<32).map { UInt8(($0 &* 41 &+ 7) & 0xFF) }).base64EncodedString()
     private let updatePublicKey = Data((0..<32).map { UInt8(($0 &* 29 &+ 3) & 0xFF) }).base64EncodedString()
+    private let callLockPublicKey = Data((0..<32).map { UInt8(($0 &* 53 &+ 11) & 0xFF) }).base64EncodedString()
     private var sentryDSN: String { "https://" + hex(32, seed: 20) + "@o1.ingest.de.sentry.io/2" }
 
-    /// A small app shaped like the real one: the plist with its three public
+    /// A small app shaped like the real one: the plist with its four public
     /// values, a program file that carries one of them, a text resource, a
     /// framework with a link inside, and the signature files.
     @discardableResult
@@ -105,6 +106,7 @@ final class SecretScanTests: XCTestCase {
             "ALLicensePublicKey": licencePublicKey,
             "SUPublicEDKey": updatePublicKey,
             "ALSentryDSN": sentryDSN,
+            "ALCallLockPublicKey": callLockPublicKey,
             "ALLicenseAPIURL": "https://licence.example.com",
         ]
         try write(PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0),
@@ -150,7 +152,7 @@ final class SecretScanTests: XCTestCase {
         XCTAssertTrue(report.isClean, report.lines.joined(separator: "\n"))
         XCTAssertEqual(report.files, 5, "the plist, two programs, a text file, the framework; no signatures, no links")
         XCTAssertEqual(Set(report.allowed.map(\.because)),
-                       ["ALLicensePublicKey", "SUPublicEDKey", "ALSentryDSN"])
+                       ["ALLicensePublicKey", "SUPublicEDKey", "ALSentryDSN", "ALCallLockPublicKey"])
         XCTAssertTrue(report.allowed.contains(.init(path: "Contents/MacOS/Airlock", because: "ALLicensePublicKey")),
                       "the licence key is allowed in the program as well as the plist")
         XCTAssertTrue(report.lines.contains { $0.contains("the licence check's public key") })
@@ -263,6 +265,13 @@ final class SecretScanTests: XCTestCase {
         let report = try SecretScan.scan(bundle: app(planting: base64Key(32, seed: 60),
                                                       in: "Contents/Resources/defaults.json"))
         XCTAssertEqual(report.findings.map(\.rule), [.key32])
+    }
+
+    func testTheCallLockKeyIsAllowedWhereverItIs() throws {
+        let report = try SecretScan.scan(bundle: app(planting: callLockPublicKey))
+        XCTAssertTrue(report.isClean, report.lines.joined(separator: "\n"))
+        XCTAssertTrue(report.allowed.contains(.init(path: "Contents/MacOS/Airlock", because: "ALCallLockPublicKey")))
+        XCTAssertTrue(report.lines.contains { $0.contains("the call lock's public key") })
     }
 
     func testTheCrashReportAddressIsAllowedWhereverItIs() throws {

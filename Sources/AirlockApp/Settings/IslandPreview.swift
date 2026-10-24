@@ -58,8 +58,8 @@ struct IslandPreview: View {
     /// Settings column is about this wide.
     private var previewScale: CGFloat { min(1, 520 / appearance.panelWidth) }
 
-    private func caption(_ text: String) -> some View {
-        Text(text.uppercased()).font(Theme.label).foregroundStyle(Theme.textTertiary)
+    private func caption(_ text: LocalizedStringKey) -> some View {
+        Text(text).textCase(.uppercase).font(Theme.label).foregroundStyle(Theme.textTertiary)
     }
 
     /// The closed island keeps the kit's black on every surface

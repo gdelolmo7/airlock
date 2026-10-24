@@ -36,8 +36,8 @@ struct CrashQuestionCard: View {
                 .padding(.leading, 7)
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                button("Not now", prominent: false) { onAnswer(false) }
-                button("Send reports", prominent: true) { onAnswer(true) }
+                button(String(localized: "Not now"), prominent: false) { onAnswer(false) }
+                button(String(localized: "Send reports"), prominent: true) { onAnswer(true) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

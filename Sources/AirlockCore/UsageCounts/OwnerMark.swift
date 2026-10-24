@@ -52,17 +52,17 @@ public enum OwnerMark {
     /// The question for keeping `new`, given the mark this Mac already has
     /// and whether it sends usage counts at all.
     public static func question(new: String, current: String?, sendsCounts: Bool) -> Question {
-        let leftOut = "your numbers page can leave them out when Hide me is on"
         if current == new {
-            return Question(title: "This Mac is already marked as yours",
-                            message: "The usage counts it sends carry your mark, so \(leftOut).",
-                            keep: nil, done: "OK")
+            return Question(title: String(localized: "This Mac is already marked as yours"),
+                            message: String(localized: "The usage counts it sends carry your mark, so your numbers page can leave them out when Hide me is on."),
+                            keep: nil, done: String(localized: "OK"))
         }
-        var message = "Airlock adds your mark to the usage counts this Mac sends, so \(leftOut). Nothing else changes."
-        if current != nil { message += " It replaces the mark this Mac has now." }
+        var message = String(localized: "Airlock adds your mark to the usage counts this Mac sends, so your numbers page can leave them out when Hide me is on. Nothing else changes.")
+        if current != nil { message += " " + String(localized: "It replaces the mark this Mac has now.") }
         if !sendsCounts {
-            message += " Usage counts are off on this Mac, so it sends none; the mark is kept for if you turn them on."
+            message += " " + String(localized: "Usage counts are off on this Mac, so it sends none; the mark is kept for if you turn them on.")
         }
-        return Question(title: "Mark this Mac as yours?", message: message, keep: "Mark as Mine", done: "Cancel")
+        return Question(title: String(localized: "Mark this Mac as yours?"), message: message,
+                        keep: String(localized: "Mark as Mine"), done: String(localized: "Cancel"))
     }
 }

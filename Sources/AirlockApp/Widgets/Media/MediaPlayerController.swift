@@ -31,7 +31,8 @@ enum MediaPlayerKind: String, CaseIterable, Codable {
     var displayName: String {
         switch self {
         case .spotify: return "Spotify"
-        case .appleMusic: return "Music"
+        case .appleMusic: return String(localized: "Music")
+
         }
     }
 

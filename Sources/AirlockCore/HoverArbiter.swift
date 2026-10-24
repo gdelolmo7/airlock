@@ -140,6 +140,23 @@ public struct HoverArbiter: Equatable, Sendable {
     /// the next exit is taken at face value.
     public mutating func forgetAnchor() { anchor = nil }
 
+    /// Whether a source that last said "inside" must now say "outside", because
+    /// its region was reshaped and the pointer is no longer in it.
+    ///
+    /// The drop catcher is resized by code: over the drop box, back to the
+    /// cutout, along the strip. A tracking area reports an entry when its
+    /// window grows under the pointer, and nothing at all when it shrinks
+    /// away from one. So the catcher went on claiming the pointer after the
+    /// box closed, every later hover-in read as `.unchanged`, and the notch
+    /// would not peek until the pointer had been in the cutout and out again.
+    ///
+    /// Only ever a withdrawal: nothing here can report an entry, so the peek
+    /// can still only be refused by it, never caused.
+    public static func withdrawsAfterReshape(reported: Bool, region: CGRect,
+                                             pointer: CGPoint) -> Bool {
+        reported && !region.contains(pointer)
+    }
+
     /// Forget everything — the panel was torn down, or the hover state is being
     /// deliberately reset.
     public mutating func reset() {

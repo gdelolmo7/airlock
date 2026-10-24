@@ -336,7 +336,7 @@ final class AppModel {
     private func passedOver(_ asking: String, by answering: String) {
         passedOver = passedOver.filter { state.sessions[$0] != nil }.union([asking])
         let name = { (id: String) in self.state.sessions[id].map(SessionCardText.place(of:)) }
-        onPassedOver?(name(asking) ?? "An agent", name(answering))
+        onPassedOver?(name(asking) ?? String(localized: "An agent"), name(answering))
     }
 
     /// Once the agent says anything else (it was answered there, or it moved
@@ -426,13 +426,14 @@ final class AppModel {
             // An agents feature, so it goes with the agents switch.
             usageNotice: agents.isEnabled ? usageAlerts.notice : nil,
             usageNoticeAt: agents.isEnabled ? usageAlerts.noticeAt : nil,
-            guide: ui.guideCompact,
             // A meeting in the room shows as a call while its notes are
             // taken; a real call, if one starts meanwhile, is the one shown.
             call: calls.call ?? (meetings.isEnabled ? meetings.inPersonCall : nil),
             // Behind the hidden switch, like the rest of call notes.
             callNotes: meetings.isEnabled ? meetings.glance : nil,
-            callNotesAt: meetings.isEnabled ? meetings.glanceAt : nil)
+            callNotesAt: meetings.isEnabled ? meetings.glanceAt : nil,
+            fileInHand: ui.fileInHand,
+            dropWork: ui.dropWork)
     }
 
     /// Account-wide Claude rate-limit windows, fed by the status-line bridge.
@@ -500,8 +501,9 @@ final class AppModel {
         startClaudeSession()
     }
 
-    /// Answer an agent's question from the notch.
-    func answer(_ session: AgentSession, choice: String) {
+    /// Answer an agent's question from the notch. `answers` is the same answer
+    /// by question (`QuestionWalk.answersByQuestion`); see `BridgeServer.answer`.
+    func answer(_ session: AgentSession, choice: String, answers: [String: String] = [:]) {
         // Below the guard, not above it: the bridge call needs the request id
         // to address the gate the user actually answered, and it was already
         // one line away. Firing first also sent an answer when there was no
@@ -510,7 +512,8 @@ final class AppModel {
         let isDemo = demoIDs.contains(live.id)
         // Counted once it has been delivered — see `resolve`.
         Task { [weak self, bridge] in
-            let delivered = await bridge.answer(sessionID: live.id, requestID: request.id, choice: choice)
+            let delivered = await bridge.answer(sessionID: live.id, requestID: request.id,
+                                                choice: choice, answers: answers)
             if delivered || isDemo { self?.tally?.recordAnswer() }
             // Not the practice card's: that one has nothing behind it.
             if delivered, !isDemo { UsageCounts.shared.record(.questionAnswered(live.agent)) }

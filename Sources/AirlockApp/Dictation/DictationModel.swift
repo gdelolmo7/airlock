@@ -122,23 +122,6 @@ final class DictationModel {
         }
     }
 
-    /// A second hold key that asks instead of typing.
-    ///
-    /// Separate from `holdKey` because intent must be stated, not inferred. The
-    /// first version of this feature guessed from focus and typed a dictation
-    /// into a Gmail inbox, where Chrome reports an `AXTextArea` and every letter
-    /// is a command. A key cannot be misread.
-    ///
-    /// `.none` turns asking off entirely.
-    var askKey: HoldKeyMonitor.Key? = HoldKeyMonitor.Key(
-        rawValue: Defaults.string("dictation.askKey", default: "option")) {
-        didSet {
-            guard askKey != oldValue else { return }
-            Defaults.set(askKey?.rawValue ?? "", "dictation.askKey")
-            applyHotkey()
-        }
-    }
-
     /// Tidy the transcript with the on-device model before typing it.
     ///
     /// On by default: this is what separates dictation you would send from a
@@ -205,9 +188,6 @@ final class DictationModel {
         didSet {
             guard localeIdentifier != oldValue else { return }
             Defaults.set(localeIdentifier, "dictation.locale")
-            // The localized app aliases are keyed to the dictation languages,
-            // so a cache warmed for the old ones must not run out its clock.
-            assistant?.noteSpokenLanguagesChanged()
             Task { await prepare() }
         }
     }
@@ -227,7 +207,6 @@ final class DictationModel {
         didSet {
             guard secondaryLocaleIdentifier != oldValue else { return }
             Defaults.set(secondaryLocaleIdentifier, "dictation.locale.secondary")
-            assistant?.noteSpokenLanguagesChanged() // see the primary above
             Task { await prepare() }
         }
     }
@@ -236,43 +215,16 @@ final class DictationModel {
 
     /// Where this hold is going, decided at key-down and shown for its duration.
     ///
-    /// `.type` until the probe says otherwise, so the pill never flickers from
-    /// "ask" to "type" — and so a probe that never answers behaves exactly like
-    /// the app did before this feature existed.
+    /// `.type` until the probe says otherwise, so a probe that never answers
+    /// behaves exactly like the app did before this feature existed.
     private(set) var route: DictationRoute = .type
     /// The app the transcript would be typed into, for the pill.
     private(set) var destinationName: String?
-    /// Whether the hold in progress was started by the ask key. Observable so
-    /// the pill can say so before a word is spoken.
-    private(set) var isAsking = false
-
     /// Who we promised to type into. Compared at key-up: if that process has
-    /// gone, the promise cannot be kept and the transcript becomes a question
-    /// instead — safe in that direction, because nothing gets typed.
+    /// gone, the promise cannot be kept and the transcript goes to the
+    /// clipboard instead — safe in that direction, because nothing gets typed.
     @ObservationIgnored private var destinationPID: pid_t?
     @ObservationIgnored private var probeTask: Task<Void, Never>?
-
-    /// Set by AppDelegate. Absent means the feature is off and every hold types,
-    /// which is what this app did before it existed.
-    @ObservationIgnored weak var assistant: AssistantModel?
-    /// The screen guide. Consulted only on the ask key, and only while it is
-    /// switched on; off, the ask key behaves exactly as it always has.
-    #if AIRLOCK_GUIDE
-    @ObservationIgnored weak var guide: GuideController?
-    #endif
-
-    /// Where the ask key's words are going, as far as they can be told yet:
-    /// "how do I…" is a guide, "what is…" is an answer, and most sentences are
-    /// `.unsure` until the on-device model has heard the whole thing. Nil when
-    /// the guide is off, so the chip keeps saying what it always said.
-    var askRoute: GuideRouting.Route? {
-        #if AIRLOCK_GUIDE
-        guard let guide, guide.isEnabled else { return nil }
-        return GuideRouting.route(liveText)
-        #else
-        return nil
-        #endif
-    }
 
     /// Puts a transcript on the clipboard when there is nowhere to type it.
     /// Wired by AppDelegate, so history suppression stays in one place.
@@ -295,7 +247,7 @@ final class DictationModel {
     /// panel collapsed the instant the key came up, so the "Tidying up" state
     /// existed and could never be seen — leaving the pause before the text
     /// lands as unexplained as it was before the state was added.
-    var isActive: Bool { isListening || isCleaning || isSorting }
+    var isActive: Bool { isListening || isCleaning }
 
     /// `isActive`, but only once it has lasted long enough to be worth drawing.
     ///
@@ -389,26 +341,6 @@ final class DictationModel {
         let cause: SilentCapture
     }
 
-    /// An ask-key hold that sounded like dictation — words for a document or
-    /// a coding agent, spoken on the asking key. Nil until the sort says so.
-    ///
-    /// A card and not a guess: the sentence is never typed on the model's
-    /// word alone, for the reason `askKey` gives — intent is stated by a key,
-    /// and the key said "ask". What the card offers is the one click that
-    /// states it: type it after all, ask it, or be guided. Live, 2026-09-30,
-    /// the sentence in this position was "Just review and analyze and come up
-    /// with a plan…", and the guide took six pictures of the Claude window.
-    private(set) var heardDictation: HeardDictation?
-
-    struct HeardDictation: Equatable {
-        let text: String
-        /// Where it would be typed — the app that was in front.
-        let app: String?
-        /// False when the sort could not say (the model refused) and the card
-        /// is the safe place to wait rather than a verdict.
-        let certain: Bool
-    }
-
     /// The notch's one-sentence card for a hold that could not record, or
     /// that ended somewhere other than where the words were expected — see
     /// `DictationHoldNotice`. Nil after a hold that went as it should.
@@ -423,21 +355,6 @@ final class DictationModel {
     /// Closes the notice on its own after `DictationHoldNotice.closesAfter`.
     @ObservationIgnored private var noticeCloseTask: Task<Void, Never>?
 
-    /// Working out whether an ask was a question, a task or a dictation.
-    /// Shown like `isCleaning`, for the same reason: an unexplained pause
-    /// after the key comes up reads as the app having missed it.
-    private(set) var isSorting = false
-
-    /// For the card: which key asks and which types, in the user's own
-    /// settings, so "you held the wrong one" names the right one.
-    var askKeyHint: String { Self.askKeyHint(askKey: askKey, holdKey: holdKey) }
-
-    /// The same line for any pair of keys — the state gallery's way in, since
-    /// it may not build this model.
-    static func askKeyHint(askKey: HoldKeyMonitor.Key?, holdKey: HoldKeyMonitor.Key) -> String {
-        "\(askKey?.displayName ?? "the ask key") asks · \(holdKey.displayName) types"
-    }
-
     /// When the analyzer actually came up. The window that could have carried
     /// audio starts HERE, not at key-down — the engine start sits between the
     /// two, and on a short hold it is most of it.
@@ -447,7 +364,7 @@ final class DictationModel {
     /// macOS's own default, which has no name here worth printing over the
     /// system one.
     var inputDeviceName: String {
-        inputResolution.device?.name ?? "the system input"
+        inputResolution.device?.name ?? String(localized: "the system input")
     }
 
     /// Opens Settings at the input picker. Wired by whoever owns the window.
@@ -482,6 +399,8 @@ final class DictationModel {
             chooseInput()
         case .chooseLanguage:
             onChooseLanguage?()
+        case .letAirlockType:
+            PermissionSwitch.allowAccessibility()
         }
     }
 
@@ -490,7 +409,7 @@ final class DictationModel {
     func dismissHoldNotice() {
         guard holdNotice != nil else { return }
         clearHoldNotice()
-        guard !isActive, heardNothing == nil, heardDictation == nil else { return }
+        guard !isActive, heardNothing == nil else { return }
         setIndicator(false)
     }
 
@@ -538,59 +457,19 @@ final class DictationModel {
         holdNotice = nil
     }
 
-    // MARK: - The "sounded like dictation" card
-
-    /// Type it after all. Serialised behind any delivery still running, like
-    /// every other transcript, so two cannot interleave their keystrokes.
-    func typeHeardDictation() {
-        guard let card = takeHeardDictation() else { return }
-        dictationLog("typing the sorted dictation after all")
-        let previous = deliveryTask
-        deliveryTask = Task { @MainActor [weak self] in
-            await previous?.value
-            guard let self else { return }
-            await self.typeOut(card.text, reason: .released)
-        }
-    }
-
-    func askHeardDictation() {
-        guard let assistant, assistant.isEnabled, let card = takeHeardDictation() else { return }
-        setIndicator(false)
-        assistant.ask(card.text)
-    }
-
-    /// Only the guide's sort raises the card, so without the guide this
-    /// button is never on screen to be pressed.
-    func guideHeardDictation() {
-        #if AIRLOCK_GUIDE
-        guard let guide, guide.isEnabled, let card = takeHeardDictation() else { return }
-        setIndicator(false)
-        guide.start(goal: card.text)
-        #endif
-    }
-
-    func dismissHeardDictation() {
-        guard takeHeardDictation() != nil else { return }
-        setIndicator(false)
-    }
-
-    /// Whether the card may offer an answer — the assistant can be off.
-    var canAskHeardDictation: Bool { assistant?.isEnabled == true }
-
-    /// Each button clears the card first, so a second click cannot type the
-    /// same sentence twice. The words stay in `lastTranscript` either way.
-    private func takeHeardDictation() -> HeardDictation? {
-        defer { heardDictation = nil }
-        return heardDictation
-    }
-
     /// What cleanup can and cannot do on this Mac.
     var cleanupAvailability: ModelAvailability { previewCleanupAvailability ?? cleanup.availability }
 
     /// What `cleanupAvailability` says instead of asking the system. State
-    /// gallery only, like `AssistantModel.previewAvailability`: nil
-    /// everywhere else.
+    /// gallery only: nil everywhere else.
     @ObservationIgnored var previewCleanupAvailability: ModelAvailability?
+
+    /// Names the recogniser should expect to hear — the tools people dictate
+    /// about, which it otherwise turns into ordinary words.
+    static let recognitionVocabulary: [String] = [
+        "Claude", "Claude Code", "Codex", "ChatGPT", "Cursor",
+        "VS Code", "Visual Studio Code", "Xcode", "iTerm", "Airlock",
+    ]
     private(set) var availableLocales: [Locale] = []
     private(set) var readiness = DictationReadiness(blocker: .disabled, canType: false,
                                                     canWatchHoldKey: true)
@@ -602,7 +481,6 @@ final class DictationModel {
 
     @ObservationIgnored private let toggle = WidgetToggle(key: "dictation.enabled", defaultValue: false)
     @ObservationIgnored private let holdMonitor = HoldKeyMonitor()
-    @ObservationIgnored private let askMonitor = HoldKeyMonitor()
 
     /// What the last `applyHotkey` measured, not what is true right now.
     ///
@@ -618,9 +496,12 @@ final class DictationModel {
     /// Nil when the hold key works. Observed, because the two faults need
     /// opposite advice and the pane draws a different button for each.
     private(set) var holdKeyFault: HoldKeyFault?
+    /// The fault the last banner was about. The key is re-measured on every
+    /// return to Airlock while setup or Settings is open, and a banner each
+    /// time — landing on the very card that already says it — is nagging, not
+    /// news. One per fault, again only once it was fixed and came back.
+    @ObservationIgnored private var notifiedHoldKeyFault: HoldKeyFault?
 
-    /// Which key started the hold currently in progress.
-    @ObservationIgnored private var intent: DictationIntent = .dictate
     @ObservationIgnored private let capture = AudioCapture()
     @ObservationIgnored private let session = SpeechSession()
     @ObservationIgnored private var gesture = HoldGesture()
@@ -649,10 +530,6 @@ final class DictationModel {
     /// two transcripts typing at once would interleave their keystrokes.
     @ObservationIgnored private var deliveryTask: Task<Void, Never>?
     @ObservationIgnored private let cleanup = CleanupService()
-    #if AIRLOCK_GUIDE
-    /// Sorts an ask the routing rules could not — see `deliver`.
-    @ObservationIgnored private let askIntent = AskIntentService()
-    #endif
     /// Set only when WE paused it. Resuming unconditionally would start music
     /// the user had deliberately stopped before ever touching dictation.
     @ObservationIgnored private var didPauseMusic = false
@@ -794,7 +671,6 @@ final class DictationModel {
 
     private func applyHotkey() {
         holdMonitor.stop()
-        askMonitor.stop()
         guard isEnabled else {
             dictationLog("hold monitor NOT started — dictation is disabled")
             // Nothing is being watched, but nothing is meant to be. Clearing
@@ -809,7 +685,7 @@ final class DictationModel {
             key: holdKey,
             onDown: { [weak self] in
                 dictationLog("hold DOWN")
-                self?.beginHold(.dictate)
+                self?.beginHold()
             },
             onUp: { [weak self] in
                 dictationLog("hold UP")
@@ -819,27 +695,6 @@ final class DictationModel {
                 self?.interrupted(by: input, on: "hold") ?? true
             })
         dictationLog("holdMonitor(\(holdKey.displayName)) → \(ok ? "ok" : "FAILED")")
-
-        // The ask key is a second tap on a different modifier. Both feed ONE
-        // gesture and one microphone: `beginHold` refuses a second start while a
-        // hold is live, so pressing both never opens two captures on the same
-        // input device.
-        if let askKey, askKey != holdKey, assistant?.isEnabled == true {
-            let askOK = askMonitor.start(
-                key: askKey,
-                onDown: { [weak self] in
-                    dictationLog("ask DOWN")
-                    self?.beginHold(.ask)
-                },
-                onUp: { [weak self] in
-                    dictationLog("ask UP")
-                    self?.handle(.keyUp(at: Date()))
-                },
-                onInterrupt: { [weak self] input in
-                    self?.interrupted(by: input, on: "ask") ?? true
-                })
-            dictationLog("askMonitor(\(askKey.displayName)) → \(askOK ? "ok" : "FAILED")")
-        }
 
         reportHoldKeyHealth(created: ok)
     }
@@ -864,7 +719,13 @@ final class DictationModel {
                      + "listenEventGranted=\(granted) "
                      + "fault=\(holdKeyFault.map { "\($0)" } ?? "none")")
         refreshReadiness()
-        guard let holdKeyFault else { return }
+        guard let holdKeyFault else {
+            notifiedHoldKeyFault = nil
+            return
+        }
+        // Setup walks through this very switch, on screen, one step at a time.
+        let notify = holdKeyFault != notifiedHoldKeyFault && OnboardingModel.hasCompletedSetup
+        if notify { notifiedHoldKeyFault = holdKeyFault }
 
         // A hold that does nothing produces no window, no sound and no error, so
         // the in-notch status line is a message delivered to a surface that
@@ -873,12 +734,11 @@ final class DictationModel {
         // most needs the channel that survives Airlock not being frontmost.
         switch holdKeyFault {
         case .notGranted:
-            statusMessage = "Holding \(holdKey.displayName) does nothing — Airlock needs "
-                + "Input Monitoring. Settings › Permissions has the button."
+            statusMessage = String(localized: "Holding \(holdKey.displayName) does nothing — Airlock needs Input Monitoring. Settings › Permissions has the button.")
+            guard notify else { return }
             Notifications.post(
-                title: "Airlock can't see your dictation key",
-                body: "Holding \(holdKey.displayName) won't start dictation until Airlock is "
-                    + "allowed in Privacy & Security › Input Monitoring.",
+                title: String(localized: "Airlock can't see your dictation key"),
+                body: String(localized: "Holding \(holdKey.displayName) won't start dictation until Airlock is allowed in Privacy & Security › Input Monitoring."),
                 identifier: Notifications.ID.inputMonitoringMissing,
                 opens: SettingsAnchor.permissionInputMonitoring)
         case .grantIsNotWorking:
@@ -889,12 +749,11 @@ final class DictationModel {
             // Never points at a row in System Settings: the pane is usually
             // EMPTY for this app, and a broken record shows nothing to remove.
             // Settings › Permissions has the command and a button to copy it.
-            statusMessage = "Holding \(holdKey.displayName) does nothing, even though macOS says "
-                + "it is allowed — a stale permission record. Settings › Permissions has the fix."
+            statusMessage = String(localized: "Holding \(holdKey.displayName) does nothing, even though macOS says it is allowed. Settings › Permissions has the fix.")
+            guard notify else { return }
             Notifications.post(
-                title: "Airlock's keyboard permission is stale",
-                body: "macOS says it is allowed but it isn't working. Settings › Permissions "
-                    + "has the one command that clears it.",
+                title: String(localized: "Your dictation key isn't reaching Airlock"),
+                body: String(localized: "It's switched on in Input Monitoring, but macOS isn't passing the key along. Click to fix it."),
                 identifier: Notifications.ID.inputMonitoringMissing,
                 opens: SettingsAnchor.permissionInputMonitoring)
         }
@@ -936,12 +795,9 @@ final class DictationModel {
         return .secureInput(holder: holder)
     }
 
-    /// Start a hold with a stated intent, or ignore it if one is already live.
-    ///
-    /// The guard is what makes two taps safe: holding both modifiers cannot open
-    /// a second `AudioCapture` on the same microphone, and whichever key went
-    /// down first owns the hold.
-    private func beginHold(_ intent: DictationIntent) {
+    /// Start a hold, or ignore it if one is already live, so a second
+    /// key-down can never open another `AudioCapture` on the same microphone.
+    private func beginHold() {
         let secureInput = noteSecureInputIfHeld()
         let blind = secureInput != nil
         if isListening {
@@ -953,46 +809,21 @@ final class DictationModel {
             // was not recording, and every later press answered with "a hold is
             // already running". Treat it as the wedge it is.
             guard !capture.isCapturing else {
-                dictationLog("  ignoring \(intent.rawValue) — a hold is already running")
+                dictationLog("  ignoring — a hold is already running")
                 return
             }
-            dictationLog("  \(intent.rawValue) arrived on a stalled hold — resetting")
+            dictationLog("  hold arrived on a stalled hold — resetting")
             recoverFromStall()
         }
-        self.intent = intent
-        isAsking = intent == .ask
         // A fresh hold answers the last one. Leaving the notice up under a live
-        // microphone would be reporting silence while listening — and a card
-        // offering to type the previous sentence under a new one is worse.
+        // microphone would be reporting silence while listening.
         heardNothing = nil
-        heardDictation = nil
         // The last hold's notice too, and the panel with it when the notice was
         // all that held it open: this hold opens it again on its own terms.
         if holdNotice != nil || noticeRevealTask != nil { setIndicator(false) }
         // Drawn above the strip once this hold's panel opens, and gone when the
         // hold ends (`finishListening`, or the close of a discarded one).
         holdNotice = secureInput
-        // Enumerate the Shortcuts library NOW, while the key is going down,
-        // so the subprocess overlaps the speaking instead of delaying the card.
-        // Cheap and cached — see `AssistantModel.refreshShortcutsIfStale`.
-        // Whatever the intent: a receipt from the last action must not still be
-        // on screen while this one is spoken. See `clearFinishedPresentation`.
-        assistant?.clearFinishedPresentation()
-        if intent == .ask {
-            assistant?.refreshShortcutsIfStale()
-            // Warm the sort while the key is going down, for the same reason:
-            // the model's first call is the slow one, and it overlaps the
-            // speaking instead of following it.
-            #if AIRLOCK_GUIDE
-            if guide?.isEnabled == true { askIntent.prepare() }
-            #endif
-        }
-        // BOTH intents, unlike the Shortcuts enumeration above (a subprocess,
-        // wanted only where a command card might need it). The apps scan is
-        // three shallow directory reads, and it feeds `recognitionVocabulary`
-        // — plain dictation wants the recogniser to know "Claude" and
-        // "Xcode" exactly as much as a command does.
-        assistant?.refreshAppsIfStale()
         // The floor for THIS hold, fixed before the key-down is applied.
         //
         // Raised only while secure input is held, because that is exactly when
@@ -1011,6 +842,8 @@ final class DictationModel {
         // start of a sentence is a defect; a briefly-blinking recording
         // indicator is a cosmetic annoyance, and the chord cancel in
         // `HoldKeyMonitor` is what actually stops chords becoming dictations.
+        // What waits instead is the STOP that cancel makes: stopping the input
+        // moments after starting it crashed the app (`MicrophoneSettle`).
         handle(.keyDown(at: Date()))
     }
 
@@ -1088,21 +921,15 @@ final class DictationModel {
             dictationLog("microphone undetermined — asking now")
             gesture = HoldGesture()
             await requestMicrophoneAccess()
-            // Named for the key that was held: an ask that answers "hold ⌃
-            // again to dictate" sends someone to the wrong key.
-            let again = intent == .ask
-                ? "hold \(askKey?.displayName ?? "the ask key") again and ask."
-                : "hold \(holdKey.displayName) again to dictate."
+            let allowed = String(localized: "Microphone allowed — hold \(holdKey.displayName) again to dictate.")
             statusMessage = readiness.canRecord
-                ? "Microphone allowed — " + again
+                ? allowed
                 : readiness.blocker?.message
             dictationLog("after request: \(readiness.blocker.map { "\($0)" } ?? "ready")")
             // At once: the hold was spent on macOS's dialog, so it has long
             // since earned a reply, and the key is probably already up.
             if readiness.canRecord {
-                showNotice(.microphoneAllowed(
-                    key: intent == .ask ? askKey?.displayName ?? "the ask key" : holdKey.displayName,
-                    asking: intent == .ask))
+                showNotice(.microphoneAllowed(key: holdKey.displayName))
             } else if let notice = readiness.blocker.flatMap(DictationHoldNotice.init) {
                 showNotice(notice)
             }
@@ -1134,11 +961,8 @@ final class DictationModel {
                                            deviceUID: inputResolution.device?.uid ?? "")
             dictationLog("  engine up; starting analyzer…")
             // What the recogniser should expect to hear — see
-            // `SpeechSession.begin`. Read at the moment of starting, from the
-            // caches the key-down warm just refreshed; empty only with no
-            // assistant wired, which is only tests.
-            let vocabulary = assistant?.recognitionVocabulary ?? []
-            if !vocabulary.isEmpty { dictationLog("  vocabulary: \(vocabulary.count) names") }
+            // `SpeechSession.begin`.
+            let vocabulary = Self.recognitionVocabulary
             try await session.begin(locale: locale,
                                     secondary: resolvedSecondaryLocale,
                                     vocabulary: vocabulary,
@@ -1158,9 +982,11 @@ final class DictationModel {
             startLiveTicker()
         } catch {
             dictationLog("  capture start failed: \(error.localizedDescription)")
-            statusMessage = "The microphone couldn't start. Try again in a moment."
+            statusMessage = String(localized: "The microphone couldn't start. Try again in a moment.")
             let earned = gesture.startedAt?.addingTimeInterval(gesture.floor)
-            capture.stop()
+            // The analyzer can fail after the engine came up, which makes this
+            // a stop moments after a start like any other.
+            await capture.stopWhenSettled()
             gesture = HoldGesture()
             isListening = false
             setIndicator(false)
@@ -1177,8 +1003,9 @@ final class DictationModel {
         stopTimers()
         // MUST come first: `finalizeAndFinishThroughEndOfInput` waits on the
         // input sequence ending, so finishing the session against a live stream
-        // never returns.
-        capture.stop()
+        // never returns. Settled, like a discard: a slow start can leave the
+        // engine only moments old when even a qualifying hold ends.
+        await capture.stopWhenSettled()
         isFinishing = true
         let peak = capture.peakLevel
         // Measured before the flag is cleared, and against the analyzer coming
@@ -1256,91 +1083,16 @@ final class DictationModel {
                     // has to be able to act on, and it carries a button.
                     return
                 }
-                self.statusMessage = "Didn't catch anything."
-                self.showNotice(.nothingCaught(key: self.intent == .ask
-                    ? self.askKey?.displayName ?? "the ask key" : self.holdKey.displayName))
+                self.statusMessage = String(localized: "Didn't catch anything.")
+                self.showNotice(.nothingCaught(key: self.holdKey.displayName))
                 return
             }
 
-            // The fork, and it turns on which KEY was held — never on what the
-            // probe saw. Detection decides only where typed text can land.
-            //
-            // `spoken` goes in RAW, and skipping cleanup here is the point
-            // rather than an optimisation: `TranscriptCleanup.vetted` exists
-            // specifically to stop the model answering a dictated question and
-            // typing the answer into your document. In ask mode answering is
-            // what we want, so vetting would reject every correct result — and
-            // skipping it drops a model round-trip out of the latency budget.
-            #if AIRLOCK_GUIDE
-            if self.intent == .ask, await self.routeAsk(spoken) { return }
-            #endif
-            if self.intent == .ask, let assistant = self.assistant, assistant.isEnabled {
-                dictationLog("asking the notch \(DictationDiagnostics.redact(spoken))")
-                self.lastTranscript = spoken
-                self.setIndicator(false)
-                assistant.ask(spoken)
-                return
-            }
             await self.typeOut(spoken, reason: reason,
                                copyInstead: interruptions.copiesInstead)
         }
     }
 
-    #if AIRLOCK_GUIDE
-    /// Where an ask goes, with the guide on. False means: not the guide, not
-    /// the card — answer it, or type it if nothing answers.
-    ///
-    /// **The guide starts only on a confident Mac action**, and the rules and
-    /// the model share that bar. Rules first, because "how do I…" needs no
-    /// model and the chip has already said "Guide" while it was being spoken.
-    /// Then, for everything the words alone could not settle, the on-device
-    /// model sorts the sentence with the front app in view — a dictation for
-    /// Claude Code and a task in Safari begin with the same verbs. Live,
-    /// 2026-09-30, the default the other way round sent six screenshots of the
-    /// Claude window to a cloud model for a sentence meant for me to type.
-    ///
-    /// A dictation is never typed on the model's word: the key said "ask", and
-    /// the card puts the one click that says otherwise in front of the person.
-    private func routeAsk(_ spoken: String) async -> Bool {
-        guard let guide, guide.isEnabled else { return false }
-        switch GuideRouting.route(spoken) {
-        case .guide:
-            startGuide(spoken, because: "rule")
-            return true
-        case .chat:
-            return false
-        case .unsure:
-            isSorting = true
-            let sorted = await askIntent.sort(spoken, frontApp: destinationName)
-            isSorting = false
-            dictationLog("sorted as \(sorted.map { "\($0.intent.rawValue)\($0.certain ? "" : " (unsure)")" } ?? "no model")"
-                         + " in front of \(destinationName ?? "an unnamed app") \(DictationDiagnostics.redact(spoken))")
-            switch sorted?.intent {
-            case .action:
-                startGuide(spoken, because: "sort")
-                return true
-            case .dictation:
-                // The panel stays up: this is a status the person has to be
-                // able to act on, and it carries the buttons.
-                lastTranscript = spoken
-                statusMessage = nil
-                heardDictation = HeardDictation(text: spoken, app: destinationName,
-                                                certain: sorted?.certain ?? false)
-                return true
-            case .question, nil:
-                return false
-            }
-        }
-    }
-
-    private func startGuide(_ goal: String, because reason: String) {
-        guard let guide else { return }
-        dictationLog("guiding (\(reason)) \(DictationDiagnostics.redact(goal))")
-        lastTranscript = goal
-        setIndicator(false)
-        guide.start(goal: goal)
-    }
-    #endif
 
     /// Cleanup, then keystrokes — or the clipboard when there is nowhere to
     /// type. The tail of every dictation, and of an ask the card sent back to
@@ -1398,8 +1150,8 @@ final class DictationModel {
                          + (copyInstead ? "a key or click came while talking" : "nowhere to type"))
             self.onCopyTranscript?(text)
             self.statusMessage = copyInstead
-                ? "You pressed a key or clicked while talking — copied to your clipboard."
-                : "Nothing to type into — copied to your clipboard."
+                ? String(localized: "You pressed a key or clicked while talking — copied to your clipboard.")
+                : String(localized: "Nothing to type into — copied to your clipboard.")
             return
         }
 
@@ -1426,11 +1178,19 @@ final class DictationModel {
             let trusted = TypeService.isTrusted
             dictationLog("  could not type (axTrusted=\(trusted)) — copying instead")
             // Whatever the notice said about this hold assumed it was typed.
-            self.dismissHoldNotice()
+            // Without Accessibility the notch says why instead, with the
+            // button that leads to the switch: the person is looking at the
+            // app they meant to type into, and "on the clipboard" with no
+            // reason is what made dictation look like it chose at random.
+            if trusted {
+                self.dismissHoldNotice()
+            } else {
+                self.showNotice(.copiedCantTypeYet)
+            }
             self.onCopyTranscript?(text)
             self.statusMessage = trusted
-                ? "Couldn't type that one — copied to your clipboard instead."
-                : "Copied to your clipboard — grant Accessibility to type it instead."
+                ? String(localized: "Couldn't type that one — copied to your clipboard instead.")
+                : DictationHoldNotice.copiedCantTypeYet.sentence
             guard !trusted else {
                 self.refreshReadiness()
                 return
@@ -1443,9 +1203,8 @@ final class DictationModel {
             // Not the transcript. What they said is theirs and could be
             // anything; the body says where it went, not what it was.
             Notifications.post(
-                title: "Airlock needs Accessibility to type",
-                body: "Your dictation was copied to the clipboard instead. "
-                    + "Settings › Permissions explains how to grant it.",
+                title: String(localized: "Airlock can't type yet"),
+                body: String(localized: "Your words are on the clipboard — ⌘V pastes them. Click here to let Airlock type them for you."),
                 identifier: Notifications.ID.accessibilityMissing,
                 opens: SettingsAnchor.permissionAccessibility)
             self.refreshReadiness()
@@ -1456,8 +1215,10 @@ final class DictationModel {
         // app did for you, and the trial card must not claim it.
         self.tally?.recordDictation()
         UsageCounts.shared.record(.used(.dictation))
+        FirstStepsModel.shared.note(.dictate)
         self.statusMessage = reason == .reachedLimit
-            ? "Stopped at the two-minute limit." : nil
+            ? String(localized: "Stopped at the two-minute limit.") : nil
+
     }
 
     // MARK: - Routing
@@ -1468,7 +1229,6 @@ final class DictationModel {
         destinationName = NSWorkspace.shared.frontmostApplication?.localizedName
         destinationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         probeTask?.cancel()
-        guard assistant?.isEnabled == true else { return }
 
         probeTask = Task { [weak self] in
             let probe = await FocusProbe.current()
@@ -1537,40 +1297,6 @@ final class DictationModel {
         dictationLog("paused playback for the duration of the hold")
     }
 
-    /// True while dictation has paused this track for the hold and not put it
-    /// back — so a spoken command can tell "the user paused this" from "we did,
-    /// a second ago, and they never saw it stop".
-    var pausedPlaybackForHold: Bool { didPauseMusic || musicResumeTask != nil }
-
-    /// Give up the resume, because something the user asked for has taken over
-    /// the player.
-    ///
-    /// **The bug this fixes looked exactly like the command not working.**
-    /// Dictation pauses playback for the duration of a hold; "pause the music"
-    /// then arrives at a player that is ALREADY paused, so the media arm
-    /// correctly does nothing and reports success — and a moment later the
-    /// resume runs and the music comes back. Net effect: a command that
-    /// executed perfectly, logged `ok=true`, and visibly did the opposite.
-    ///
-    /// Called from the performer rather than inferred here, because only the
-    /// performer knows the user commanded the transport at all.
-    func forgetPausedMusic() {
-        // The IN-FLIGHT RESUME, not the flag. `resumeMusicIfPaused` clears
-        // `didPauseMusic` synchronously and then does the work inside a task —
-        // it has to, because it must `await media.refresh()` before deciding —
-        // so a command performed afterwards sees a flag saying nothing is owed
-        // while the resume is still queued behind an await. Guarding on the flag
-        // was the first attempt at this and it did not fire a single time.
-        let owed = didPauseMusic || musicResumeTask != nil
-        musicPauseTask?.cancel()
-        musicPauseTask = nil
-        musicResumeTask?.cancel()
-        musicResumeTask = nil
-        didPauseMusic = false
-        guard owed else { return }
-        dictationLog("not resuming playback — the spoken command owns the player now")
-    }
-
     private func resumeMusicIfPaused() {
         musicPauseTask?.cancel()
         musicPauseTask = nil
@@ -1601,7 +1327,9 @@ final class DictationModel {
 
     private func discardListening(_ reason: HoldGesture.Discard) async {
         stopTimers()
-        capture.stop()
+        // Settled, because this is the stop a shortcut makes moments after the
+        // start — the one that crashed the app. See `MicrophoneSettle`.
+        await capture.stopWhenSettled()
         await session.abandon()
         isListening = false
         liveText = ""
@@ -1614,26 +1342,6 @@ final class DictationModel {
     }
 
     private func cancelEverything() {
-        handle(.cancel)
-    }
-
-    /// Abandon a hold that a global chord started by accident.
-    ///
-    /// **This is what makes a hotkey like ⌥Space usable at all.** The hold keys
-    /// are bare modifiers (`holdKey` ⌃, `askKey` ⌥ by default), and a Carbon
-    /// hotkey only swallows the KEY — the modifier still reaches this monitor
-    /// through `flagsChanged`, so ⌥ down opens the microphone before Space ever
-    /// fires. Left alone, releasing ⌥ then delivers an empty transcript over the
-    /// top of whatever the chord just opened.
-    ///
-    /// `.cancel` is the event `HoldGesture` already has for being torn down from
-    /// outside: capture stops, nothing is transcribed, nothing is delivered, and
-    /// the release that follows lands on an idle machine. The microphone is open
-    /// for as long as the chord takes to press, which is the honest cost of
-    /// binding a chord to a key that also means "listen".
-    func abandonHoldForChord() {
-        guard gesture.isRecording else { return }
-        dictationLog("hold abandoned — a global chord fired on the same modifier")
         handle(.cancel)
     }
 

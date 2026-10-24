@@ -38,7 +38,7 @@ final class UsageConnectionModel {
         if case let .failed(why) = change {
             // The system's words are for the log; the pane gets ours.
             Self.log.error("usage connect failed: \(why, privacy: .private)")
-            failure = "Claude usage couldn't be connected. Try again in a moment."
+            failure = String(localized: "Claude usage couldn't be connected. Try again in a moment.")
         } else {
             failure = nil
         }

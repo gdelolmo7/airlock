@@ -203,7 +203,7 @@ struct CallsCardContent: View {
     }
 
     /// Under the heading while the first call's notes are being taken.
-    static let firstCallLine = "This call shows here once its notes are saved."
+    static let firstCallLine = String(localized: "This call shows here once its notes are saved.")
 
     /// The apps the empty tab shows, as a hint of where notes come from:
     /// Meet, Zoom, WhatsApp, Slack, Discord and a phone call.

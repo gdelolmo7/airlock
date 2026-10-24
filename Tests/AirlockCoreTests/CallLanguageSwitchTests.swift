@@ -183,7 +183,7 @@ final class CallLanguageSwitchTests: XCTestCase {
         let lines = page.components(separatedBy: "\n")
         XCTAssertEqual(lines[4], "_Written from a Spanish version of the call, "
                        + "because Apple Intelligence can't read Catalan yet._")
-        XCTAssertEqual(lines[6], "## Summary")
+        XCTAssertEqual(lines[6], "## Resumen", "the notes are in Spanish, and so is their title")
     }
 
     // MARK: - The divider
@@ -254,48 +254,5 @@ final class CallLanguageSwitchTests: XCTestCase {
         let lines = CallNotesPanel.recentLines(of: record, count: 4)
         XCTAssertFalse(lines.contains(where: \.isDivider))
         XCTAssertEqual(lines.count, 4)
-    }
-
-    // MARK: - Questions about the call
-
-    private struct Folders: CallFolders {
-        var calls: [String: MeetingRecord]
-        func stamps() -> [String: Date] { calls.mapValues { _ in Date(timeIntervalSince1970: 1_000) } }
-        func record(in folder: String) -> MeetingRecord? { calls[folder] }
-    }
-
-    private var calendar: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar
-    }
-
-    func testQuestionsAreAnsweredFromTheShadow() {
-        var index = CallSearchIndex(canRead: canRead)
-        index.refresh(from: Folders(calls: ["call": call()]))
-        let found = index.search(CallQuery("presupuesto de la feria", now: start.addingTimeInterval(3600),
-                                           calendar: calendar))
-        XCTAssertTrue(found.contains { $0.text.contains("El presupuesto de la feria lo cerramos") })
-        XCTAssertFalse(found.contains { $0.text.contains("pressupost de la fira") })
-    }
-
-    func testAnUnreadableCallSaysSo() {
-        var index = CallSearchIndex(canRead: canRead)
-        index.refresh(from: Folders(calls: ["call": call(withShadow: false)]))
-        let query = CallQuery("pressupost fira", now: start.addingTimeInterval(3600), calendar: calendar)
-        XCTAssertTrue(index.search(query).isEmpty)
-        XCTAssertEqual(index.unreadable(for: query), "ca_ES")
-        XCTAssertEqual(CallAnswer.miss(.unreadable("ca_ES"), language: "English"),
-                       "I couldn't find that. Part of your calls is in Catalan, which Apple's model can't read yet.")
-        XCTAssertEqual(CallAnswer.miss(.unreadable("ca_ES"), language: "Spanish"),
-                       "No he encontrado nada de eso. Parte de tus llamadas está en catalán, "
-                       + "y el modelo de Apple todavía no puede leerlo.")
-    }
-
-    func testAReadableCallHasNothingUnreadable() {
-        var index = CallSearchIndex(canRead: canRead)
-        index.refresh(from: Folders(calls: ["call": call()]))
-        XCTAssertNil(index.unreadable(for: CallQuery("nada", now: start.addingTimeInterval(3600),
-                                                      calendar: calendar)))
     }
 }

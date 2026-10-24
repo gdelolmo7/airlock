@@ -69,7 +69,7 @@ public struct FreeCard: Equatable, Sendable {
     /// What the plan before did that Free does not, in order.
     public let changes: [PlanLimits.Difference]
 
-    public static let title = "You're on Free now"
+    public static let title = String(localized: "You're on Free now")
 
     /// Due on Free, after a plan that was not Free, until it has been seen.
     public static func due(entitlement: Entitlement, before: PlanBefore?, seen: Bool) -> FreeCard? {
@@ -84,22 +84,22 @@ public struct FreeCard: Equatable, Sendable {
         let ended: String
         switch before.ending {
         case .trial:
-            ended = day.map { "Your trial ended on \($0)." } ?? "Your trial has ended."
+            ended = day.map { String(localized: "Your trial ended on \($0).") } ?? String(localized: "Your trial has ended.")
         case .subscription:
             // A date still ahead means the subscription did not run out: the
             // key stopped checking out on this Mac (moved, or refused).
             if let day, let endedOn = before.endedOn, endedOn <= now {
-                ended = "Your \(plan) subscription ended on \(day)."
+                ended = String(localized: "Your \(plan) subscription ended on \(day).")
             } else {
-                ended = "Your \(plan) licence no longer works on this Mac."
+                ended = String(localized: "Your \(plan) licence no longer works on this Mac.")
             }
         }
-        let kept = "Airlock keeps working, and nothing you made is gone."
-        return "\(ended) \(kept)" + (changes.isEmpty ? "" : " What changes:")
+        let kept = String(localized: "Airlock keeps working, and nothing you made is gone.")
+        return "\(ended) \(kept)" + (changes.isEmpty ? "" : " " + String(localized: "What changes:"))
     }
 
     /// Under the buttons.
     public static var prices: String {
-        "Plus is \(License.Period.monthly.price) or \(License.Period.yearly.price)."
+        String(localized: "Plus is \(License.Period.monthly.price) or \(License.Period.yearly.price).")
     }
 }

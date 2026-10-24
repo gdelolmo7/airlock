@@ -1,0 +1,125 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSAppleEventsUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock jumps back to the exact terminal tab where your coding agent is running, and controls Spotify or Music for the media widget."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock te devuelve a la pestaña exacta del terminal donde trabaja tu agente de código, y controla Spotify o Música desde el widget de música."
+          }
+        }
+      }
+    },
+    "NSAudioCaptureUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock reads the audio your music player is producing so the wave beside the notch follows the music, and, if you turn on call notes, your call app's sound so the other side can be written down as text. Only that one app is tapped, no audio is ever recorded or stored, and both are off unless you turn them on."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock lee el audio que reproduce tu app de música para que la onda junto al notch siga la música y, si activas las notas de llamada, el sonido de tu app de llamadas para poder escribir lo que dice la otra parte. Solo se escucha esa app, nunca se graba ni se guarda audio, y ambas cosas están apagadas hasta que las enciendes."
+          }
+        }
+      }
+    },
+    "NSCalendarsFullAccessUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock shows your next meetings in the notch with one-click join links."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock muestra tus próximas reuniones en el notch, con enlaces para unirte en un clic."
+          }
+        }
+      }
+    },
+    "NSDownloadsFolderUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock moves files from your shelf to your Downloads folder when you drag one onto the Downloads card."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock lleva archivos de tu estante a tu carpeta Descargas cuando arrastras uno a la tarjeta Descargas."
+          }
+        }
+      }
+    },
+    "NSHumanReadableCopyright": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage counts and crash reports are sent only if you say yes, and never carry what you type, say, copy or see."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los recuentos de uso y los informes de fallos solo se envían si dices que sí, y nunca llevan lo que escribes, dices, copias o ves."
+          }
+        }
+      }
+    },
+    "NSMicrophoneUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock transcribes what you say into text. Audio is processed on your Mac and never leaves it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock convierte lo que dices en texto. El audio se procesa en tu Mac y nunca sale de él."
+          }
+        }
+      }
+    },
+    "NSSpeechRecognitionUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock turns your speech into text on-device, so dictation works offline and nothing is sent anywhere."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Airlock convierte tu voz en texto en el propio Mac, así que el dictado funciona sin conexión y no se envía nada."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -22,10 +22,6 @@ final class ListeningStripSnapshot: XCTestCase {
             strip(listening: true, text: "", level: 0.02),
             strip(listening: true, text: "Remind me to send the invoice to Marta before Friday and",
                   level: 0.18, destination: "Notes"),
-            strip(listening: true, asking: true, route: .guide,
-                  text: "How do I add an A record in Hostinger", level: 0.12),
-            strip(listening: false, sorting: true,
-                  text: "How do I add an A record in Hostinger", level: 0),
             strip(listening: false, text: "Remind me to send the invoice to Marta before Friday.", level: 0),
         ]
         let sheet = VStack(spacing: 14) {
@@ -48,11 +44,9 @@ final class ListeningStripSnapshot: XCTestCase {
         try png.write(to: URL(fileURLWithPath: destination))
     }
 
-    private func strip(listening: Bool, sorting: Bool = false, asking: Bool = false,
-                       route: GuideRouting.Route? = nil, text: String, level: Float,
+    private func strip(listening: Bool, text: String, level: Float,
                        destination: String? = nil) -> ListeningStrip {
-        ListeningStrip(isListening: listening, isSorting: sorting, isAsking: asking,
-                       askRoute: route, route: .type, destinationName: destination,
+        ListeningStrip(isListening: listening, route: .type, destinationName: destination,
                        liveText: text,
                        inputLevels: [0.6, 0.8, 1].map { $0 * MicLevel.scale(level) })
     }

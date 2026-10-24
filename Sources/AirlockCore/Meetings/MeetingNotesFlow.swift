@@ -128,6 +128,10 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         case startNotes(OngoingCall, continuing: Bool)
         /// Stop listening and write the notes.
         case finishNotes
+        /// Go on listening, but seal what is heard from now on: the plan's
+        /// limit is reached and the part past it is kept for a paid plan
+        /// (`LockedPart`). The notes are written from the part before it.
+        case lockNotes
         /// Stop listening and keep nothing: the call ended before
         /// `shortestKept`. What was saved goes once `sameMeetingWindow` has
         /// passed, not at once, so a call that comes straight back carries on
@@ -192,12 +196,14 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             case .recording:
                 endedBySleep = false
                 stoppedAtLimit = false
+                locked = false
                 return
             case .writing, .ready:
                 break
             default:
                 endedBySleep = false
                 stoppedAtLimit = false
+                locked = false
             }
             // A pause belongs to the notes it paused: whatever ends them, the
             // next notes start unpaused.
@@ -214,6 +220,10 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     /// The notes being written, or ready, stopped because they had listened
     /// as long as the plan lets them.
     public private(set) var stoppedAtLimit = false
+    /// The notes being taken, written or ready went past the plan's limit
+    /// and the rest is sealed (`Effect.lockNotes`): heard, and not readable
+    /// until a paid plan opens it.
+    public private(set) var locked = false
     /// How long notes have listened, on a plan that caps it; kept between
     /// notes, so a restart carries on the count. Nil until notes first start
     /// with a running time handed in.
@@ -245,6 +255,8 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         var endedAt: Date
         /// Their `firstStarted`, handed on if the same call carries on.
         var firstStarted: Date?
+        /// They were locked: the same call carries on locked.
+        var locked = false
     }
 
     private struct Ending: Equatable, Sendable {
@@ -265,7 +277,7 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     /// it until an event arrives. `pausedSince` counts only while recording,
     /// the one phase that can be paused.
     public init(previewing phase: Phase, pausedSince: Date? = nil, endedBySleep: Bool = false,
-                listening: NotesListening? = nil, stoppedAtLimit: Bool = false) {
+                listening: NotesListening? = nil, stoppedAtLimit: Bool = false, locked: Bool = false) {
         keepsFrom = Self.shortestKept
         self.phase = phase
         if case let .recording(_, since) = phase {
@@ -275,6 +287,7 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         self.endedBySleep = endedBySleep
         self.listening = listening
         self.stoppedAtLimit = stoppedAtLimit
+        self.locked = locked
     }
 
     /// The call seems over and the notes are waiting to be sure. The model
@@ -304,11 +317,14 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     /// `enabled` is the hidden switch; `autoStart` is "Always". `running` is
     /// the Mac's running time now and `plan` the plan now; without both,
     /// nothing is counted and notes listen for as long as the call lasts.
+    /// `locks` is whether the plan's limit can lock the rest of the call
+    /// rather than stop listening: only with the server's key to seal it to.
     public mutating func apply(_ event: Event, enabled: Bool, autoStart: Bool,
-                               running: TimeInterval? = nil, plan: PlanSnapshot? = nil) -> [Effect] {
+                               running: TimeInterval? = nil, plan: PlanSnapshot? = nil,
+                               locks: Bool = false) -> [Effect] {
         let reading = running.flatMap { running in plan.map { Reading(running: running, plan: $0) } }
         let wasListening = isListening
-        let effects = step(event, enabled: enabled, autoStart: autoStart, reading: reading)
+        let effects = step(event, enabled: enabled, autoStart: autoStart, reading: reading, locks: locks)
         if let reading {
             if wasListening, !isListening { listening?.close(at: reading.running) }
             if !wasListening, isListening { listening?.open(at: reading.running) }
@@ -350,7 +366,8 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             && count.isSpent(at: reading.running, plan: reading.plan)
     }
 
-    private mutating func step(_ event: Event, enabled: Bool, autoStart: Bool, reading: Reading?) -> [Effect] {
+    private mutating func step(_ event: Event, enabled: Bool, autoStart: Bool, reading: Reading?,
+                               locks: Bool) -> [Effect] {
         switch event {
         case let .callStarted(call, at):
             guard enabled else { return [] }
@@ -367,6 +384,20 @@ public struct MeetingNotesFlow: Equatable, Sendable {
                 // The detector follows one call at a time, so another app's
                 // call means this one is over.
                 finished = finishAutomatically(current, endedAt: ending?.micLetGo ?? at, reading)
+            }
+            // Locked notes on the same call, back soon: they carry on locked,
+            // used-up count and all.
+            if locks, let last = lastNotes, last.locked, last.bundleID == call.bundleID,
+               at.timeIntervalSince(last.endedAt) <= Self.sameMeetingWindow {
+                if let reading, var count = listening, count.carriesOn(into: call, at: reading.running) {
+                    count.close(at: reading.running)
+                    count.carryOn(into: call, at: reading.running)
+                    listening = count
+                }
+                phase = .recording(call, since: at)
+                locked = true
+                firstStarted = last.firstStarted ?? at
+                return finished + [.startNotes(call, continuing: true)]
             }
             // Its notes are used up: no offer, and nothing starts.
             if isSpent(for: call, reading) {
@@ -536,13 +567,14 @@ public struct MeetingNotesFlow: Equatable, Sendable {
 
         case let .tick(tick):
             guard case let .recording(call, since) = phase else { return [] }
-            return look(tick, call: call, since: since, reading)
+            return look(tick, call: call, since: since, reading, locks: locks)
         }
     }
 
     /// One look while recording: is the call back, over, gone quiet, or has
     /// it been listened to for as long as the plan lets it?
-    private mutating func look(_ tick: Tick, call: OngoingCall, since: Date, _ reading: Reading?) -> [Effect] {
+    private mutating func look(_ tick: Tick, call: OngoingCall, since: Date, _ reading: Reading?,
+                               locks: Bool) -> [Effect] {
         let now = tick.now
         if var waiting = ending, let onMic = tick.callOnMic {
             if onMic {
@@ -570,10 +602,17 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             }
         }
 
-        // Listened as long as the plan lets it: the listening stops and what
+        // Listened as long as the plan lets it: the rest is locked, once, and
+        // the notes go on being taken as before, ended the same ways.
+        if locks, !locked, let reading, let count = listening,
+           count.isSpent(at: reading.running, plan: reading.plan) {
+            locked = true
+            return [.lockNotes]
+        }
+        // Or, with nothing to lock it with, the listening stops and what
         // was heard is written. The call goes on, so it stays the count's
         // call, and nothing carries these notes on by itself.
-        if let reading, let count = listening, count.isSpent(at: reading.running, plan: reading.plan) {
+        if !locked, let reading, let count = listening, count.isSpent(at: reading.running, plan: reading.plan) {
             ending = nil
             lastNotes = nil
             phase = .writing(call)
@@ -603,7 +642,7 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             phase = .writing(call)
             return [.finishNotes]
         }
-        lastNotes = LastNotes(bundleID: call.bundleID, endedAt: endedAt, firstStarted: firstStarted)
+        lastNotes = LastNotes(bundleID: call.bundleID, endedAt: endedAt, firstStarted: firstStarted, locked: locked)
         ending = nil
         if let first = firstStarted, endedAt.timeIntervalSince(first) < keepsFrom {
             phase = .idle
@@ -659,10 +698,16 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     /// anything: a heads-up in the last `LimitWord.headsUp` before the notes
     /// stop, then that they stopped, for as long as those notes are on show.
     /// Nil on a plan with no limit, so only Free ever sees either.
-    public func limitWord(running: TimeInterval, plan: PlanSnapshot) -> LimitWord? {
+    /// `locks` as `apply` has it: the heads-up then says the rest is kept.
+    public func limitWord(running: TimeInterval, plan: PlanSnapshot, locks: Bool = false) -> LimitWord? {
+        if locked {
+            if case .recording = phase { return .stillListening }
+            return .kept
+        }
         if stoppedAtLimit { return .stopped }
         guard case .recording = phase, let left = listening?.left(at: running, plan: plan) else { return nil }
-        return left > 0 && left <= LimitWord.headsUp ? .stopsSoon : nil
+        guard left > 0 && left <= LimitWord.headsUp else { return nil }
+        return locks ? .locksSoon : .stopsSoon
     }
 
     /// Free's notes stop at `PlanLimits.freeNotesListen`; the call goes on.
@@ -671,6 +716,14 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         case stopsSoon
         /// The limit stopped them.
         case stopped
+        /// Within `headsUp` of the limit, when the rest will be locked.
+        case locksSoon
+        /// Past the limit, locked: still heard.
+        case stillListening
+        /// Locked notes, written or ready. The ready card says how much is
+        /// kept, and until when, from the call (`LockedCallWords.ready`);
+        /// this is the line without it.
+        case kept
 
         /// How long before the limit the heads-up starts.
         public static let headsUp: TimeInterval = 5 * 60
@@ -682,8 +735,10 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         /// In the call pill, in place of the call's timer.
         public var pillWord: String {
             switch self {
-            case .stopsSoon: "Notes stop at \(Self.minutes) min"
-            case .stopped: "Notes stopped"
+            case .stopsSoon, .locksSoon: String(localized: "Notes stop at \(Self.minutes) min")
+            case .stopped: String(localized: "Notes stopped")
+            case .stillListening: String(localized: "Still listening")
+            case .kept: String(localized: "Notes ready")
             }
         }
 
@@ -691,10 +746,23 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         public var line: String {
             switch self {
             case .stopsSoon:
-                "Notes stop at \(Self.minutes) minutes on Free. The call itself goes on."
+                String(localized: "Notes stop at \(Self.minutes) minutes on Free. The call itself goes on.")
             case .stopped:
-                "The first \(Self.minutes) minutes are saved. Plus takes notes of the whole call."
+                String(localized: "The first \(Self.minutes) minutes are saved. Plus takes notes of the whole call.")
+            case .locksSoon:
+                String(localized: "Free's notes cover the first \(Self.minutes) minutes. After that Airlock goes on listening and holds the rest \(LockedCallWords.keptDays) days, for Plus.")
+            case .stillListening:
+                String(localized: "Your notes cover the first \(Self.minutes) minutes. The rest is kept \(LockedCallWords.keptDays) days, for Plus.")
+            case .kept:
+                String(localized: "Notes cover the first \(Self.minutes) minutes. The rest is kept \(LockedCallWords.keptDays) days, for Plus.")
             }
+        }
+
+        /// `line`, once the call is over, on a call whose other side Plus
+        /// would also have told apart (`FreeVoicesHint`): one line for both.
+        public func line(voicesToo: Bool) -> String {
+            guard voicesToo, self == .stopped else { return line }
+            return String(localized: "The first \(Self.minutes) minutes are saved. Plus takes notes of the whole call and tells each voice apart.")
         }
 
         static var minutes: Int { Int(PlanLimits.freeNotesListen / 60) }

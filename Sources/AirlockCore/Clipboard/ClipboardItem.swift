@@ -112,10 +112,10 @@ public struct ClipboardItem: Identifiable, Equatable, Sendable, Codable {
             let collapsed = head
                 .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
                 .joined(separator: " ")
-            if collapsed.isEmpty { return "(whitespace)" }
+            if collapsed.isEmpty { return String(localized: "(whitespace)") }
             return head.endIndex < value.endIndex ? collapsed + "…" : collapsed
         case .image(_, let width, let height):
-            return "Image — \(width)×\(height)"
+            return String(localized: "Image — \(width)×\(height)")
         case .file(let path):
             // The name, not the path. The design sets filenames in the UI face
             // beside prose, and a full path in a 28pt row is all middle.
@@ -145,12 +145,12 @@ public struct ClipboardItem: Identifiable, Equatable, Sendable, Codable {
         switch payload {
         case .text(let value):
             let count = value.count
-            return count == 1 ? "1 char" : "\(count) chars"
+            return count == 1 ? String(localized: "1 char") : String(localized: "\(count) chars")
         case .image(_, let width, let height):
             return "\(width)×\(height)"
         case .file(let path):
             let ext = (path as NSString).pathExtension
-            return ext.isEmpty ? "file" : ext.lowercased()
+            return ext.isEmpty ? String(localized: "file") : ext.lowercased()
         }
     }
 }

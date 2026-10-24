@@ -37,7 +37,7 @@ final class LicenseModel {
     /// Whether this Mac has ever had a working licence on it.
     ///
     /// Survives `removeLicense`, deliberately: a returning customer told
-    /// "Airlock is free" is being addressed as a stranger by an app they used
+    /// "You start on Free" is being addressed as a stranger by an app they used
     /// to pay for. What they need to hear is that nothing was lost while they were
     /// gone, and that is a different screen — see the licence pane's win-back.
     var hasSubscribedBefore: Bool { previewSubscribedBefore ?? defaults.bool(forKey: Keys.hasSubscribed) }
@@ -98,6 +98,13 @@ final class LicenseModel {
         return (endpoint, token)
     }
 
+    /// Where a locked call's key is asked for, and the token that says who
+    /// is asking (`CallUnlockService`). Nil like `notesAccess`.
+    var unlockAccess: (endpoint: URL, token: String)? {
+        guard let endpoint = endpoint("unlock"), !token.isEmpty else { return nil }
+        return (endpoint, token)
+    }
+
     /// Whether this build has a licence server at all.
     var hasServer: Bool { isPreview ? previewHasServer : apiBase != nil }
 
@@ -137,8 +144,8 @@ final class LicenseModel {
         /// The card has been seen for the plan in `planBefore`. Cleared by any
         /// refresh that is not Free, so a later ending gets its own card.
         static let freeCardSeen = "license.freeCardSeen"
-        /// The plan a "Welcome to …" card is waiting to be read for, as
-        /// `AirlockPlan`'s raw value. Removed by "Got it".
+        /// The plan a "Welcome to …" card is waiting to be read for and the
+        /// plan before it, as "pro:free". Removed by "Got it".
         static let welcomeCard = "license.welcomeCard"
     }
 
@@ -166,8 +173,7 @@ final class LicenseModel {
         self.defaults = defaults
         trialMarkerURL = trialMarker
         token = defaults.string(forKey: Keys.token) ?? ""
-        welcomeCard = defaults.string(forKey: Keys.welcomeCard)
-            .flatMap(AirlockPlan.init(rawValue:)).flatMap(WelcomeCard.init)
+        welcomeCard = defaults.string(forKey: Keys.welcomeCard).flatMap(Self.storedWelcome)
         reminders = UpgradeReminderModel(defaults: defaults)
         refresh()
         reminders.onFree = { [weak self] in self?.entitlement.plan == .free }
@@ -346,13 +352,12 @@ final class LicenseModel {
     /// What is true is that it wasn't checked, and that nothing has stopped in
     /// the meantime: nothing ever does.
     static let unreachableMessage =
-        "Airlock couldn't reach the internet, so your key hasn't been checked yet. "
-            + "Airlock keeps working — try again when you're back online."
+        String(localized: "Airlock couldn't reach the internet, so your key hasn't been checked yet. Airlock keeps working — try again when you're back online.")
 
     /// A copy of Airlock that can't check keys at all. Ours to fix, and it
     /// says so: the customer did nothing wrong by pasting.
     static let cannotCheckMessage =
-        "This copy of Airlock can't check licence keys — that's on our side, not yours. Download Airlock again from useairlock.app, or write to hello@useairlock.app."
+        String(localized: "This copy of Airlock can't check licence keys — that's on our side, not yours. Download Airlock again from useairlock.app, or write to hello@useairlock.app.")
 
     func removeLicense() {
         token = ""
@@ -423,7 +428,15 @@ final class LicenseModel {
         // the newer news, and both at once would contradict each other.
         if freeCard != nil { dismissFreeCard() }
         guard !isPreview else { return }
-        defaults.set(card.plan.rawValue, forKey: Keys.welcomeCard)
+        defaults.set("\(card.plan.rawValue):\(card.from.rawValue)", forKey: Keys.welcomeCard)
+    }
+
+    /// "pro:free" back into its card. A bare "pro" was written before the
+    /// card knew where it came from, and reads as the plan below.
+    private static func storedWelcome(_ stored: String) -> WelcomeCard? {
+        let parts = stored.split(separator: ":").map(String.init)
+        guard let plan = parts.first.flatMap(AirlockPlan.init(rawValue:)) else { return nil }
+        return WelcomeCard(plan, from: parts.dropFirst().first.flatMap(AirlockPlan.init(rawValue:)))
     }
 
     /// "Got it" on the welcome card.
@@ -576,7 +589,7 @@ final class LicenseModel {
                 // licence, which is MEANT to run offline to its own `checkBy`
                 // and must never be ended by asking about it.
                 return status == 402
-                    ? .declined(message ?? "That subscription is no longer active.")
+                    ? .declined(message ?? String(localized: "That subscription is no longer active."))
                     : .unavailable(message)
             }
             // THE CHECK THAT MATTERS. A server that hands back rubbish — a bad
@@ -584,7 +597,7 @@ final class LicenseModel {
             // page — must never overwrite a working licence, or one mistake
             // revokes every customer at once.
             guard let publicKey else {
-                return .unavailable("Your licence couldn't be checked just now. Nothing has changed — try again in a moment.")
+                return .unavailable(String(localized: "Your licence couldn't be checked just now. Nothing has changed — try again in a moment."))
             }
             switch LicenseVerifier.verify(fresh, publicKey: publicKey, machine: MachineIdentity.current) {
             case .valid:
@@ -596,10 +609,11 @@ final class LicenseModel {
                 // instead of the generic line, which once hid a wrong SIGNING
                 // KEY on the server behind the same words for an afternoon.
                 Self.log.error("licence server returned a token for another machine — kept the old one")
-                return .unavailable("That licence belongs to a different Mac. Nothing has changed.")
+                return .unavailable(String(localized: "That licence belongs to a different Mac. Nothing has changed."))
             case .invalid:
                 Self.log.error("licence server returned a token that does not verify — kept the old one")
-                return .unavailable("Your licence couldn't be checked just now. Nothing has changed — try again in a moment.")
+                return .unavailable(String(localized: "Your licence couldn't be checked just now. Nothing has changed — try again in a moment."))
+
             }
         } catch {
             Self.log.info("licence request failed: \(error.localizedDescription, privacy: .public)")

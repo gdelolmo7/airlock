@@ -93,15 +93,16 @@ public enum CallPeople {
     /// the people the record could not name. Nil when nobody is known.
     public static func line(_ people: [Person], count: Int? = nil) -> String? {
         let total = max(count ?? people.count, people.count)
-        guard !people.isEmpty else { return total > 1 ? "\(total) people" : nil }
+        guard !people.isEmpty else { return total > 1 ? String(localized: "\(total) people") : nil }
         // "Them" is a word, not a name, once something comes before it.
         let names = people.enumerated().map { index, person in
-            index > 0 && person.name == MeetingSpeaker.them.label ? person.name.lowercased() : person.name
+            let shown = MeetingRecord.shownLabel(person.name)
+            return index > 0 && person.name == MeetingSpeaker.them.label ? shown.lowercased() : shown
         }
         if total == names.count, total <= 3 { return joined(names) }
         let shown = Array(names.prefix(min(2, names.count)))
         let others = total - shown.count
-        return joined(shown + [others == 1 ? "1 other" : "\(others) others"])
+        return joined(shown + [others == 1 ? String(localized: "1 other") : String(localized: "\(others) others")])
     }
 
     /// Whose colour `name` is drawn in, among `people`. A to-do's owner is
@@ -141,8 +142,8 @@ public enum CallPeople {
     }
 
     /// "A", "A and B", "A, B and C".
-    private static func joined(_ names: [String]) -> String {
+    static func joined(_ names: [String]) -> String {
         guard names.count > 1 else { return names.first ?? "" }
-        return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+        return String(localized: "\(names.dropLast().joined(separator: ", ")) and \(names[names.count - 1])")
     }
 }

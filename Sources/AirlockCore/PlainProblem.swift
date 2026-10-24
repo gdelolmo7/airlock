@@ -9,27 +9,26 @@ import Foundation
 ///
 /// Pure, by domain and code, so the mapping is tested without a disk to fill.
 public enum PlainProblem {
-    public static let fallback = "Try again in a moment."
+    public static let fallback = String(localized: "Try again in a moment.")
 
     /// macOS refused: a folder it guards (Desktop, Documents, Downloads, a
     /// disk), or a file that isn't the person's.
-    public static let notAllowed = "macOS isn't letting Airlock use it. Allow Airlock in System Settings › "
-        + "Privacy & Security › Files & Folders, then try again."
+    public static let notAllowed = String(localized: "macOS isn't letting Airlock use it. Allow Airlock in System Settings › Privacy & Security › Files & Folders, then try again.")
 
     /// Why something on disk did not happen, as the second sentence after
     /// "X couldn't go on the Shelf."
     public static func file(domain: String, code: Int) -> String {
         switch (domain, code) {
         case (NSCocoaErrorDomain, 640), (NSPOSIXErrorDomain, 28):
-            return "Your Mac is out of space."
+            return String(localized: "Your Mac is out of space.")
         case _ where isPermission(domain: domain, code: code):
             // One cause for reading, saving, moving and trashing alike, so
             // the sentence names none of those verbs, and the way to let it.
             return PlainProblem.notAllowed
         case (NSCocoaErrorDomain, 4), (NSCocoaErrorDomain, 260), (NSPOSIXErrorDomain, 2):
-            return "It's no longer where it was."
+            return String(localized: "It's no longer where it was.")
         case (NSCocoaErrorDomain, 642), (NSPOSIXErrorDomain, 30):
-            return "That disk can't be changed."
+            return String(localized: "That disk can't be changed.")
         default:
             return fallback
         }

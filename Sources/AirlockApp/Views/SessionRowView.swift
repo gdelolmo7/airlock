@@ -123,13 +123,13 @@ struct SessionRowView: View {
     /// use for lack of room — the detail is where there is room to say it.
     /// Named as Settings names them, and as Claude's: "Last 5 hours" read as
     /// this session's own time.
-    static let fiveHourLabel = "Claude 5-hour limit"
-    static let weeklyLabel = "Claude weekly limit"
-    static let repliesLabel = "Replies"
-    static let repliesNote = "in this session"
+    static let fiveHourLabel = String(localized: "Claude 5-hour limit")
+    static let weeklyLabel = String(localized: "Claude weekly limit")
+    static let repliesLabel = String(localized: "Replies")
+    static let repliesNote = String(localized: "in this session")
     /// The limit's period ended after the reading — see `usageTile`.
-    static let rolledNote = "limit has reset"
-    static let noReadingNote = "no figure yet"
+    static let rolledNote = String(localized: "limit has reset")
+    static let noReadingNote = String(localized: "no figure yet")
 
     /// Every tile takes a note line, empty or not, so the three are one
     /// height: the replies tile used to stand shorter than its neighbours.
@@ -350,7 +350,7 @@ struct SessionRowView: View {
             Spacer(minLength: 4)
             if isHovered, session.jumpTarget != nil {
                 HStack(spacing: 3) {
-                    Text(prettyTerminal.map { "Open in \($0)" } ?? "Open terminal")
+                    Text(prettyTerminal.map { String(localized: "Open in \($0)") } ?? String(localized: "Open terminal"))
                     Image(systemName: "arrow.up.forward")
                         .font(.system(size: 8, weight: .bold))
                 }
@@ -378,7 +378,7 @@ struct SessionRowView: View {
         var parts: [String] = []
         if let terminal = prettyTerminal { parts.append(terminal) }
         parts.append(age(at: now))
-        if session.turns > 0 { parts.append(session.turns == 1 ? "1 reply" : "\(session.turns) replies") }
+        if session.turns > 0 { parts.append(session.turns == 1 ? String(localized: "1 reply") : String(localized: "\(session.turns) replies")) }
         return parts.joined(separator: " · ")
     }
 
@@ -387,7 +387,7 @@ struct SessionRowView: View {
     /// Claude's reply when the turn ends.
     private var lastMessage: (label: String, body: String)? {
         if let reply = session.lastResponse { return ("\(Self.shortName(session.agent)):", reply) }
-        if let prompt = session.lastPrompt { return ("You:", prompt) }
+        if let prompt = session.lastPrompt { return (String(localized: "You:"), prompt) }
         return nil
     }
 
@@ -406,15 +406,15 @@ struct SessionRowView: View {
     /// usage strip, which was deleted; this was the only part of it still alive.
     static func compactDuration(_ interval: TimeInterval) -> String {
         let minutes = Int(interval / 60)
-        if minutes < 60 { return "\(max(minutes, 1))m" }
+        if minutes < 60 { return String(localized: "\(max(minutes, 1))m") }
         let hours = minutes / 60
         if hours < 24 {
             let rem = minutes % 60
-            return rem == 0 ? "\(hours)h" : "\(hours)h\(rem)m"
+            return rem == 0 ? String(localized: "\(hours)h") : String(localized: "\(hours)h\(rem)m")
         }
         let days = hours / 24
         let remHours = hours % 24
-        return remHours == 0 ? "\(days)d" : "\(days)d\(remHours)h"
+        return remHours == 0 ? String(localized: "\(days)d") : String(localized: "\(days)d\(remHours)h")
     }
 
     private func age(at now: Date) -> String {
@@ -587,7 +587,7 @@ private struct FinishedSessionRow: View {
             Spacer(minLength: 4)
 
             TimelineView(.periodic(from: .now, by: 60)) { context in
-                Text(SessionRowView.compactDuration(max(context.date.timeIntervalSince(session.lastActivity), 60)) + " ago")
+                Text(String(localized: "\(SessionRowView.compactDuration(max(context.date.timeIntervalSince(session.lastActivity), 60))) ago"))
                     .font(Theme.chrome(10, .medium))
                     .foregroundStyle(Theme.textTertiary)
                     .monospacedDigit()

@@ -139,7 +139,7 @@ struct ClipboardSectionView: View {
             // A copy too large to keep never appears in the list, and nothing
             // else in the notch would say why.
             if let notice = clipboard.skipNotice {
-                ProblemCard(sentence: notice, button: "Close",
+                ProblemCard(sentence: notice, button: String(localized: "Close"),
                             action: { clipboard.dismissSkipNotice() })
             }
 
@@ -164,10 +164,10 @@ struct ClipboardSectionView: View {
     /// which is the state the footer already warns about. Promising a paste
     /// there tells a VoiceOver user the one thing that will not happen.
     private var activationHint: String {
-        guard clipboard.pastesAutomatically else { return "Puts this item on the clipboard" }
+        guard clipboard.pastesAutomatically else { return String(localized: "Puts this item on the clipboard") }
         return clipboard.pasteIsTrusted
-            ? "Pastes this item into the app in front"
-            : "Puts this item on the clipboard. Auto-paste is on but needs Accessibility permission"
+            ? String(localized: "Pastes this item into the app in front")
+            : String(localized: "Puts this item on the clipboard. Auto-paste is on but needs Accessibility permission")
     }
 
     // MARK: - Search
@@ -334,8 +334,8 @@ struct ClipboardSectionView: View {
             // where the eye already is, and because a warning under a Clear
             // button reads as being about the Clear button.
             if clipboard.pastesAutomatically && !clipboard.pasteIsTrusted {
-                ProblemCard(sentence: "Auto-paste needs the Accessibility permission.",
-                            button: "Turn it on",
+                ProblemCard(sentence: String(localized: "Auto-paste needs the Accessibility permission."),
+                            button: String(localized: "Turn it on"),
                             action: { PasteService.openAccessibilitySettings() })
             }
 
@@ -405,8 +405,10 @@ struct ClipboardSectionView: View {
     private var countLabel: String {
         let pinned = clipboard.history.items.filter(\.pinned).count
         let total = clipboard.history.items.count
-        if clipboard.isSearching { return "\(items.count) of \(total)" }
-        return pinned > 0 ? "\(total) items · \(pinned) pinned" : "\(total) items"
+        if clipboard.isSearching { return String(localized: "\(items.count) of \(total)") }
+        return pinned > 0
+            ? String(localized: "\(total) items · \(pinned) pinned")
+            : String(localized: "\(total) items")
     }
 
     /// The type filter, beside the search field rather than above it.
@@ -678,7 +680,8 @@ private struct ClipboardRowView: View {
         }
     }
 
-    private func iconButton(_ symbol: String, tint: Color, label: String,
+    private func iconButton(_ symbol: String, tint: Color, label: LocalizedStringKey,
+
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)

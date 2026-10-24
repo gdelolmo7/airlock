@@ -12,114 +12,98 @@ import SwiftUI
 /// to.
 enum SettingsAnchor: String, CaseIterable, Identifiable {
     // General
-    case launchAtLogin, displays, sounds, updates, crashReports, usageCounts, diagnostics
+    case launchAtLogin, appLanguage, displays, sounds, updates, crashReports, usageCounts, diagnostics
     // The notch
     case surface, panelWidth, textSize, usageLimits, batteryPercentage
     case widgets, reactiveWave, perAppVolume
     case keepAwakeAgents, keepAwakeCutoff, keepAwakeScreen, keepAwakeShortcut
     case agentsSwitch, calendars, shelf
     // Voice
-    case holdToDictate, holdToAsk, microphoneInput, language, callNotes, callLanguages, pastCalls, notesOnline,
+    case holdToDictate, microphoneInput, language, callNotes, callLanguages, pastCalls, notesOnline,
          tellVoicesApart, knownWords, cleanup, pauseMusic
-    case commandBar
     // Clipboard
     case clipboardHistory, neverRecorded, clipboardShortcut, autoPaste
-    // Agents / Developer
-    case developerMode, gateHotkey, promptSound, usageWarning, givingUp, rules
+    // Agents
+    case gateHotkey, promptSound, usageWarning, givingUp, rules
     // Permissions
     case permissionCalendar, permissionMicrophone, permissionInputMonitoring
-    case permissionAccessibility, permissionScreenRecording, permissionAutomation
+    case permissionAccessibility, permissionScreenAudio, permissionAutomation
     // Plans
     case plans, licenceKey, checkPlan
-    // Guide and Privacy, while the guide is on
-    case guideVoice, guideLayout, guideKeys, privacyPromise, neverLook
-    // The guide's access key, on General while the guide is a prototype
-    case guideAccessKey
 
     var id: String { rawValue }
 
     var pane: SettingsPane {
         switch self {
-        case .launchAtLogin, .displays, .sounds, .updates, .crashReports, .usageCounts, .diagnostics,
-             .guideAccessKey: return .general
+        case .launchAtLogin, .appLanguage, .displays, .sounds, .updates, .crashReports, .usageCounts, .diagnostics: return .general
         case .surface, .panelWidth, .textSize, .usageLimits, .batteryPercentage,
              .widgets, .reactiveWave, .perAppVolume,
              .keepAwakeAgents, .keepAwakeCutoff, .keepAwakeScreen, .keepAwakeShortcut,
              .agentsSwitch, .calendars, .shelf: return .appearance
-        case .holdToDictate, .holdToAsk, .microphoneInput, .language, .callNotes, .callLanguages, .pastCalls,
-             .notesOnline, .tellVoicesApart, .knownWords, .cleanup, .pauseMusic, .commandBar: return .voice
+        case .holdToDictate, .microphoneInput, .language, .callNotes, .callLanguages, .pastCalls,
+             .notesOnline, .tellVoicesApart, .knownWords, .cleanup, .pauseMusic: return .voice
         case .clipboardHistory, .neverRecorded, .clipboardShortcut, .autoPaste: return .clipboard
-        case .developerMode, .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return .agents
+        case .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return .agents
         case .permissionCalendar, .permissionMicrophone, .permissionInputMonitoring,
-             .permissionAccessibility, .permissionScreenRecording, .permissionAutomation: return .permissions
+             .permissionAccessibility, .permissionScreenAudio, .permissionAutomation: return .permissions
         case .plans, .licenceKey, .checkPlan: return .license
-        case .guideVoice, .guideLayout, .guideKeys: return .guide
-        case .privacyPromise, .neverLook: return .privacy
         }
     }
 
     var title: String {
         switch self {
-        case .launchAtLogin: return "Launch at login"
-        case .sounds: return "Sounds"
-        case .displays: return "Show on the main display"
-        case .updates: return "Check for updates automatically"
-        case .crashReports: return "Send crash reports"
-        case .usageCounts: return "Share usage counts"
-        case .diagnostics: return "Health and diagnostics"
-        case .surface: return "Background"
-        case .panelWidth: return "How wide the open notch is"
-        case .textSize: return "Text size"
-        case .usageLimits: return "Claude usage limits"
-        case .batteryPercentage: return "Battery percentage"
-        case .widgets: return "What shows when it's open"
-        case .reactiveWave: return "Wave follows the audio"
-        case .perAppVolume: return "Per-app volume"
-        case .keepAwakeAgents: return "Keep awake while an agent is working"
-        case .keepAwakeCutoff: return "Keep awake: stop on battery"
-        case .keepAwakeScreen: return "Keep awake: let the screen turn off"
-        case .keepAwakeShortcut: return "Keep awake: keyboard shortcut"
-        case .agentsSwitch: return SettingsPane.guideIsOn ? "Developer mode" : "AI agents"
-        case .calendars: return "Calendars"
-        case .shelf: return "Shelf"
-        case .holdToDictate: return "Hold a key to dictate"
-        case .holdToAsk: return "Hold a key to ask"
-        case .microphoneInput: return "Microphone"
-        case .language: return "Language"
-        case .callNotes: return "Call notes"
-        case .callLanguages: return "Language on calls"
-        case .pastCalls: return "Past calls"
-        case .notesOnline: return "Write notes online"
-        case .tellVoicesApart: return "Tell voices apart"
-        case .knownWords: return "Words to know"
-        case .cleanup: return "Tidy up what I said"
-        case .pauseMusic: return "Pause music while speaking"
-        case .commandBar: return "Type at the notch too"
-        case .clipboardHistory: return "Clipboard history"
-        case .neverRecorded: return "What it never remembers"
-        case .clipboardShortcut: return "Clipboard shortcut"
-        case .autoPaste: return "Paste automatically"
-        case .developerMode: return "Developer mode"
-        case .gateHotkey: return "Answer with a shortcut"
-        case .promptSound: return "Play a sound when a request arrives"
-        case .usageWarning: return "Warn near Claude's usage limit"
-        case .givingUp: return "Hand the question back"
-        case .rules: return "Rules"
-        case .permissionCalendar: return "Calendar access"
-        case .permissionMicrophone: return "Microphone access"
-        case .permissionInputMonitoring: return "Input Monitoring"
-        case .permissionAccessibility: return "Accessibility"
-        case .permissionScreenRecording: return "Screen Recording"
-        case .permissionAutomation: return "Automation"
-        case .plans: return "Plans"
-        case .licenceKey: return "Licence key"
-        case .checkPlan: return "Check my plan now"
-        case .guideVoice: return "Speak replies"
-        case .guideLayout: return "Where the step appears"
-        case .guideKeys: return "Guide keys"
-        case .privacyPromise: return "What the guide sends"
-        case .neverLook: return "Never look at these apps"
-        case .guideAccessKey: return "Guide access key"
+        case .launchAtLogin: return String(localized: "Launch at login")
+        case .appLanguage: return String(localized: "Airlock's language")
+        case .sounds: return String(localized: "Sounds")
+        case .displays: return String(localized: "Show on the main display")
+        case .updates: return String(localized: "Check for updates automatically")
+        case .crashReports: return String(localized: "Send crash reports")
+        case .usageCounts: return String(localized: "Share usage counts")
+        case .diagnostics: return String(localized: "Health and diagnostics")
+        case .surface: return String(localized: "Background")
+        case .panelWidth: return String(localized: "How wide the open notch is")
+        case .textSize: return String(localized: "Text size")
+        case .usageLimits: return String(localized: "Claude usage limits")
+        case .batteryPercentage: return String(localized: "Battery percentage")
+        case .widgets: return String(localized: "What shows when it's open")
+        case .reactiveWave: return String(localized: "Wave follows the audio")
+        case .perAppVolume: return String(localized: "Per-app volume")
+        case .keepAwakeAgents: return String(localized: "Keep awake while an agent is working")
+        case .keepAwakeCutoff: return String(localized: "Keep awake: stop on battery")
+        case .keepAwakeScreen: return String(localized: "Keep awake: let the screen turn off")
+        case .keepAwakeShortcut: return String(localized: "Keep awake: keyboard shortcut")
+        case .agentsSwitch: return String(localized: "AI agents")
+        case .calendars: return String(localized: "Calendars")
+        case .shelf: return String(localized: "Shelf")
+        case .holdToDictate: return String(localized: "Hold a key to dictate")
+        case .microphoneInput: return String(localized: "Microphone")
+        case .language: return String(localized: "Language")
+        case .callNotes: return String(localized: "Call notes")
+        case .callLanguages: return String(localized: "Language on calls")
+        case .pastCalls: return String(localized: "Past calls")
+        case .notesOnline: return String(localized: "Write notes online")
+        case .tellVoicesApart: return String(localized: "Tell voices apart")
+        case .knownWords: return String(localized: "Words to know")
+        case .cleanup: return String(localized: "Tidy up what I said")
+        case .pauseMusic: return String(localized: "Pause music while speaking")
+        case .clipboardHistory: return String(localized: "Clipboard history")
+        case .neverRecorded: return String(localized: "What it never remembers")
+        case .clipboardShortcut: return String(localized: "Clipboard shortcut")
+        case .autoPaste: return String(localized: "Paste automatically")
+        case .gateHotkey: return String(localized: "Answer with a shortcut")
+        case .promptSound: return String(localized: "Play a sound when a request arrives")
+        case .usageWarning: return String(localized: "Warn near Claude's usage limit")
+        case .givingUp: return String(localized: "Hand the question back")
+        case .rules: return String(localized: "Rules")
+        case .permissionCalendar: return String(localized: "Calendar access")
+        case .permissionMicrophone: return String(localized: "Microphone access")
+        case .permissionInputMonitoring: return String(localized: "Input Monitoring")
+        case .permissionAccessibility: return String(localized: "Accessibility")
+        case .permissionScreenAudio: return String(localized: "Screen & System Audio Recording")
+        case .permissionAutomation: return String(localized: "Automation")
+        case .plans: return String(localized: "Plans")
+        case .licenceKey: return String(localized: "Licence key")
+        case .checkPlan: return String(localized: "Check my plan now")
         }
     }
 
@@ -127,6 +111,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .launchAtLogin: return ["startup", "login", "start", "open"]
+        case .appLanguage: return ["language", "spanish", "english", "idioma", "español", "inglés", "translate",
+                                   "traducir"]
         case .sounds: return ["sound", "audio", "chime", "alert", "mute", "quiet", "volume"]
         case .displays: return ["display", "monitor", "screen", "external", "lid", "main"]
         case .updates: return ["update", "version", "new"]
@@ -151,7 +137,6 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .calendars: return ["calendar", "events", "meetings"]
         case .shelf: return ["shelf", "tray", "files", "drop", "folder"]
         case .holdToDictate: return ["dictation", "dictate", "voice", "speech", "talk", "hold", "key"]
-        case .holdToAsk: return ["ask", "question", "assistant", "voice", "hold", "key"]
         case .microphoneInput: return ["microphone", "mic", "input", "device", "headset"]
         case .language: return ["language", "spanish", "english", "speak"]
         case .callNotes: return ["calls", "meetings", "notes", "transcript", "teams", "facetime", "minutes",
@@ -165,12 +150,10 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .knownWords: return ["words", "names", "spelling", "vocabulary", "transcript", "meetings", "calls"]
         case .cleanup: return ["cleanup", "punctuation", "filler", "tidy"]
         case .pauseMusic: return ["music", "pause", "speaking"]
-        case .commandBar: return ["command bar", "type", "shortcut", "option space", "ask"]
         case .clipboardHistory: return ["clipboard", "history", "copy", "paste"]
         case .neverRecorded: return ["password", "ignore", "private", "skip", "clipboard"]
         case .clipboardShortcut: return ["shortcut", "hotkey", "clipboard", "key"]
         case .autoPaste: return ["paste", "clipboard"]
-        case .developerMode: return ["agents", "claude", "codex", "developer", "hooks", "connect"]
         case .gateHotkey: return ["approve", "allow", "shortcut", "hotkey", "request", "key", "answer"]
         case .promptSound: return ["sound", "alert", "notification", "request"]
         case .usageWarning: return ["usage", "limit", "warning", "rate", "weekly", "hours", "reset", "claude"]
@@ -180,36 +163,89 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .permissionMicrophone: return ["microphone", "mic", "permission", "privacy"]
         case .permissionInputMonitoring: return ["keyboard", "keys", "permission", "privacy", "input"]
         case .permissionAccessibility: return ["accessibility", "typing", "permission", "privacy"]
-        case .permissionScreenRecording: return ["screen", "recording", "permission", "privacy", "see"]
+        case .permissionScreenAudio: return ["screen recording", "system audio", "other side", "call", "screenshot",
+                                             "record", "permission", "privacy"]
         case .permissionAutomation: return ["automation", "apple events", "permission", "spotify", "music"]
         case .plans: return ["plan", "plans", "plus", "pro", "free", "upgrade", "price", "pricing", "buy",
                              "subscribe", "subscription", "monthly", "yearly"]
         case .licenceKey: return ["license", "licence", "key", "subscription", "purchase", "buy", "trial"]
         case .checkPlan: return ["check", "plan", "paid", "refresh", "subscription", "another mac"]
-        case .guideVoice: return ["voice", "speak", "read aloud", "guide"]
-        case .guideLayout: return ["bubble", "card", "layout", "guide", "step"]
-        case .guideKeys: return ["keys", "shortcut", "esc", "guide", "ask"]
-        case .privacyPromise: return ["privacy", "screen", "picture", "send", "ai", "guide"]
-        case .neverLook: return ["privacy", "apps", "never", "look", "block", "guide"]
-        case .guideAccessKey: return ["key", "access key", "guide", "service", "anthropic", "openai", "openrouter"]
         }
     }
 
-    /// Whether the row exists in the Settings shown now: the guide's pages and
-    /// the Developer switch only with the guide on, the screen-recording row
-    /// only for the guide. With the guide on, the agent rows wait behind
-    /// Developer mode (`agentsOn`), as the page does. The call languages and
+    /// The same in Spanish. Searched in every app language, like the English
+    /// ones, so a word in either finds the row. Accents don't matter.
+    var spanishKeywords: [String] {
+        switch self {
+        case .launchAtLogin: return ["inicio", "arrancar", "abrir", "sesion", "encender"]
+        case .appLanguage: return []
+        case .sounds: return ["sonido", "audio", "aviso", "alerta", "silencio", "volumen"]
+        case .displays: return ["pantalla", "monitor", "externa", "tapa", "principal"]
+        case .updates: return ["actualizacion", "actualizar", "version", "nuevo"]
+        case .crashReports: return ["fallo", "error", "informe", "privacidad", "cierre"]
+        case .usageCounts: return ["uso", "estadisticas", "analitica", "privacidad", "compartir", "datos"]
+        case .diagnostics: return ["registro", "informe", "diagnostico", "problema", "salud"]
+        case .surface: return ["fondo", "cristal", "oscuro", "aspecto", "color"]
+        case .panelWidth: return ["ancho", "anchura", "tamaño", "estrecho"]
+        case .textSize: return ["letra", "fuente", "texto", "grande", "pequeño", "zoom", "leer"]
+        case .usageLimits: return ["uso", "limites", "horas", "semanal", "agentes", "claude"]
+        case .batteryPercentage: return ["bateria", "porcentaje", "barra"]
+        case .widgets: return ["widget", "musica", "calendario", "sistema", "memoria", "repositorio",
+                               "mostrar", "ocultar"]
+        case .reactiveWave: return ["onda", "barras", "audio", "musica", "animacion"]
+        case .perAppVolume: return ["volumen", "mezclador", "sonido", "app", "alto", "bajo"]
+        case .keepAwakeAgents: return ["despierto", "reposo", "dormir", "agente", "claude", "codex", "trabajando"]
+        case .keepAwakeCutoff: return ["despierto", "reposo", "dormir", "bateria", "limite"]
+        case .keepAwakeScreen: return ["despierto", "reposo", "pantalla", "apagar"]
+        case .keepAwakeShortcut: return ["despierto", "reposo", "atajo", "tecla"]
+        case .agentsSwitch: return ["agentes", "claude", "codex", "desarrollador", "conectar"]
+        case .calendars: return ["calendario", "eventos", "reuniones"]
+        case .shelf: return ["estante", "bandeja", "archivos", "soltar", "carpeta"]
+        case .holdToDictate: return ["dictado", "dictar", "voz", "hablar", "mantener", "tecla"]
+        case .microphoneInput: return ["microfono", "entrada", "dispositivo", "auriculares", "cascos"]
+        case .language: return ["idioma", "español", "ingles", "hablar"]
+        case .callNotes: return ["llamadas", "reuniones", "notas", "transcripcion", "acta", "grabar"]
+        case .callLanguages: return ["idioma", "llamadas", "reuniones", "notas", "español", "ingles"]
+        case .pastCalls: return ["anteriores", "llamadas", "reuniones", "transcripcion", "historial", "abrir"]
+        case .notesOnline: return ["online", "nube", "internet", "servidor", "mejores", "notas", "reuniones",
+                                   "llamadas", "resumen"]
+        case .tellVoicesApart: return ["voces", "personas", "participantes", "quien hablo", "quien dijo",
+                                       "reuniones", "llamadas"]
+        case .knownWords: return ["palabras", "nombres", "ortografia", "vocabulario", "transcripcion",
+                                  "reuniones", "llamadas"]
+        case .cleanup: return ["limpiar", "puntuacion", "muletillas", "ordenar"]
+        case .pauseMusic: return ["musica", "pausa", "pausar", "hablar"]
+        case .clipboardHistory: return ["portapapeles", "historial", "copiar", "pegar"]
+        case .neverRecorded: return ["contraseña", "ignorar", "privado", "omitir", "portapapeles"]
+        case .clipboardShortcut: return ["atajo", "tecla", "portapapeles"]
+        case .autoPaste: return ["pegar", "portapapeles", "automatico"]
+        case .gateHotkey: return ["aprobar", "permitir", "atajo", "solicitud", "tecla", "responder"]
+        case .promptSound: return ["sonido", "aviso", "notificacion", "solicitud"]
+        case .usageWarning: return ["uso", "limite", "aviso", "semanal", "horas", "claude"]
+        case .givingUp: return ["tiempo", "espera", "esperar", "devolver"]
+        case .rules: return ["politica", "reglas", "permitir", "denegar", "bloquear"]
+        case .permissionCalendar: return ["calendario", "permiso", "privacidad"]
+        case .permissionMicrophone: return ["microfono", "permiso", "privacidad"]
+        case .permissionInputMonitoring: return ["teclado", "teclas", "permiso", "privacidad", "entrada"]
+        case .permissionAccessibility: return ["accesibilidad", "escribir", "permiso", "privacidad"]
+        case .permissionScreenAudio: return ["grabacion de pantalla", "audio del sistema", "otra parte", "llamada",
+                                             "captura", "grabar", "permiso", "privacidad"]
+        case .permissionAutomation: return ["automatizacion", "permiso", "spotify", "musica"]
+        case .plans: return ["plan", "planes", "plus", "pro", "gratis", "mejorar", "precio", "comprar",
+                             "suscribirse", "suscripcion", "mensual", "anual"]
+        case .licenceKey: return ["licencia", "clave", "suscripcion", "compra", "comprar", "prueba"]
+        case .checkPlan: return ["comprobar", "plan", "pagado", "actualizar", "suscripcion", "otro mac"]
+        }
+    }
+
+    /// Whether the row exists in the Settings shown now. The call languages and
     /// the way to past calls only while call notes are on (`callNotesOn`), as
     /// on the Voice page. "Write notes online" only with call notes on and
     /// notes online shown (`notesOnlineOn`).
     @MainActor
-    func isAvailable(guideOn: Bool, agentsOn: Bool = true,
-                     callNotesOn: Bool = SettingsAnchor.callNotesAreOn,
+    func isAvailable(callNotesOn: Bool = SettingsAnchor.callNotesAreOn,
                      notesOnlineOn: Bool = SettingsAnchor.notesOnlineShown) -> Bool {
         switch self {
-        case .guideVoice, .guideLayout, .guideKeys, .privacyPromise, .neverLook,
-             .developerMode, .permissionScreenRecording, .guideAccessKey: return guideOn
-        case .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return !guideOn || agentsOn
         // Only a build that could send one shows the switch.
         case .crashReports: return CrashReporter.bundleDSN != nil
         case .usageCounts: return UsageCounts.bundleEndpoint != nil
@@ -232,16 +268,15 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
 
     /// Matching settings for the search field, best first.
     @MainActor
-    static func search(_ query: String, guideOn: Bool = SettingsPane.guideIsOn,
-                       agentsOn: Bool = true, callNotesOn: Bool = callNotesAreOn,
+    static func search(_ query: String, callNotesOn: Bool = callNotesAreOn,
                        notesOnlineOn: Bool = notesOnlineShown) -> [SettingsAnchor] {
         allCases
             .filter {
-                $0.isAvailable(guideOn: guideOn, agentsOn: agentsOn, callNotesOn: callNotesOn,
-                               notesOnlineOn: notesOnlineOn)
+                $0.isAvailable(callNotesOn: callNotesOn, notesOnlineOn: notesOnlineOn)
             }
             .compactMap { anchor -> (SettingsAnchor, Int)? in
-                SettingsSearch.score(query: query, title: anchor.title, keywords: anchor.keywords,
+                SettingsSearch.score(query: query, title: anchor.title,
+                                     keywords: anchor.keywords + anchor.spanishKeywords,
                                      page: anchor.pane.title).map { (anchor, $0) }
             }
             // Stable among equals: the order above is page order.

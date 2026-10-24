@@ -15,7 +15,7 @@ struct CrashReportsSection: View {
 
     var body: some View {
         LookToggleRow("Send crash reports",
-                      subtitle: "Only when Airlock crashes. Nothing personal is included.",
+                      subtitle: String(localized: "Only when Airlock crashes. Nothing personal is included."),
                       isOn: $isOn)
             .settingsAnchor(.crashReports)
     }
@@ -24,8 +24,8 @@ struct CrashReportsSection: View {
     /// and what is never in one. Kept in step with the privacy page on the
     /// website, which says the same in its list of what leaves the Mac.
     static let notes = [
-        "A crash report is what a fix needs: the Airlock version, the macOS version, the Mac model, and where in Airlock's code it stopped. A report is also sent when Airlock stops answering for five seconds or more.",
-        "Never in a report: your name, your Mac's name, your files, what's on your screen, what you copied or said, or what your agents were doing. Reports go to Sentry, the service that collects them for us.",
-        "Off until you turn it on. Turning it off stops it at once and deletes any report not sent yet.",
+        String(localized: "A crash report is what a fix needs: the Airlock version, the macOS version, the Mac model, and where in Airlock's code it stopped. A report is also sent when Airlock stops answering for five seconds or more."),
+        String(localized: "Never in a report: your name, your Mac's name, your files, what's on your screen, what you copied or said, or what your agents were doing. Reports go to Sentry, the service that collects them for us."),
+        String(localized: "Off until you turn it on. Turning it off stops it at once and deletes any report not sent yet."),
     ]
 }

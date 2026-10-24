@@ -29,7 +29,7 @@ struct LastDayCard: View {
     /// One table so a button's words and its period cannot part: both used
     /// to open on yearly, so "€3.99 a month" led to a page offering €35.99.
     static let offers: [(title: String, plan: License.Period, prominent: Bool)] = [
-        ("Keep it — \(License.Period.yearly.price)", .yearly, true),
+        (String(localized: "Keep it — \(License.Period.yearly.price)"), .yearly, true),
         (License.Period.monthly.price, .monthly, false),
     ]
 
@@ -68,7 +68,7 @@ struct LastDayCard: View {
                     action(offer.title, prominent: offer.prominent) { license.showPlans(period: offer.plan, from: "notice") }
                 }
                 Spacer(minLength: 0)
-                action("I have a key", prominent: false) { license.showPlans(keyField: true, from: "notice_key") }
+                action(String(localized: "I have a key"), prominent: false) { license.showPlans(keyField: true, from: "notice_key") }
             }
         }
         .padding(10)
@@ -136,7 +136,7 @@ struct LicenseNoticeBanner: View {
                 // holding their agents over it would be using the one thing
                 // they depend on as leverage, which is how an app loses a
                 // renewal it was going to get anyway.
-                Text("Nothing has stopped. Approvals, dictation and rules all still work — we just couldn't confirm the payment.")
+                Text(reassurance)
                     .font(Theme.chrome(10.5))
                     .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -181,7 +181,21 @@ struct LicenseNoticeBanner: View {
         }
     }
 
-    private var button: String { notice == .overdue ? "See plan" : "See plans" }
+    private var button: String { notice == .overdue ? String(localized: "See plan") : String(localized: "See plans") }
+
+    private var reassurance: String {
+        handIssued
+            ? String(localized: "Nothing has stopped. Write to hello@useairlock.app for a new key.")
+            : String(localized: "Nothing has stopped. Approvals, dictation and rules all still work — we just couldn't confirm the payment.")
+    }
+
+    /// A key issued by hand has no shop subscription behind it, so there is
+    /// no payment to confirm and "renewing" names nothing to renew: a new key
+    /// comes from the person who sent the first one.
+    private var handIssued: Bool {
+        if case .overdue(let key) = license.entitlement { return key.ref == nil }
+        return false
+    }
 
     private func act() { license.showPlans(from: "notice") }
 
@@ -195,11 +209,11 @@ struct LicenseNoticeBanner: View {
     private var text: String? {
         switch notice {
         case .endingSoon(let days):
-            return days <= 1 ? "Last day of your trial" : "\(days) days left in your trial"
+            return days <= 1 ? String(localized: "Last day of your trial") : String(localized: "\(days) days left in your trial")
         case .overdue:
             // Says what is true and what is not: it has not stopped working, and
             // nobody is being accused of anything.
-            return "Your subscription needs renewing"
+            return handIssued ? String(localized: "Your key has run out") : String(localized: "Your subscription needs renewing")
         case .none:
             return nil
         }

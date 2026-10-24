@@ -33,7 +33,10 @@ public enum PlanCatalog {
     /// "€3.99 a month", "€35.99 a year". Free is "€0".
     public static func price(_ plan: AirlockPlan, _ period: License.Period) -> String {
         guard plan != .free else { return euros(0) }
-        return "\(amount(plan, period)) \(per(period))"
+        switch period {
+        case .monthly: return String(localized: "\(amount(plan, period)) a month")
+        case .yearly: return String(localized: "\(amount(plan, period)) a year")
+        }
     }
 
     /// The line under a price: what a year works out to a month, that a month
@@ -44,10 +47,10 @@ public enum PlanCatalog {
     /// "€3 a month" understates by a hundredth of a cent and never overstates
     /// (`PricingCopyTests`).
     public static func note(_ plan: AirlockPlan, _ period: License.Period) -> String {
-        guard plan != .free else { return "No card needed" }
+        guard plan != .free else { return String(localized: "No card needed") }
         switch period {
-        case .monthly: return "Stop any time"
-        case .yearly: return "\(euros(yearlyPerMonthCents(plan))) a month, billed yearly"
+        case .monthly: return String(localized: "Stop any time")
+        case .yearly: return String(localized: "\(euros(yearlyPerMonthCents(plan))) a month, billed yearly")
         }
     }
 
@@ -59,30 +62,30 @@ public enum PlanCatalog {
     /// Beside the yearly switch. True of both paid plans: Plus saves 2.98
     /// months, Pro 2.99, so "almost" is the word that keeps it from
     /// overstating either (`PricingCopyTests`).
-    public static let yearlySaving = "almost 3 months free"
+    public static let yearlySaving = String(localized: "almost 3 months free")
 
     /// "Everything in Free, and:" above a plan's list, or nil for Free.
     public static func lead(_ plan: AirlockPlan) -> String? {
         switch plan {
         case .free: nil
-        case .plus: "Everything in Free, and:"
-        case .pro: "Everything in Plus, and:"
+        case .plus: String(localized: "Everything in Free, and:")
+        case .pro: String(localized: "Everything in Plus, and:")
         }
     }
 
     /// The same line, short enough for the narrow price column beside Pro on
     /// the Plans page: "€6 a month", "Stop any time".
     public static func shortNote(_ plan: AirlockPlan, _ period: License.Period) -> String {
-        guard plan != .free else { return "No card needed" }
+        guard plan != .free else { return String(localized: "No card needed") }
         switch period {
-        case .monthly: return "Stop any time"
-        case .yearly: return "\(euros(yearlyPerMonthCents(plan))) a month"
+        case .monthly: return String(localized: "Stop any time")
+        case .yearly: return String(localized: "\(euros(yearlyPerMonthCents(plan))) a month")
         }
     }
 
     /// Said wherever Plus is priced or held, so Pro's "twice" has something
     /// to double.
-    public static let monthlyNotes = "A set number of online notes each month"
+    public static let monthlyNotes = String(localized: "A set number of online notes each month")
 
     /// One thing a plan adds, as the Plans page draws it: a symbol, a few
     /// words, and a line under them saying what they mean.
@@ -105,25 +108,34 @@ public enum PlanCatalog {
         case .free:
             return []
         case .plus:
-            let clipboard = "Clipboard keeps \(thousands(ClipboardHistory.capacityRange.upperBound))"
-            return [Feature(symbol: "waveform", title: "The whole call",
-                            detail: "Notes written online by a better model", line: "The whole call, written down"),
-                    Feature(symbol: "person.2.fill", title: "Who said what",
-                            detail: "Each voice on a call told apart", line: "Who said what: each voice told apart"),
-                    Feature(symbol: "arrow.clockwise", title: "Redo past calls",
-                            detail: "Write a past call's notes again", line: "Redo the notes of past calls"),
-                    Feature(symbol: "laptopcomputer", title: "Any Mac",
-                            detail: "With or without Apple Intelligence", line: "Works on any Mac"),
+            let clipboard = String(localized: "Clipboard keeps \(thousands(ClipboardHistory.capacityRange.upperBound))")
+            return [Feature(symbol: "waveform", title: String(localized: "The whole call"),
+                            detail: String(localized: "Notes written online by a better model"),
+                            line: String(localized: "The whole call, written down")),
+                    Feature(symbol: "person.2.fill", title: String(localized: "Who said what"),
+                            detail: String(localized: "Each voice on a call told apart"),
+                            line: String(localized: "Who said what: each voice told apart")),
+                    Feature(symbol: "arrow.clockwise", title: String(localized: "Redo past calls"),
+                            detail: String(localized: "Write a past call's notes again"),
+                            line: String(localized: "Redo the notes of past calls")),
+                    Feature(symbol: "laptopcomputer", title: String(localized: "Any Mac"),
+                            detail: String(localized: "With or without Apple Intelligence"),
+                            line: String(localized: "Works on any Mac")),
                     Feature(symbol: "list.clipboard", title: clipboard,
-                            detail: "Ten times what Free keeps", line: clipboard),
-                    Feature(symbol: "terminal", title: "Every agent",
-                            detail: "Answer all of them from the notch", line: "Answer every agent from the notch")]
+                            detail: String(localized: "Ten times what Free keeps"), line: clipboard),
+                    Feature(symbol: "wand.and.rays", title: String(localized: "Drop box extras"),
+                            detail: String(localized: "Remove backgrounds, make WebP copies"),
+                            line: String(localized: "Drop box: remove backgrounds, make WebP copies")),
+                    Feature(symbol: "terminal", title: String(localized: "Every agent"),
+                            detail: String(localized: "Answer all of them from the notch"),
+                            line: String(localized: "Answer every agent from the notch"))]
         case .pro:
-            return [Feature(symbol: "wand.and.stars", title: "The best notes",
-                            detail: "Written by the best model we've tested",
-                            line: "Notes written by the best model we've tested"),
-                    Feature(symbol: "cloud", title: "Twice the online notes",
-                            detail: "Twice what Plus gets each month", line: "Twice as many online notes each month")]
+            return [Feature(symbol: "wand.and.stars", title: String(localized: "The best notes"),
+                            detail: String(localized: "Written by the best model we've tested"),
+                            line: String(localized: "Notes written by the best model we've tested")),
+                    Feature(symbol: "cloud", title: String(localized: "Twice the online notes"),
+                            detail: String(localized: "Twice what Plus gets each month"),
+                            line: String(localized: "Twice as many online notes each month"))]
         }
     }
 
@@ -170,14 +182,16 @@ public enum PlanCatalog {
     /// "a month", "a year".
     static func per(_ period: License.Period) -> String {
         switch period {
-        case .monthly: "a month"
-        case .yearly: "a year"
+        case .monthly: String(localized: "a month")
+        case .yearly: String(localized: "a year")
         }
     }
 
-    /// "1,000", whatever the Mac's region: the sentence around it is English.
+    /// "1,000" in English and "1000" in Spanish, whatever the Mac's region:
+    /// the number follows the sentence around it, not the region.
     static func thousands(_ number: Int) -> String {
-        number.formatted(.number.locale(Locale(identifier: "en_GB")))
+        let spanish = Bundle.main.preferredLocalizations.first == "es"
+        return number.formatted(.number.locale(Locale(identifier: spanish ? "es_ES" : "en_GB")))
     }
 
     /// "€3.99", or "€3" when it is a whole euro. Written out rather than

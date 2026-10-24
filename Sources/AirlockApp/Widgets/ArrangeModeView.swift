@@ -306,7 +306,8 @@ struct ArrangeModeView: View {
         // The same two moves without a pointer, because a drag is the one
         // gesture some people cannot make.
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(control.accessibilityLabel), \(isOn ? "shown" : "switched off")")
+        .accessibilityLabel(isOn ? "\(control.accessibilityLabel), shown"
+                                 : "\(control.accessibilityLabel), switched off")
         .accessibilityAction(named: isOn ? "Switch off" : "Switch on") {
             controls.setShown(control, !isOn)
         }
@@ -445,9 +446,10 @@ struct ArrangeModeView: View {
 
     private func label(for column: WidgetColumn) -> String {
         switch column {
-        case .leading: return "leading"
-        case .trailing: return "trailing"
-        case .full: return "full width"
+        case .leading: return String(localized: "leading")
+        case .trailing: return String(localized: "trailing")
+        case .full: return String(localized: "full width")
+
         }
     }
 }

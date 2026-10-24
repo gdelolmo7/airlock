@@ -561,11 +561,12 @@ final class CompactIslandTests: XCTestCase {
              ("battery critical", { $0.batteryCritical = true; $0.batteryMinutesRemaining = 12 })],
             [("empty shelf", { _ in }), ("3 on shelf", { $0.shelfCount = 3 })],
             [("sleeps normally", { _ in }), ("kept awake", { $0.keepingAwake = true })],
+            [("hands empty", { _ in }), ("file in hand", { $0.fileInHand = true })],
         ]
     }
 
     /// The cartesian product of the axes, each case carrying the names that
-    /// produced it. 2,048 combinations, instant, and readable at the failure.
+    /// produced it. 4,096 combinations, instant, and readable at the failure.
     func sweep(_ body: (String, CompactIslandInput) -> Void) {
         func walk(_ remaining: ArraySlice<[Variant]>, _ name: String, _ i: CompactIslandInput) {
             guard let axis = remaining.first else { return body(name, i) }
@@ -576,28 +577,6 @@ final class CompactIslandTests: XCTestCase {
             }
         }
         walk(axes[...], "", CompactIslandInput(now: Self.anchor))
-    }
-}
-
-/// The guide's rung in both halves of the island.
-final class CompactIslandGuideTests: XCTestCase {
-    private let guiding = GuidePresentation.Compact.guiding(step: 2, of: 5, offTrack: false)
-
-    func testAGateOutranksTheGuide() {
-        let i = CompactIslandInput(agentsEnabled: true, attentionCount: 1, sessionCount: 1, now: Date(), guide: guiding)
-        XCTAssertEqual(CompactIsland.trailing(i), .attentionDot)
-    }
-
-    func testTheGuideOutranksEverythingAmbientAndSummonsTheIsland() {
-        let i = CompactIslandInput(hasMedia: true, mediaPlaying: true, meetingSoon: true, now: Date(),
-                                   batteryCritical: true, batteryMinutesRemaining: 5, shelfCount: 3, guide: guiding)
-        XCTAssertEqual(CompactIsland.trailing(i), .guide(guiding))
-        XCTAssertTrue(CompactIsland.hasContent(CompactIslandInput(now: Date(), guide: guiding)))
-    }
-
-    func testTheGuidePutsTheMarkBackOnTheLeft() {
-        let paused = CompactIslandInput(hasMedia: true, now: Date(), mediaPausedAt: Date(), guide: guiding)
-        XCTAssertEqual(CompactIsland.leading(paused), .idle)
     }
 }
 
@@ -681,5 +660,85 @@ final class CompactIslandCallNotesTests: XCTestCase {
         XCTAssertEqual(CompactIsland.trailing(island(.tooLittleSaid, at: 1) { $0.meetingSoon = true }),
                        .callNotes(.tooLittleSaid))
         XCTAssertEqual(CompactIsland.trailing(island(.tooLittleSaid) { $0.call = self.call }), .call(call))
+    }
+}
+
+/// A file the shelf would keep, dragged somewhere on screen: the sign that
+/// says where to bring it.
+final class CompactIslandFileInHandTests: XCTestCase {
+    private let t = Date(timeIntervalSince1970: 1_700_000_000)
+
+    /// Under a gate and a guide, over every ambient rung — the route
+    /// acknowledgement included, which outranks every other steady state.
+    func testAFileInHandOutranksEverythingButAGateAndTheGuide() {
+        let busy = CompactIslandInput(hasMedia: true, mediaPlaying: true, meetingSoon: true, now: t,
+                                      outputChangedAt: t, batteryCritical: true, shelfCount: 3,
+                                      keepingAwake: true,
+                                      call: OngoingCall(bundleID: "us.zoom.xos", appName: "Zoom", startedAt: t),
+                                      fileInHand: true)
+        XCTAssertEqual(CompactIsland.trailing(busy), .dropHere)
+
+        var gate = busy
+        gate.agentsEnabled = true; gate.attentionCount = 1
+        XCTAssertEqual(CompactIsland.trailing(gate), .attentionDot)
+    }
+
+    /// It goes the moment the drag does: the slot is the next rung down.
+    func testPuttingTheFileDownGivesTheSlotBack() {
+        var i = CompactIslandInput(hasMedia: true, mediaPlaying: true, now: t, fileInHand: true)
+        XCTAssertEqual(CompactIsland.trailing(i), .dropHere)
+        i.fileInHand = false
+        XCTAssertEqual(CompactIsland.trailing(i), .wave)
+    }
+
+    /// A driver: it brings the island up on its own. Compact only — nothing in
+    /// this file can expand it.
+    func testAFileInHandSummonsTheIsland() {
+        XCTAssertTrue(CompactIsland.hasContent(CompactIslandInput(now: t, fileInHand: true)))
+        XCTAssertFalse(CompactIsland.hasContent(CompactIslandInput(now: t, shelfCount: 3)))
+    }
+
+    /// The leading side keeps the mark: one sign per drag, not two.
+    func testTheLeadingSideIsUntouched() {
+        XCTAssertEqual(CompactIsland.leading(CompactIslandInput(now: t, fileInHand: true)), .idle)
+    }
+
+    func testItSaysWhereToGo() {
+        XCTAssertEqual(CompactSlot.dropHere.accessibilityLabel,
+                       "Drop at the top of the screen to keep it on the shelf")
+    }
+
+    // MARK: Drop box work after the box closed
+
+    /// Over every ambient rung: the work was asked for seconds ago.
+    func testLateDropWorkOutranksTheAmbientRungs() {
+        let busy = CompactIslandInput(hasMedia: true, mediaPlaying: true, meetingSoon: true, now: t,
+                                      batteryCritical: true, shelfCount: 3, keepingAwake: true,
+                                      call: OngoingCall(bundleID: "us.zoom.xos", appName: "Zoom", startedAt: t),
+                                      dropWork: .working)
+        XCTAssertEqual(CompactIsland.trailing(busy), .dropWork(.working))
+    }
+
+    /// A gate and a file in hand both come first: one waits on the user, the
+    /// other is the user's hand right now.
+    func testLateDropWorkYieldsToAGateAndADrag() {
+        var i = CompactIslandInput(now: t, dropWork: .working)
+        i.fileInHand = true
+        XCTAssertEqual(CompactIsland.trailing(i), .dropHere)
+        i.fileInHand = false
+        i.agentsEnabled = true; i.attentionCount = 1
+        XCTAssertEqual(CompactIsland.trailing(i), .attentionDot)
+    }
+
+    /// A driver, compact only, working or done; nothing after.
+    func testLateDropWorkSummonsTheIsland() {
+        XCTAssertTrue(CompactIsland.hasContent(CompactIslandInput(now: t, dropWork: .working)))
+        XCTAssertTrue(CompactIsland.hasContent(CompactIslandInput(now: t, dropWork: .done)))
+        XCTAssertEqual(CompactIsland.trailing(CompactIslandInput(now: t, shelfCount: 1)), .shelfCount(1))
+    }
+
+    func testLateDropWorkIsSaid() {
+        XCTAssertEqual(CompactSlot.dropWork(.working).accessibilityLabel, "Making a new file for the shelf")
+        XCTAssertEqual(CompactSlot.dropWork(.done).accessibilityLabel, "New file on the shelf")
     }
 }

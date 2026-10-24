@@ -10,10 +10,10 @@ import AirlockCore
 /// that ship. So a row cannot show a slot the ladder would never pick, and the
 /// half you were not asking about is whatever the ladder puts there.
 ///
-/// **The top bar is restated**, the way `TypingBarSnapshot` restates it:
+/// **The top bar is restated**:
 /// `NotchTopBar` reads eight models, two of which own a microphone and a screen
 /// reader. The pieces in the band are the real ones (`BatteryGutterView`,
-/// `RecordingBadge`, `AirlockMark`); only the band holding them, the tab strip
+/// `RecordingBadge`); only the band holding them, the tab strip
 /// and the plain glyph buttons are drawn here. Tooltips are
 /// not drawn at all — a picture has no pointer.
 @MainActor
@@ -50,8 +50,8 @@ enum GalleryIsland {
                     input(keepingAwake: false, keepAwakeStoppedAt: now, keepAwakeCutoff: 20)),
             compact("I11", "Compact: keeping awake", input(keepingAwake: true)),
             compact("I11a", "Compact: shelf count", input(shelfCount: 3)),
-            compact("I12", "Compact: guide running",
-                    input(guide: .guiding(step: 2, of: 5, offTrack: false))),
+            compact("I11b", "Compact: a file being dragged anywhere (drop here)",
+                    input(shelfCount: 3, fileInHand: true)),
             compact("I13", "Compact: usage limit close",
                     input(usageNotice: .nearLimit(.fiveHour, percent: 90), usageNoticeAt: now)),
             compact("I13a", "Compact: on a WhatsApp call (icon + timer)",
@@ -80,18 +80,6 @@ enum GalleryIsland {
             },
             GalleryState("I17", area, "Top bar badge: Recording (dot starts bright)") {
                 topBar(arrange: false) { RecordingBadge(isListening: true) }
-            },
-            GalleryState("I17a", area, "Top bar badge: Guiding") {
-                topBar(arrange: false) {
-                    AirlockMark(title: "Guiding")
-                    glyph("chevron.up")
-                }
-            },
-            GalleryState("I17b", area, "Top bar badge: Airlock (typing)") {
-                topBar(arrange: false) {
-                    AirlockMark()
-                    glyph("chevron.up")
-                }
             },
 
             GalleryState("I18", area, "Panel opens for a gate (question only + \"Show all agents\")") {
@@ -203,8 +191,8 @@ enum GalleryIsland {
                               keepingAwake: Bool = false, keepAwakeStoppedAt: Date? = nil,
                               keepAwakeCutoff: Int = 0, usageNotice: UsageAlert.Notice? = nil,
                               usageNoticeAt: Date? = nil,
-                              guide: GuidePresentation.Compact? = nil,
-                              call: OngoingCall? = nil) -> CompactIslandInput {
+                              call: OngoingCall? = nil,
+                              fileInHand: Bool = false) -> CompactIslandInput {
         CompactIslandInput(agentsEnabled: agentsEnabled, attentionCount: attentionCount,
                            sessionCount: sessionCount, anyRunning: anyRunning,
                            completionTick: completionTick, hasMedia: hasMedia,
@@ -215,7 +203,8 @@ enum GalleryIsland {
                            batteryMinutesRemaining: batteryMinutesRemaining, shelfCount: shelfCount,
                            keepingAwake: keepingAwake, keepAwakeStoppedAt: keepAwakeStoppedAt,
                            keepAwakeCutoff: keepAwakeCutoff, usageNotice: usageNotice,
-                           usageNoticeAt: usageNoticeAt, guide: guide, call: call)
+                           usageNoticeAt: usageNoticeAt, call: call,
+                           fileInHand: fileInHand)
     }
 
     /// Both halves of the island, resolved from one input. The face's ambient
@@ -235,7 +224,7 @@ enum GalleryIsland {
                         notesLimit: @escaping @MainActor () -> CallNotesLimit? = { nil })
         -> GalleryState {
         let ambient = BloubFace.Ambient(batteryCritical: input.batteryCritical,
-                                        meetingSoon: input.meetingSoon, guide: input.guide)
+                                        meetingSoon: input.meetingSoon)
         var state = GalleryState(id, area, name, ground: .compact) {
             // Empty levels draw the canned loop, which is what most Macs see:
             // there is usually no audio tap.
@@ -384,7 +373,6 @@ enum GalleryIsland {
     /// never reorders a picture.
     private static func homeWidgets(on: Bool) -> [any NotchWidget] {
         [
-            ArrangeStandIn(id: "gallery.ask", displayName: "Ask", on: on),
             ArrangeStandIn(id: "gallery.media", displayName: "Media (Spotify & Apple Music)", on: on),
             ArrangeStandIn(id: "gallery.systemControls", displayName: "System controls",
                            column: .leading, on: on, hasButtonRow: true),

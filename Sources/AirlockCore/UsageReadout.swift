@@ -32,21 +32,21 @@ public enum UsageReadout {
 
     /// The figures' tooltip while they are current.
     public static let currentHelp =
-        "Claude usage: how much of your 5-hour and weekly limits you've used. It updates each time Claude Code answers in a terminal."
+        String(localized: "Claude usage: how much of your 5-hour and weekly limits you've used. It updates each time Claude Code answers in a terminal.")
 
     /// The tooltip while they are old. The age is also drawn beside them.
     public static func oldHelp(_ age: String) -> String {
-        "Claude usage from \(age). It only updates while Claude Code runs in a terminal; the Claude app doesn't send it. Click to open a terminal with Claude Code."
+        String(localized: "Claude usage from \(age). It only updates while Claude Code runs in a terminal; the Claude app doesn't send it. Click to open a terminal with Claude Code.")
     }
 
     /// What is spoken for the figures, in the words the drawing abbreviates.
     public static func spoken(fiveHour: Int?, weekly: Int?, age: String?) -> String {
         var parts: [String] = []
-        if let fiveHour { parts.append("5-hour limit \(fiveHour)% used") }
-        if let weekly { parts.append("weekly limit \(weekly)% used") }
-        var line = "Claude usage: " + parts.joined(separator: ", ")
-        if let age { line += ", as of \(age)" }
-        return line
+        if let fiveHour { parts.append(String(localized: "5-hour limit \(fiveHour)% used")) }
+        if let weekly { parts.append(String(localized: "weekly limit \(weekly)% used")) }
+        let figures = parts.joined(separator: ", ")
+        if let age { return String(localized: "Claude usage: \(figures), as of \(age)") }
+        return String(localized: "Claude usage: \(figures)")
     }
 
     /// The Agents tab's card when the link the figures come through is gone.
@@ -56,8 +56,8 @@ public enum UsageReadout {
     /// what happened and offers the one button that puts Airlock back. The
     /// other tool's line keeps running underneath, as it does at launch.
     public static let stoppedSentence =
-        "Claude usage stopped updating: another tool replaced Airlock's link to it."
-    public static let restoreButton = "Restore"
+        String(localized: "Claude usage stopped updating: another tool replaced Airlock's link to it.")
+    public static let restoreButton = String(localized: "Restore")
 
     /// Whether that card is due: the figures are wanted, Claude Code is
     /// connected, and the link is somebody else's.

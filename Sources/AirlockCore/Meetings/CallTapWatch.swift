@@ -19,6 +19,20 @@ import Foundation
 ///   `quietLimit` is the call tap's fault too, and the speakers tap's, which
 ///   heard no voice either.
 ///
+/// Two things look like a dead call tap and are not:
+/// - **A call app that plays pure silence.** Discord keeps its sound
+///   running for the whole call and sends exact zeros whenever nobody
+///   talks: on a Discord call both taps read 0.000 for three minutes while
+///   it "played", and everything the Mac played read 0.000 too, so nothing
+///   was lost. For such apps (`silentBetweenWords`) the call app playing
+///   proves nothing; only the speakers can.
+/// - **Another app's sound.** The speakers tap hears everything the Mac
+///   plays, so a voice on it while another app plays as well may be that
+///   app's. Taking the other side from the speakers then writes a video or
+///   a notification down as the call, and does it for the rest of the
+///   notes. So the Mac's voice counts only while nothing but the call app
+///   plays (`othersPlaying`).
+///
 /// Looked at once a second. Each step only while it holds:
 /// 1. **Start the call tap again** from scratch, once the call tap has heard
 ///    nothing for `quietLimit` and either the Mac has played a voice for
@@ -59,20 +73,36 @@ public struct CallTapWatch: Equatable, Sendable {
     /// nothing back.
     public static let retryEvery: TimeInterval = 60
 
+    /// Call apps that keep playing while they send nothing but zeros: the
+    /// call app playing says nothing about the call tap. Matched on the
+    /// call app's bundle ID.
+    public static let silentApps: Set<String> = ["com.hnc.Discord"]
+
+    public static func silentBetweenWords(_ bundleID: String) -> Bool {
+        silentApps.contains(bundleID)
+    }
+
     private var speaking: [Bool] = []
     private var restartedAt: Date?
     public private(set) var restarts = 0
     public private(set) var usingSpeakers = false
+    /// The call app plays exact silence while nobody talks.
+    public let silentBetweenWords: Bool
 
-    public init() {}
+    public init(silentBetweenWords: Bool = false) {
+        self.silentBetweenWords = silentBetweenWords
+    }
 
     /// `callTapSince`: when the call tap started (or last restarted);
     /// `callTapLastSound`: the last time it delivered a sample above zero;
     /// `speakersSpeaking`: whether the Mac played a voice since the last look;
-    /// `callAppPlaying`: whether the call app is playing sound now, asked
-    /// only once the call tap has been quiet for `quietLimit`.
+    /// `callAppPlaying`: whether the call app is playing sound now;
+    /// `othersPlaying`: whether any app but the call app is playing sound
+    /// now. Both asked only once the call tap has been quiet for
+    /// `quietLimit`.
     public mutating func look(now: Date, callTapSince: Date, callTapLastSound: Date?,
-                              speakersSpeaking: Bool, callAppPlaying: () -> Bool) -> Action {
+                              speakersSpeaking: Bool, callAppPlaying: () -> Bool,
+                              othersPlaying: () -> Bool = { false }) -> Action {
         speaking.append(speakersSpeaking)
         if speaking.count > Self.window { speaking.removeFirst(speaking.count - Self.window) }
         guard !usingSpeakers else { return .none }
@@ -85,8 +115,9 @@ public struct CallTapWatch: Equatable, Sendable {
             restartedAt = nil
         }
         guard quiet else { return .none }
-        let voice = speaking.filter({ $0 }).count >= Self.speakingLooks
-        guard voice || callAppPlaying() else { return .none }
+        // The Mac's voice is the call's only while nothing else plays.
+        let voice = speaking.filter({ $0 }).count >= Self.speakingLooks && !othersPlaying()
+        guard voice || (!silentBetweenWords && callAppPlaying()) else { return .none }
         if let restartedAt {
             // Switching to the speakers never waits longer than the first
             // retry; only the blind restarts slow down.

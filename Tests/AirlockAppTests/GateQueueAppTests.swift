@@ -59,7 +59,13 @@ final class GateQueueAppTests: XCTestCase {
 
     /// What every real session opens with — and what gives it the working
     /// directory "Always" writes its rule under.
-    private func sessionStart(path: String) async {
+    ///
+    /// It waits until the app has taken the folder in, not only until it was
+    /// sent: nothing replies to it, and on a busy Mac the first gate's hook can
+    /// get there before it. The gate then starts the session, this arrives as
+    /// older news and is dropped (see `SessionState.apply`), the session never
+    /// learns its folder, and "Always" writes the Mac-wide rule instead.
+    private func sessionStart(_ model: AppModel, path: String) async {
         let json = Data(#"{"session_id":"q","hook_event_name":"SessionStart","cwd":"\#(project)"}"#.utf8)
         let payload = HookPayload(source: "claude-code", eventName: "SessionStart", wantsDirective: false,
                                   cwd: project, terminal: nil, payload: json, receivedAt: Date())
@@ -68,6 +74,10 @@ final class GateQueueAppTests: XCTestCase {
                                        envelopes: [.hello(protocolVersion: 1), .hookPayload(payload)],
                                        awaitDirective: false, timeout: 2)
         }.value
+        let deadline = Date().addingTimeInterval(5)
+        while model.state.sessions["q"]?.cwd != project, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
 
     /// The gate log is written after the bridge confirms delivery.
@@ -123,7 +133,8 @@ final class GateQueueAppTests: XCTestCase {
     /// the session it now covers are settled; one the risk floor holds stays.
     func testAlwaysSettlesTheQueueItCovers() async throws {
         let (model, path) = try await startedModel()
-        await sessionStart(path: path)
+        await sessionStart(model, path: path)
+        XCTAssertEqual(model.state.sessions["q"]?.cwd, project, "the session knows its folder before it asks")
         let test = hook("npm test", path: path)
         await waiting(model, count: 1)
         let lint = hook("npm run lint", path: path)

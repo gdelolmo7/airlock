@@ -19,6 +19,12 @@ import DynamicNotchKit
 /// centre, which takes no click of its own: tapping the compact island is its
 /// shoulders' job. That holds only while the island is drawn, so there it
 /// comes and goes with it (`islandShown`).
+///
+/// While a file the shelf keeps is in hand anywhere on screen it rests wider:
+/// a strip along the top, as wide as the panel that opens (`reach`). The
+/// cutout alone was too small a target to find mid-drag. Once that file comes
+/// close to the top the island becomes a box to drop it in, and this window
+/// rests over the box instead (`pocket`).
 @MainActor
 final class NotchDropCatcher {
     private var panel: NSPanel?
@@ -28,6 +34,14 @@ final class NotchDropCatcher {
     private var onStandIn = false
     /// What the controller last said — see `islandShown`.
     private var islandVisible = false
+    /// A file is in hand: rest on the strip rather than the cutout — see
+    /// `reach`.
+    private var reaching = false
+    /// The island is the drop box: rest over it — see `pocket`. Outranks
+    /// `reaching`, which is always true with it.
+    private var pocketing = false
+    /// The box's size while `pocketing`.
+    private var pocketContent = DropPocketLayout(formats: 0, actions: 0).size
     /// When a drag last said anything. `watchForAbandonment` is the only reader.
     private var lastDragMessage = Date.distantPast
     private var abandonWatch: Task<Void, Never>?
@@ -36,8 +50,10 @@ final class NotchDropCatcher {
     /// The gesture rides along with the drop because it can only be read while
     /// the drag is still alive — see `DropCatcherView.gesture(of:)`.
     private let onDrop: (NSPasteboard, NSPoint, TrayIngestGesture) -> Bool
-    /// Every drag move, so the AirDrop box can light up before you let go.
-    private let onDragMoved: (NSPoint) -> Void
+    /// Every drag move, so the AirDrop box and the format chips can light up
+    /// before you let go. True when the point is on a format chip, where a drop
+    /// makes a copy and the cursor has to say so.
+    private let onDragMoved: (NSPoint) -> Bool
     /// Fires when the drag resolves either way — dropped, or wandered off. The
     /// caller needs both: a drag that opened the panel and was then abandoned
     /// must not leave it pinned open.
@@ -50,7 +66,7 @@ final class NotchDropCatcher {
 
     init(onEnter: @escaping (TrayDropKind) -> Void,
          onDrop: @escaping (NSPasteboard, NSPoint, TrayIngestGesture) -> Bool,
-         onDragMoved: @escaping (NSPoint) -> Void,
+         onDragMoved: @escaping (NSPoint) -> Bool,
          onSettle: @escaping () -> Void,
          onHover: @escaping (Bool) -> Void) {
         self.onEnter = onEnter
@@ -97,7 +113,8 @@ final class NotchDropCatcher {
     /// Every pass rather than on a change, because the stand-in is the menu
     /// bar's height and that moves on its own; the frame follows it here.
     /// Only at rest: a grown window belongs to the drag, and `shrinkToNotch`
-    /// puts it back when the drag is done.
+    /// puts it back when the drag is done. The strip `reach` rests on counts as
+    /// rest, and goes with the island like the stand-in does.
     func islandShown(_ visible: Bool) {
         islandVisible = visible
         guard onStandIn, let panel else { return }
@@ -105,11 +122,81 @@ final class NotchDropCatcher {
             if panel.isVisible { panel.orderOut(nil) }
             return
         }
-        if coverage == .cutout {
-            let resting = Self.restingFrame(on: NotchScreen.notched)
-            if panel.frame != resting { panel.setFrame(resting, display: false) }
+        if coverage.isRest {
+            let resting = restFrame(on: NotchScreen.notched)
+            if panel.frame != resting { reshape(panel, to: resting) }
         }
         if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    /// A file the shelf keeps is in hand (`FileInHand`), or no longer: rest on
+    /// the strip along the top, or back on the cutout.
+    ///
+    /// **The menu bar's strip and not a pixel lower.** The pointer is stopped
+    /// by the top edge of the screen, so a strip there is as easy to hit as a
+    /// target of any height: fling the file upward anywhere above where the
+    /// panel would open and it arrives. Below the menu bar would take drops
+    /// meant for the windows under it — a browser's tab strip, a Finder
+    /// window's toolbar — which is the mistake `arm(rail:)` already records.
+    ///
+    /// As wide as the panel's column (`panelFrame`), the width this window
+    /// grows to the moment the drag enters anyway, so the strip promises
+    /// nothing the grown window does not keep. The menu-bar items it covers
+    /// cannot be clicked mid-drag in any case; dropping a file ON one of them
+    /// is the cost, for the seconds a drag lasts.
+    ///
+    /// Only ever between the two resting states. A grown window belongs to the
+    /// drag that grew it, and `shrinkToNotch` lands it on whichever rest this
+    /// says; an armed AirDrop box is the tray's own drag and is left alone.
+    func reach(_ armed: Bool) {
+        reaching = armed
+        rest()
+    }
+
+    /// The island is the drop box (`DropPocket`), or no longer: rest over the
+    /// box, or back on the strip.
+    ///
+    /// **The box and a margin round it, and not the strip as well.** The box
+    /// hangs well below the menu bar, and a window as wide as the strip and as
+    /// tall as the box would take drops meant for the windows either side of
+    /// it — the browser tab strip and Finder toolbar `reach` stays clear of.
+    /// What catches is what shows.
+    ///
+    /// A drag arriving here does not grow this window over the panel the way
+    /// one arriving on the cutout or the strip does: the box is the target, and
+    /// its places light up where they are.
+    ///
+    /// `content` is the box's size, which depends on what is dragged: the
+    /// format chips make it taller.
+    func pocket(_ up: Bool, content: CGSize) {
+        pocketing = up
+        pocketContent = content
+        rest()
+    }
+
+    /// Where this window is on screen, for turning a drag point in it into
+    /// the panel's space (`panelPoint`). Nil before it is placed.
+    var frame: NSRect? { panel?.frame }
+
+    /// Re-rest after `reaching` or `pocketing` moved. Only from one resting
+    /// state to another: a window grown or shaped for a drag belongs to that
+    /// drag, and `shrinkToNotch` lands it on whichever rest is current then.
+    private func rest() {
+        guard let panel, coverage.isRest else { return }
+        coverage = restCoverage
+        let resting = restFrame(on: NotchScreen.notched)
+        if panel.frame != resting { reshape(panel, to: resting) }
+    }
+
+    /// Every move of this window goes through here, so a hover it claimed
+    /// before the move is taken back if the pointer is no longer inside.
+    private func reshape(_ panel: NSPanel, to frame: NSRect) {
+        panel.setFrame(frame, display: false)
+        (panel.contentView as? DropCatcherView)?.reshaped()
+    }
+
+    private var restCoverage: Coverage {
+        pocketing ? .pocket : reaching ? .reach : .cutout
     }
 
     /// Rebuilt rather than moved on display changes: the notch geometry may
@@ -117,7 +204,8 @@ final class NotchDropCatcher {
     private func place() {
         panel?.orderOut(nil)
         panel = nil
-        coverage = .cutout // rebuilt at rest, whatever it was covering before
+        // Rebuilt at rest, whatever it was covering before.
+        coverage = restCoverage
 
         // Wherever the island is — the housing, or a monitor's stand-in.
         // `catching` and `notched` name the same screen whenever the first is
@@ -125,7 +213,7 @@ final class NotchDropCatcher {
         guard let screen = NotchScreen.catching else { return } // no island anywhere
         onStandIn = !screen.notchMetrics.hasNotch
 
-        let panel = NSPanel(contentRect: Self.restingFrame(on: screen),
+        let panel = NSPanel(contentRect: restFrame(on: screen),
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
         panel.isOpaque = false
@@ -158,15 +246,24 @@ final class NotchDropCatcher {
         panel.collectionBehavior = DynamicNotchOverlay.collectionBehavior
         panel.contentView = DropCatcherView(
             onEnter: { [weak self] kind in
-                // Grow even for a refused drag: the message has to be readable,
-                // and the panel it appears on is bigger than the cutout.
-                self?.coverPanel()
-                self?.onEnter(kind)
+                guard let self else { return }
+                if self.coverage == .pocket {
+                    // The box is the target: it lights up where it is.
+                    self.coverage = .overPocket
+                    self.lastDragMessage = Date()
+                    self.watchForAbandonment()
+                } else {
+                    // Grow even for a refused drag: the message has to be
+                    // readable, and the panel it appears on is bigger than the
+                    // cutout.
+                    self.coverPanel()
+                }
+                self.onEnter(kind)
             },
             onDrop: onDrop,
             onDragMoved: { [weak self] point in
                 self?.lastDragMessage = Date()
-                self?.onDragMoved(point)
+                return self?.onDragMoved(point) ?? false
             },
             onSettle: { [weak self] in
                 self?.shrinkToNotch()
@@ -184,6 +281,59 @@ final class NotchDropCatcher {
     /// centre is drawn over the stand-in.
     private static func restingFrame(on screen: NSScreen) -> NSRect {
         restingFrame(screenFrame: screen.frame, island: screen.islandMetrics)
+    }
+
+    /// Where this window rests right now: over the box while the island is
+    /// one, the strip while a file is in hand, the cutout otherwise.
+    private func restFrame(on screen: NSScreen) -> NSRect {
+        switch restCoverage {
+        case .pocket: Self.pocketFrame(screenFrame: screen.frame, island: screen.islandMetrics,
+                                       content: pocketContent)
+        case .reach: Self.reachFrame(on: screen)
+        default: Self.restingFrame(on: screen)
+        }
+    }
+
+    private static func reachFrame(on screen: NSScreen) -> NSRect {
+        reachFrame(screenFrame: screen.frame, island: screen.islandMetrics)
+    }
+
+    /// The strip `reach` rests on, from numbers a test can construct: the
+    /// panel's column, the island's height, flush with the top.
+    static func reachFrame(screenFrame: CGRect, island metrics: NotchMetrics) -> NSRect {
+        let column = DynamicNotchOverlay.windowFrame(inScreenFrame: screenFrame)
+        return NSRect(x: column.minX,
+                      y: screenFrame.maxY - metrics.notchHeight,
+                      width: column.width,
+                      height: metrics.notchHeight)
+    }
+
+    /// Room round the box for a drop that grazes its edge.
+    static let pocketMargin: CGFloat = 12
+
+    /// The box `pocket` rests over, from numbers a test can construct: the
+    /// island at the box's size, centred and top-flush like the island, with
+    /// `pocketMargin` at the sides and below.
+    ///
+    /// The kit's chrome round the box's content, both ways: its ears and side
+    /// insets across (`IslandChrome`), and down, the top inset the notch takes
+    /// (`NotchMetrics.foreignTopInset`) and the clear space under the content
+    /// (`NotchHost.bottomInset`).
+    static func pocketFrame(screenFrame: CGRect, island metrics: NotchMetrics,
+                            content: CGSize) -> NSRect {
+        let width = IslandChrome.islandWidth(panelWidth: content.width) + 2 * pocketMargin
+        let height = metrics.foreignTopInset + content.height
+            + NotchHost.bottomInset + pocketMargin
+        return NSRect(x: screenFrame.midX - width / 2, y: screenFrame.maxY - height,
+                      width: width, height: height)
+    }
+
+    /// A drag point in this window, in the panel's top-left space, wherever
+    /// this window is. Grown to the panel the two coincide and only y flips;
+    /// resting over the box they do not, so the point goes through the screen.
+    static func panelPoint(_ pointInWindow: NSPoint, catcher: NSRect, panel: NSRect) -> CGPoint {
+        CGPoint(x: catcher.minX + pointInWindow.x - panel.minX,
+                y: panel.maxY - (catcher.minY + pointInWindow.y))
     }
 
     /// The same, from numbers a test can construct.
@@ -223,7 +373,7 @@ final class NotchDropCatcher {
     func arm(rail zone: CGRect?) {
         guard let panel, let zone else { return }
         coverage = .airDropOnly
-        panel.setFrame(Self.railFrame(zone, on: NotchScreen.notched), display: false)
+        reshape(panel, to: Self.railFrame(zone, on: NotchScreen.notched))
     }
 
     func disarm() {
@@ -242,25 +392,36 @@ final class NotchDropCatcher {
                       width: zone.width, height: zone.height)
     }
 
+    /// The drop box handed the drag to the full tray: grow over the panel, as a
+    /// drag arriving anywhere else would have.
+    func cover() {
+        coverPanel()
+    }
+
     /// Grown ONLY while a drag is in flight. Any longer and it would eat clicks
     /// meant for the panel underneath.
     private func coverPanel() {
         guard let panel, coverage != .airDropOnly else { return }
         coverage = .panel
         lastDragMessage = Date()
-        panel.setFrame(Self.panelFrame(on: NotchScreen.notched), display: false)
+        reshape(panel, to: Self.panelFrame(on: NotchScreen.notched))
         watchForAbandonment()
     }
 
+    /// Back to rest — the box or the strip, if the file is still in hand. A
+    /// drag that wanders off the panel is still looking for somewhere to land,
+    /// and they are how it finds the way back.
     private func shrinkToNotch() {
         guard let panel, coverage != .airDropOnly else { return }
         abandonWatch?.cancel()
         abandonWatch = nil
-        coverage = .cutout
-        panel.setFrame(Self.restingFrame(on: NotchScreen.notched), display: false)
+        coverage = restCoverage
+        reshape(panel, to: restFrame(on: NotchScreen.notched))
     }
 
-    /// Shrink when the drag stops talking to us, whatever the reason.
+    /// Shrink when the drag stops talking to us, whatever the reason. Over the
+    /// drop box too: there nothing is glass, but the box would stay lit, and
+    /// hand over to the tray, for a drag that is gone.
     ///
     /// Grown with no drag holding it there is the state that makes the panel
     /// unusable, and it is worth being precise about why: this window sits
@@ -289,7 +450,7 @@ final class NotchDropCatcher {
         abandonWatch = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 400_000_000)
-                guard !Task.isCancelled, let self, self.coverage == .panel else { return }
+                guard !Task.isCancelled, let self, self.coverage.isDragShaped else { return }
                 guard Date().timeIntervalSince(self.lastDragMessage) > 1.5 else { continue }
                 self.shrinkToNotch()
                 // The panel is pinned open for the drag too, so tell the
@@ -305,22 +466,33 @@ final class NotchDropCatcher {
 /// wandering on and off the box must not grow this window back over the panel
 /// (`draggingEntered`) or shrink it away from under the box (`draggingExited`).
 /// Only `disarm`, when the drag is genuinely over, ends it.
+///
+/// `reach` and `pocket` are the other rests: the strip along the top while a
+/// file is in hand, and the drop box once it is near. `overPocket` is the box
+/// with a drag on it — the same frame, belonging to that drag until it settles.
 private enum Coverage {
     case cutout
+    case reach
+    case pocket
     case panel
+    case overPocket
     case airDropOnly
+
+    var isRest: Bool { self == .cutout || self == .reach || self == .pocket }
+    /// Shaped for a drag arriving, so `watchForAbandonment` looks after it.
+    var isDragShaped: Bool { self == .panel || self == .overPocket }
 }
 
 private final class DropCatcherView: NSView {
     private let onEnter: (TrayDropKind) -> Void
     private let onDrop: (NSPasteboard, NSPoint, TrayIngestGesture) -> Bool
-    private let onDragMoved: (NSPoint) -> Void
+    private let onDragMoved: (NSPoint) -> Bool
     private let onSettle: () -> Void
     private let onHover: (Bool) -> Void
 
     init(onEnter: @escaping (TrayDropKind) -> Void,
          onDrop: @escaping (NSPasteboard, NSPoint, TrayIngestGesture) -> Bool,
-         onDragMoved: @escaping (NSPoint) -> Void,
+         onDragMoved: @escaping (NSPoint) -> Bool,
          onSettle: @escaping () -> Void, onHover: @escaping (Bool) -> Void) {
         self.onEnter = onEnter
         self.onDrop = onDrop
@@ -364,8 +536,26 @@ private final class DropCatcherView: NSView {
     /// on a different display entirely. The entry armed the hover peek, the exit
     /// was stationary and therefore swallowed as spurious, and 300ms later the
     /// island opened over nothing. That is the notch "randomly opening".
-    override func mouseEntered(with event: NSEvent) { onHover(isPointerInside) }
-    override func mouseExited(with event: NSEvent) { onHover(isPointerInside) }
+    override func mouseEntered(with event: NSEvent) { report(isPointerInside) }
+    override func mouseExited(with event: NSEvent) { report(isPointerInside) }
+
+    /// What this view last told the controller.
+    private var reportedInside = false
+
+    private func report(_ inside: Bool) {
+        reportedInside = inside
+        onHover(inside)
+    }
+
+    /// The window was just reshaped by code. Shrinking away from a pointer
+    /// sends no exit, so a claim made over the drop box outlived the box and
+    /// the notch stopped peeking (`HoverArbiter.withdrawsAfterReshape`).
+    /// Only a withdrawal: a window grown under the pointer stays unreported.
+    func reshaped() {
+        guard let window, HoverArbiter.withdrawsAfterReshape(
+            reported: reportedInside, region: window.frame, pointer: NSEvent.mouseLocation) else { return }
+        report(false)
+    }
 
     private var isPointerInside: Bool {
         guard let window else { return false }
@@ -381,8 +571,11 @@ private final class DropCatcherView: NSView {
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        onDragMoved(sender.draggingLocation)
-        return Self.operation(for: sender, kind: Self.kind(of: sender))
+        let copiesHere = onDragMoved(sender.draggingLocation)
+        let operation = Self.operation(for: sender, kind: Self.kind(of: sender))
+        // Over a format chip the picture stays where it is, whatever the shelf
+        // would have done with it, so the badge is "+" there and only there.
+        return copiesHere && !operation.isEmpty ? .copy : operation
     }
 
     private static func kind(of sender: NSDraggingInfo) -> TrayDropKind {

@@ -79,7 +79,7 @@ struct QuestionReceiptView: View {
     private var title: String {
         switch receipt.reason {
         case .ignored: return receipt.title
-        case .agentExited: return "\(session.agent.displayName) exited before you answered"
+        case .agentExited: return String(localized: "\(session.agent.displayName) exited before you answered")
         }
     }
 
@@ -100,10 +100,12 @@ struct QuestionReceiptView: View {
         switch receipt.reason {
         case .ignored:
             let terminal = TerminalName.pretty(session.terminal?.app ?? session.jumpTarget?.terminalApp)
-            return "“\(receipt.question)” is waiting for your answer in \(terminal ?? "its terminal"). "
-                + "The notch can't answer it any more."
+            guard let terminal else {
+                return String(localized: "“\(receipt.question)” is waiting for your answer in its terminal. The notch can't answer it any more.")
+            }
+            return String(localized: "“\(receipt.question)” is waiting for your answer in \(terminal). The notch can't answer it any more.")
         case .agentExited:
-            return "Nothing is listening for this answer. The session drops off the tab when you dismiss."
+            return String(localized: "Nothing is listening for this answer. The session drops off the tab when you dismiss.")
         }
     }
 }

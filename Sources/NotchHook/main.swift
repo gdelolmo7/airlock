@@ -93,7 +93,7 @@ do {
         timeout: wantsDirective ? HookDirective.blockingWait : 2
     )
 
-    if let directive, let output = integration?.directiveOutput(for: directive, eventName: eventName) {
+    if let directive, let output = integration?.directiveOutput(for: directive, eventName: eventName, payload: payload) {
         try FileHandle.standardOutput.write(contentsOf: output)
     }
     exit(0)

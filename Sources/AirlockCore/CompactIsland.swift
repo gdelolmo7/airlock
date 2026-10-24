@@ -85,11 +85,6 @@ public enum CompactSlot: Equatable, Sendable {
     /// How many files are sitting on the shelf. The lowest rung there is, and a
     /// passenger: it fills a slot, it never summons the island.
     case shelfCount(Int)
-    /// A guide is running: the eye while it looks, one dot per step while it
-    /// points, the countdown before a no-progress end, the tick when done.
-    /// A driver, ranked below attention only — a gate still wins both halves,
-    /// and a guide the user started outranks every ambient signal.
-    case guide(GuidePresentation.Compact)
     /// The user is on a call: the calling app's icon and a running timer, in
     /// the green macOS uses for a microphone in use. A driver — it brings the
     /// island up — and clicking it brings the call's window forward.
@@ -97,6 +92,25 @@ public enum CompactSlot: Equatable, Sendable {
     /// Call notes once the call is over: being written, then ready. A driver,
     /// for as long as it shows, and it only ever brings up the compact island.
     case callNotes(CallNotesGlance)
+    /// A file the shelf would keep is being dragged somewhere on screen: the
+    /// tray with its arrow, saying "here" before the pointer arrives. Seconds
+    /// long and the user's own gesture, so it outranks everything ambient. A
+    /// driver, and only ever compact — the panel opens when the drag reaches
+    /// the island, not before.
+    case dropHere
+    /// Drop box work that outlasted the box: a long film made smaller, or a
+    /// long recording written out. The box's cloud, small, working until the
+    /// work ends, then happy for a moment. A driver, and only ever compact:
+    /// news that something finished is a pulse, never an expansion.
+    case dropWork(DropWorkGlance)
+}
+
+/// What the compact island says about drop box work after the box has gone.
+public enum DropWorkGlance: Equatable, Sendable {
+    /// Still making the new file.
+    case working
+    /// Made, on the shelf. Shown for `CompactIsland.dropWorkDoneDuration`.
+    case done
 }
 
 /// What the compact island says about call notes after the call. During the
@@ -120,7 +134,7 @@ public extension CompactSlot {
     /// The one word beside the cup when keep awake has just stopped. Without
     /// it the glyph was the same cup as `.keepingAwake` plus a battery picture,
     /// and the meaning lived only in the spoken label.
-    static let keepAwakeStoppedWord = "off"
+    static let keepAwakeStoppedWord = String(localized: "off")
 
     /// What VoiceOver says for this slot, or nil when the slot renders text that
     /// already speaks for itself.
@@ -134,17 +148,6 @@ public extension CompactSlot {
         switch self {
         case .empty:
             return nil
-
-        case .guide(let state):
-            switch state {
-            case .listening: return "Guide listening"
-            case .looking(let app): return "Guide looking at \(app)"
-            case let .guiding(step, count, offTrack, practice):
-                let name = practice ? "Practice" : "Guide"
-                return offTrack ? "\(name), off track, step \(step) of \(count)" : "\(name), step \(step) of \(count)"
-            case .noProgress(let seconds): return "Guide ending in \(seconds) seconds"
-            case .done(let message, _): return "Guide done: \(message)"
-            }
 
         // Silent to VoiceOver on purpose. It is the island at rest, saying
         // nothing — announcing "Airlock" on every focus would be chrome read
@@ -160,27 +163,27 @@ public extension CompactSlot {
             // for — announced itself as "Idle" whenever nothing else happened to
             // be running. The lamp is already amber and still in that state; the
             // label just never agreed with the colour.
-            if attention { return "Agent needs an answer" }
-            return working ? "Agent working" : "Agent idle"
+            if attention { return String(localized: "Agent needs an answer") }
+            return working ? String(localized: "Agent working") : String(localized: "Agent idle")
 
         case .attentionDot:
             // Usually said twice, because attention takes both halves and the
             // lamp says it too. Kept anyway: when a session finishes while
             // another is blocked the leading slot is the completion tick, and
             // then this dot is the ONLY thing carrying the gate.
-            return "Needs an answer"
+            return String(localized: "Needs an answer")
 
         case .completionTick:
-            return "Session finished"
+            return String(localized: "Session finished")
 
         case .artwork:
             // `hasMedia` means a track is loaded. It says nothing about whether
             // it is playing — the wave is what says that — so this must not
             // claim either.
-            return "Media"
+            return String(localized: "Media")
 
         case .wave:
-            return "Playing"
+            return String(localized: "Playing")
 
         case .meetingCountdown:
             // The view owns this one: the minutes come from a `TimelineView`
@@ -189,7 +192,7 @@ public extension CompactSlot {
             return nil
 
         case .meetingIcon:
-            return "Meeting soon"
+            return String(localized: "Meeting soon")
 
         case let .outputRoute(name, _, level, muted):
             // The label MAY say the percentage the view deliberately does not
@@ -199,22 +202,22 @@ public extension CompactSlot {
             guard let name, !name.isEmpty else {
                 // CoreAudio can name a current device that is not in the list
                 // yet. Better to say the route moved than to invent a device.
-                return "Output changed"
+                return String(localized: "Output changed")
             }
-            if muted { return "Output: \(name), muted" }
-            guard let level else { return "Output: \(name)" }
-            return "Output: \(name), \(Int((level * 100).rounded()))%"
+            if muted { return String(localized: "Output: \(name), muted") }
+            guard let level else { return String(localized: "Output: \(name)") }
+            return String(localized: "Output: \(name), \(Int((level * 100).rounded()))%")
 
         case let .batteryCritical(minutes):
             // The clause comes from `BatteryReading`, which is also what the
             // gutter indicator's label is built from — the same battery reaches a
             // screen reader through two different views, and phrasing it twice by
             // hand is how they start disagreeing.
-            guard let left = BatteryReading.remaining(minutes: minutes) else { return "Battery critical" }
-            return "Battery critical, \(left)"
+            guard let left = BatteryReading.remaining(minutes: minutes) else { return String(localized: "Battery critical") }
+            return String(localized: "Battery critical, \(left)")
 
         case let .keepAwakeStopped(cutoff):
-            return "Keep awake stopped, battery below \(cutoff)%"
+            return String(localized: "Keep awake stopped, battery below \(cutoff)%")
 
         case .usageNotice(let notice):
             // The percentage is drawn nowhere in the island, only the window;
@@ -226,26 +229,38 @@ public extension CompactSlot {
             // rail's "Keep this Mac awake" is an instruction; this is a report,
             // and a cup read aloud as an instruction would sound like a prompt
             // to go and press something.
-            return "Keeping this Mac awake"
+            return String(localized: "Keeping this Mac awake")
 
         case let .shelfCount(count):
             // Drawn as a tray and a bare numeral, and a numeral read aloud says
             // nothing about what it counts — true and useless.
-            return count == 1 ? "1 file on the shelf" : "\(count) files on the shelf"
+            return count == 1 ? String(localized: "1 file on the shelf") : String(localized: "\(count) files on the shelf")
+
+        case .dropHere:
+            // Where to go, since the drawing is only a tray with an arrow. The
+            // top of the screen rather than "the notch": the catch is a strip
+            // along it while the drag lasts, and a monitor has no notch.
+            return String(localized: "Drop at the top of the screen to keep it on the shelf")
+
+        case .dropWork(let glance):
+            switch glance {
+            case .working: return String(localized: "Making a new file for the shelf")
+            case .done: return String(localized: "New file on the shelf")
+            }
 
         case .call(let call):
             // The timer is drawn by a `TimelineView` and read with it; the
             // app is the part only this label can say, since the icon is a
             // picture.
-            return call.isInPerson ? "Taking notes of a meeting in person" : "On a call in \(call.appName)"
+            return call.isInPerson ? String(localized: "Taking notes of a meeting in person") : String(localized: "On a call in \(call.appName)")
 
         case .callNotes(let glance):
             switch glance {
             case .writing:
-                return "Writing call notes"
+                return String(localized: "Writing call notes")
             case .ready(let todos):
-                if todos <= 0 { return "Call notes ready" }
-                return todos == 1 ? "Call notes ready, 1 to-do" : "Call notes ready, \(todos) to-dos"
+                if todos <= 0 { return String(localized: "Call notes ready") }
+                return todos == 1 ? String(localized: "Call notes ready, 1 to-do") : String(localized: "Call notes ready, \(todos) to-dos")
             case .tooLittleSaid:
                 return CallNotesPanel.tooLittleSaid
             case .later:
@@ -334,8 +349,6 @@ public struct CompactIslandInput: Equatable, Sendable {
     /// Files on the shelf. Landed ones only — a tile still being ingested is not
     /// yet a file.
     public var shelfCount: Int
-    /// The running guide's compact state, nil when no guide runs.
-    public var guide: GuidePresentation.Compact?
     /// The keep-awake assertion is HELD. The fact, never a switch: hiding the
     /// rail's button or switching the rail off releases nothing, so neither may
     /// hide the one sign that it is still held — see
@@ -357,6 +370,12 @@ public struct CompactIslandInput: Equatable, Sendable {
     /// stamp. Nil when there is nothing to say or notes are switched off.
     public var callNotes: CallNotesGlance?
     public var callNotesAt: Date?
+    /// Something the shelf keeps is being dragged — see `FileInHand`.
+    public var fileInHand: Bool
+    /// Drop box work still going, or just done, after the box closed. Nil the
+    /// rest of the time. The caller times `done`, as it does the completion
+    /// tick: the value is the truth.
+    public var dropWork: DropWorkGlance?
 
     public init(agentsEnabled: Bool = false, attentionCount: Int = 0,
                 sessionCount: Int = 0, anyRunning: Bool = false,
@@ -371,9 +390,9 @@ public struct CompactIslandInput: Equatable, Sendable {
                 shelfCount: Int = 0, keepingAwake: Bool = false,
                 keepAwakeStoppedAt: Date? = nil, keepAwakeCutoff: Int = 0,
                 usageNotice: UsageAlert.Notice? = nil, usageNoticeAt: Date? = nil,
-                guide: GuidePresentation.Compact? = nil,
                 call: OngoingCall? = nil,
-                callNotes: CallNotesGlance? = nil, callNotesAt: Date? = nil) {
+                callNotes: CallNotesGlance? = nil, callNotesAt: Date? = nil,
+                fileInHand: Bool = false, dropWork: DropWorkGlance? = nil) {
         self.agentsEnabled = agentsEnabled
         self.attentionCount = attentionCount
         self.sessionCount = sessionCount
@@ -397,10 +416,11 @@ public struct CompactIslandInput: Equatable, Sendable {
         self.keepAwakeCutoff = keepAwakeCutoff
         self.usageNotice = usageNotice
         self.usageNoticeAt = usageNoticeAt
-        self.guide = guide
         self.call = call
         self.callNotes = callNotes
         self.callNotesAt = callNotesAt
+        self.fileInHand = fileInHand
+        self.dropWork = dropWork
     }
 
     /// Agents own the leading slot unless switched off — then sessions are not
@@ -494,6 +514,10 @@ public enum CompactIsland {
     /// anyone who missed it.
     public static let notesReadyDuration: TimeInterval = 8
 
+    /// How long the island's cloud stays happy once late drop box work is
+    /// done. As long as the completion tick: a pulse, not a message.
+    public static let dropWorkDoneDuration: TimeInterval = 3
+
     public static func leading(_ i: CompactIslandInput) -> CompactSlot {
         if i.showsAgents, i.completionTick { return .completionTick }
         if i.showsAgents, i.attentionCount > 0 || i.sessionCount > 0 {
@@ -527,10 +551,6 @@ public enum CompactIsland {
         // minutes. Playing music needs no such help: the wave already says so
         // opposite, which is why the common case (music on, mark gone) is the
         // one this fixes.
-        // A guide puts the mark back whatever else wants this side: bloub is
-        // the one walking the user through it, and his face carries the
-        // guide's state (`BloubFace` reads it from the ambient facts).
-        if i.guide != nil { return .idle }
         if i.showsMedia, !i.mediaPlaying { return .artwork }
 
         // Likewise a meeting whose countdown has been suppressed by a critical
@@ -555,6 +575,13 @@ public enum CompactIsland {
     ///   this file exists to protect. The cost is that a route change during a
     ///   gate goes unacknowledged; the person just pressed a control and can see
     ///   the result in the panel, and a gate has no other surface at all.
+    /// - **A file in hand sits under attention, over everything
+    ///   else.** It lasts as long as a drag, a few seconds, and it is the user's
+    ///   own gesture happening now — the most urgent thing per second on this
+    ///   side that is not waiting on an answer. A gate still wins: the amber dot
+    ///   is the only surface a blocked agent has, and the drop works the same
+    ///   without the sign. One glyph, no number, so it costs the menu bar no
+    ///   more than the cup.
     /// - The route acknowledgement then outranks every steady state, for the
     ///   same reason the completion tick outranks the lamp: a two-second signal
     ///   that yields to a permanent one is never seen, so ranking it low is the
@@ -627,10 +654,11 @@ public enum CompactIsland {
     ///   days, and anything ranked below "days" is `.empty`.
     public static func trailing(_ i: CompactIslandInput) -> CompactSlot {
         if i.attentionCount > 0 { return .attentionDot }
-        // Below attention (an agent waiting on an answer outranks a guide the
-        // user can pause), above everything ambient: the user asked for this
-        // one, and the eye is the promise that a look is visible.
-        if let guide = i.guide { return .guide(guide) }
+        if i.fileInHand { return .dropHere }
+        // Under the drag, which is the user's hand right now; over everything
+        // ambient, because the work was asked for seconds ago and the box that
+        // said so has gone.
+        if let work = i.dropWork { return .dropWork(work) }
         if i.acknowledgingRoute {
             return .outputRoute(name: i.outputDeviceName,
                                 transport: i.outputTransport,

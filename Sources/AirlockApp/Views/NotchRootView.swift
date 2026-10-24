@@ -20,22 +20,8 @@ struct NotchExpandedView: View {
     @Environment(TrayModel.self) private var tray
     @Environment(NotchAppearanceModel.self) private var appearance
     @Environment(DictationModel.self) private var dictation
-    @Environment(AssistantModel.self) private var assistant
     @Environment(LicenseModel.self) private var license
-    #if AIRLOCK_GUIDE
-    @Environment(GuideController.self) private var guide
-    #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// The guide has the panel: its first look, its card (layout B), or the
-    /// sentence it leaves when it stops on its own. Never, without the guide.
-    private var guideHasPanel: Bool {
-        #if AIRLOCK_GUIDE
-        guide.content != nil
-        #else
-        false
-        #endif
-    }
 
     /// The tab stack as last laid out, which is what decides how much of it
     /// may be the part that gives way. See `yieldingRoom(in:)`.
@@ -118,22 +104,6 @@ struct NotchExpandedView: View {
                 .transition(.opacity)
             }
 
-            // Same slot, same reasoning: an answer owns the panel while it is
-            // up. It cannot coincide with listening — asking begins after the
-            // key is released — so the two never compete for the space.
-            //
-            // And it keeps owning it THROUGH the collapse its dismissal
-            // causes: `dismiss` leaves the answer text in place and the
-            // controller raises `holdAnswerThroughCollapse` for exactly the
-            // conversion's length, so what shrinks away is the answer you
-            // were reading — not the home tab, mounted for a final 70ms
-            // nobody asked it to fill.
-            if assistant.isPresenting || uiState.holdAnswerThroughCollapse,
-               !dictationOwnsPanel {
-                AssistantView(maxAnswerHeight: answerBudget)
-                    .transition(.opacity)
-            }
-
             // First run takes the panel outright — the same way arrange mode
             // replaces the stack rather than overlaying it. A wizard drawn on
             // top of nine widgets is a wizard competing with the thing it is
@@ -189,32 +159,18 @@ struct NotchExpandedView: View {
                     .transition(.opacity)
             }
 
-            // The guide takes the panel the same way, for its first look, its
-            // card (layout B) and the sentence it leaves when it stops on its
-            // own — and yields to a gate the same way, via `stackContent`.
-            #if AIRLOCK_GUIDE
-            if guideHasPanel, !panelIsTaken {
-                GuidePanelView()
-                    .transition(.opacity)
-            }
-            #endif
-
             // The selected tab's widgets, in registry order. Scrolls past a cap
             // so a busy day can never grow the panel past the screen — found
             // live: with four sessions plus every widget, the top rows were
             // pushed off-screen entirely.
             //
-            // Dropped ENTIRELY while an answer is up, not merely emptied. A
-            // ScrollView is greedy vertically, so an empty one still claims the
-            // whole `maxSectionHeight` — measured as a panel with a two-line
-            // answer at the top and a screen of black beneath it. Dictation
-            // drops it the same way since 2026-10-01; it used to keep an
-            // emptied region so the height held still, which made a two-second
-            // hold the biggest dark panel the app drew.
-            //
-            // Dropping it is what hid an arriving permission gate for the
-            // answer's whole 45 seconds, so what comes back when one arrives is
-            // the block above, not this — `PanelStackContent` owns that rule.
+            // Dropped ENTIRELY while something else owns the panel, not merely
+            // emptied. A ScrollView is greedy vertically, so an empty one still
+            // claims the whole `maxSectionHeight`. Dictation drops it since
+            // 2026-10-01; it used to keep an emptied region so the height held
+            // still, which made a two-second hold the biggest dark panel the
+            // app drew. What comes back when a gate arrives is the block above,
+            // not this — `PanelStackContent` owns that rule.
             if stackContent == .tab {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -237,7 +193,7 @@ struct NotchExpandedView: View {
                     // screen that used to lock the panel here.
                     if let card = license.freeCard {
                         MovedToFreeCard(card: card,
-                                        macWritesNotes: assistant.availability.isReady,
+                                        macWritesNotes: dictation.cleanupAvailability.isReady,
                                         onSeePlus: { license.showPlans(from: "free_card") },
                                         onGotIt: { withAnimation(Motion.close.animation(reduceMotion: reduceMotion)) { license.dismissFreeCard() } })
                             .transition(.opacity)
@@ -257,6 +213,9 @@ struct NotchExpandedView: View {
                                             onSeePlus: { license.reminders.seePlus() },
                                             onNotNow: { withAnimation(Motion.close.animation(reduceMotion: reduceMotion)) { license.reminders.notNow() } })
                             .transition(.opacity)
+                            // Counted once drawn, not when picked: a panel
+                            // opened for dictation or an answer never draws it.
+                            .onAppear { license.reminders.cardAppeared() }
                     }
 
                     if uiState.isArranging {
@@ -391,19 +350,11 @@ struct NotchExpandedView: View {
             // Not while dictating: it is a text field you cannot reach without
             // letting go of the key, and it would take height from the
             // transcript that is the only thing you are looking at.
-            if uiState.selectedTab == .agents, !dictationOwnsPanel, !assistant.isPresenting,
-               !uiState.holdAnswerThroughCollapse, !panelIsTaken,
-               !assistant.isCommandBarOpen, stackContent != .attentionOnly {
+            if uiState.selectedTab == .agents, !dictationOwnsPanel, !panelIsTaken,
+               stackContent != .attentionOnly {
                 QuickPromptBar().environment(model)
             }
 
-            // The typed way into the resolver. Any tab — it is summoned by a
-            // hotkey rather than found, so tying it to one tab would mean the
-            // hotkey silently did nothing on the other three. Suppressed while
-            // dictating for the reason above.
-            if showsCommandBar {
-                CommandBar()
-            }
         }
         // Cancel the kit's top safeAreaInset so we draw from the physical screen
         // top and own the notch band ourselves — that band is where the gutters
@@ -466,30 +417,22 @@ struct NotchExpandedView: View {
 
     // MARK: - Sections
 
-    /// How much of the tab there is room for right now. The whole reason this
-    /// is a resolved value rather than `!assistant.isPresenting` is the gate
-    /// case — see `PanelStackContent`.
+    /// How much of the tab there is room for right now. A resolved value
+    /// because of the gate case — see `PanelStackContent`.
     private var stackContent: PanelStackContent {
-        // `holdAnswerThroughCollapse` counts as answering: the collapse the
-        // dismissal caused is still running, and the widgets must not mount
-        // under it — see the answer block above.
         PanelStackContent.resolve(dictating: dictationOwnsPanel,
-                                  answering: assistant.isPresenting || uiState.holdAnswerThroughCollapse,
                                   demandsAttention: registry.demandsAttention,
                                   onboarding: panelIsTaken,
-                                  guiding: guideHasPanel,
-                                  typing: showsCommandBar,
                                   askingYou: focusesQuestions)
     }
 
     /// Dictation's surface is on screen: a hold, its notice or card, or the
-    /// collapse one of those just caused. An answer or the guide arriving
-    /// takes the panel straight back. Read wherever the stack used to read
-    /// `showsIndicator`, so nothing mounts under the shrinking surface.
+    /// collapse one of those just caused. Setup arriving takes the panel
+    /// straight back. Read wherever the stack used to read `showsIndicator`,
+    /// so nothing mounts under the shrinking surface.
     private var dictationOwnsPanel: Bool {
         dictation.showsIndicator
-            || (uiState.holdDictationThroughCollapse && !assistant.isPresenting
-                && !guideHasPanel && !panelIsTaken)
+            || (uiState.holdDictationThroughCollapse && !panelIsTaken)
     }
 
     /// The panel is open on the Agents tab because an agent is asking. Read by
@@ -498,22 +441,9 @@ struct NotchExpandedView: View {
         uiState.askingYou && uiState.selectedTab == .agents
     }
 
-    /// The typing bar is on screen. One definition, read by the stack rule and
-    /// by the bar's own `if`, so the two cannot disagree about an empty notch.
-    private var showsCommandBar: Bool {
-        assistant.isCommandBarOpen && !dictationOwnsPanel
-            && !panelIsTaken
-    }
-
-    /// Setup, a new version's card, the crash-reports question or the
-    /// usage-counts question owns the panel: the widget stack, the guide and
-    /// the typing bars all stand aside.
-    private var panelIsTaken: Bool {
-        uiState.onboarding != nil || uiState.onboardingLeaving != nil
-            || uiState.whatsNew != nil || uiState.whatsNewLeaving != nil
-            || uiState.crashQuestion || uiState.crashQuestionLeaving
-            || uiState.usageQuestion || uiState.usageQuestionLeaving
-    }
+    /// Setup, a new version's card or a one-time question owns the panel
+    /// (`NotchUIState.panelIsTaken`).
+    private var panelIsTaken: Bool { uiState.panelIsTaken }
 
     private var leadingSections: [(id: String, view: AnyView)] {
         registry.sections(stackContent, in: .stack, tab: uiState.selectedTab, column: .leading)
@@ -642,21 +572,7 @@ struct NotchExpandedView: View {
         stackLayout.yieldingRoom(in: region, budget: maxSectionHeight, tab: uiState.selectedTab.rawValue)
     }
 
-    /// The scrollable part of an answer, once its own chrome is paid for.
-    ///
-    /// It gives ground when a gate is sharing the region. The gate block above
-    /// is content-sized, so without a reservation the answer would go on asking
-    /// for the whole budget and the pair would run past `maxPanelHeight` — which
-    /// clips rather than scrolls. Shrinking the answer is fine and deleting it
-    /// is not, which is why this is a smaller share rather than a dropped view.
-    private var answerBudget: CGFloat {
-        let region = stackContent == .attentionOnly ? maxSectionHeight * 0.5 : maxSectionHeight
-        return max(80, region - Self.answerChrome)
-    }
-
     private static let rowSpacing: CGFloat = 8
-    /// The answer card's own header, actions row and padding, around the text.
-    private static let answerChrome: CGFloat = 64
     /// With the kit's 15pt inset, 25pt under the last card: the same as the
     /// sides. It was 6, which left the bottom 4pt tighter than either edge.
     private static let bottomPadding: CGFloat = 10
@@ -789,7 +705,7 @@ struct AgentsEmptyState: View {
         }
     }
 
-    static let showFile = "Show the file"
+    static let showFile = String(localized: "Show the file")
 
     /// Finder, with the file selected — the fix is an edit somebody makes
     /// themselves, and Airlock does not edit lines it did not write.
@@ -988,7 +904,7 @@ struct AgentsUnwiredCard: View {
 
             if let error = agents.installError {
                 ProblemCard(sentence: error, tone: .stopped,
-                            button: "Try again", action: { agents.installHooks() })
+                            button: String(localized: "Try again"), action: { agents.installHooks() })
             }
 
             HStack(alignment: .top, spacing: 6) {
@@ -1009,11 +925,12 @@ struct AgentsUnwiredCard: View {
         let names = agents.unwiredAgentNames
         switch names.count {
         case 0:
-            return "Connect Claude Code or Codex and you'll see what it's doing here, and answer what it asks."
+            return String(localized: "Connect Claude Code or Codex and you'll see what it's doing here, and answer what it asks.")
         case 1:
-            return "\(names[0]) is on this Mac. Connect it and you'll see what it's doing here, and answer what it asks."
+            return String(localized: "\(names[0]) is on this Mac. Connect it and you'll see what it's doing here, and answer what it asks.")
         default:
-            return "\(names.joined(separator: " and ")) are on this Mac. Connect them and you'll see what they're doing here, and answer what they ask."
+            let list = names.formatted(.list(type: .and))
+            return String(localized: "\(list) are on this Mac. Connect them and you'll see what they're doing here, and answer what they ask.")
         }
     }
 
@@ -1022,7 +939,7 @@ struct AgentsUnwiredCard: View {
     /// or none is installed yet.
     private var connectLabel: String {
         let names = agents.unwiredAgentNames
-        return names.count == 1 ? "Connect \(names[0])" : "Connect"
+        return names.count == 1 ? String(localized: "Connect \(names[0])") : String(localized: "Connect")
     }
 }
 
@@ -1035,7 +952,6 @@ struct NotchCompactLeadingView: View {
     // and the network are what give the character something to say to somebody
     // who never starts an agent.
     @Environment(DictationModel.self) private var dictation
-    @Environment(AssistantModel.self) private var assistant
     @Environment(SystemControlsModel.self) private var controls
     @Environment(MediaWidgetModel.self) private var media
     @Environment(CalendarWidgetModel.self) private var calendar
@@ -1090,15 +1006,13 @@ struct NotchCompactLeadingView: View {
     private var ambient: BloubFace.Ambient {
         BloubFace.Ambient(
             isListening: dictation.showsIndicator,
-            isThinking: assistant.isPresenting,
             // Derived exactly as `AppModel.compactIslandInput` derives them, so
             // the face and the slot cannot disagree about the same fact.
             batteryCritical: battery.state?.isCritical == true,
             meetingSoon: calendar.glanceEvent != nil,
             // `hasResolvedNetwork` guards the first beat after launch, when no
             // path has arrived and "offline" would be a guess rather than a fact.
-            isOffline: controls.hasResolvedNetwork && !controls.network.isSatisfied,
-            guide: ui.guideCompact)
+            isOffline: controls.hasResolvedNetwork && !controls.network.isSatisfied)
     }
 
 }
@@ -1192,25 +1106,27 @@ struct NotchCompactTrailingView: View {
         case .none:
             return call
         case .ask, .offer:
-            return "\(call), take notes?"
+            return String(localized: "\(call), take notes?")
         case .startingSoon(let startsAt):
             let seconds = MeetingNotesBanner.secondsLeft(to: startsAt, at: Date())
-            return "\(call), notes start in \(seconds) \(seconds == 1 ? "second" : "seconds"), tap to skip"
+            return seconds == 1
+                ? String(localized: "\(call), notes start in 1 second, tap to skip")
+                : String(localized: "\(call), notes start in \(seconds) seconds, tap to skip")
         case .recording:
-            return "\(call), taking notes"
+            return String(localized: "\(call), taking notes")
         case .muted:
-            return "\(call), muted"
+            return String(localized: "\(call), muted")
         case .paused:
-            return "\(call), notes paused"
+            return String(localized: "\(call), notes paused")
         }
     }
 
     private func hint(_ mark: MeetingNotesFlow.PillMark) -> String {
-        guard slot.isCall else { return "Opens the panel" }
+        guard slot.isCall else { return String(localized: "Opens the panel") }
         switch mark {
-        case .startingSoon: return "Skips the notes for now"
-        case .ask, .offer: return "Opens the panel"
-        case .none, .recording, .muted, .paused: return "Shows the call"
+        case .startingSoon: return String(localized: "Skips the notes for now")
+        case .ask, .offer: return String(localized: "Opens the panel")
+        case .none, .recording, .muted, .paused: return String(localized: "Shows the call")
         }
     }
 }
@@ -1364,13 +1280,6 @@ struct CompactTrailingGlyph: View {
     var body: some View {
         Group {
             switch slot {
-            #if AIRLOCK_GUIDE
-            case .guide(let state):
-                GuideCompactTrailing(state: state)
-            #else
-            case .guide:
-                EmptyView()
-            #endif
             case .attentionDot:
                 Circle()
                     .fill(Theme.needs)
@@ -1516,12 +1425,55 @@ struct CompactTrailingGlyph: View {
                         .monospacedDigit()
                 }
                 .foregroundStyle(Theme.textTertiary)
+            case .dropHere:
+                // The shelf count's tray, filled in and with the arrow going
+                // in: the same place, asking for one more. White, the
+                // loudest neutral there is — not amber, which here means
+                // something waiting on you, nor the mark's blue. It lasts a
+                // drag, so it may be bright.
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
+            case .dropWork(let glance):
+                DropWorkCloud(glance: glance)
+                    .transition(.opacity)
             default:
                 EmptyView()
             }
         }
     }
 }
+/// The drop box's cloud, island-sized, for work that outlasted the box: it
+/// keeps filling with the box's blue while the new file is being made, then
+/// fills up in the completion tick's green and hops once, the way a finished
+/// session does. With Reduce Motion the fill rises once a second; the hop
+/// still plays, as the completion tick's does.
+struct DropWorkCloud: View {
+    let glance: DropWorkGlance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var started = Date()
+
+    var body: some View {
+        let working = glance == .working
+        TimelineView(.animation(minimumInterval: reduceMotion ? 1 : nil, paused: !working)) { context in
+            // It takes over from the box, which was up for `workingFor`, so
+            // it carries on filling from where the box's cloud had got to.
+            let level = working
+                ? DropWorkFill.level(after: DropPocket.workingFor + context.date.timeIntervalSince(started))
+                : 1
+            BloubView(expression: working ? .curious : .happy,
+                      motion: working ? .working : .still,
+                      tint: working ? BloubTint.working.color : BloubTint.done.color,
+                      fill: level)
+                .frame(width: 17, height: 15)
+        }
+        .animation(Motion.confirm.animation(reduceMotion: reduceMotion), value: glance)
+        .bloubHop(when: !working, lift: 2, onAppear: true)
+        .onAppear { started = Date() }
+    }
+}
+
 /// The keep-awake rung: the rail's own cup, small and grey.
 ///
 /// Its own view rather than three lines in the trailing switch so that
@@ -1601,8 +1553,8 @@ private struct SlotLabel: ViewModifier {
 /// tab and arrange mode called the same place "Manage widgets", "Add widgets"
 /// and "Open Widgets…", and the gear opened Settings wherever it was left.
 enum WidgetsSettingsLink {
-    static let title = "Choose widgets"
-    static let help = "Opens Settings › \(SettingsPane.appearance.tabTitle), where you choose the widgets"
+    static let title = String(localized: "Choose widgets")
+    static let help = String(localized: "Opens Settings › \(SettingsPane.appearance.tabTitle), where you choose the widgets")
 
     /// Lands on the widgets list, then does what the gear does (Settings takes
     /// focus, so the notch closes).
@@ -1681,13 +1633,13 @@ struct CallPill: View {
             // notes are going. No sound, ever: this sits beside a call.
             switch notesMark {
             case .ask:
-                notesWord("Notes?")
+                notesWord(String(localized: "Notes?"))
             case .startingSoon(let startsAt):
                 // Its own clock, aligned on the countdown's start so the
                 // numbers turn on the second the notes are counting.
                 TimelineView(.periodic(from: startsAt.addingTimeInterval(-MeetingNotesFlow.countdown),
                                        by: 1)) { context in
-                    notesWord("Notes in \(MeetingNotesBanner.secondsLeft(to: startsAt, at: context.date))")
+                    notesWord(String(localized: "Notes in \(MeetingNotesBanner.secondsLeft(to: startsAt, at: context.date))"))
                 }
             case .offer:
                 // Grey once the ask has settled: an offer still open, not
@@ -1726,18 +1678,19 @@ struct CallPill: View {
             // the island has no room for both.
             switch notesMark {
             case .muted:
-                timerWord("Muted")
+                timerWord(String(localized: "Muted"))
             case .paused:
-                timerWord("Paused")
+                timerWord(String(localized: "Paused"))
             default:
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     // Free's limit, for `LimitWord.pillFor` and in place of
                     // the timer, like Muted: the notes' purple before it
                     // (amber would say something waits on you, and nothing
-                    // does), grey once they have stopped. The open card
+                    // does) and while the rest is still heard, grey once
+                    // they have stopped. The open card
                     // keeps saying it.
                     if let limit, limit.shows(at: context.date) {
-                        if limit.word == .stopsSoon {
+                        if [.stopsSoon, .locksSoon, .stillListening].contains(limit.word) {
                             notesWord(limit.word.pillWord)
                         } else {
                             timerWord(limit.word.pillWord)
@@ -1851,9 +1804,9 @@ struct CallNotesGlanceView: View {
 
     static func ready(todos: Int) -> String {
         switch todos {
-        case ...0: return "Notes ready"
-        case 1: return "Notes ready · 1 to-do"
-        default: return "Notes ready · \(todos) to-dos"
+        case ...0: return String(localized: "Notes ready")
+        case 1: return String(localized: "Notes ready · 1 to-do")
+        default: return String(localized: "Notes ready · \(todos) to-dos")
         }
     }
 }

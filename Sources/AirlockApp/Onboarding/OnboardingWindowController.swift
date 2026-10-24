@@ -39,7 +39,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         if window == nil {
             let hosting = NSHostingController(rootView: OnboardingView().environment(model))
             let window = NSWindow(contentViewController: hosting)
-            window.title = "Set up Airlock"
+            window.title = String(localized: "Set up Airlock")
             // No miniaturise and no resize: it is a fixed-size sheet in spirit,
             // and a minimised first-run window is a first-run window nobody
             // finishes.

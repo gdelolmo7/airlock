@@ -67,7 +67,7 @@ public enum MeetingFiles {
     /// words reads as "notes were off", not as silence.
     public static func transcript(of record: MeetingRecord,
                                   timeZone: TimeZone = .current) -> String {
-        var lines = ["# \(title(of: record))", "", header(of: record, timeZone: timeZone), ""]
+        var lines = ["# \(title(of: record, inFile: true))", "", header(of: record, timeZone: timeZone), ""]
         let entries = MeetingTimeline.entries(of: record)
         if !entries.contains(where: \.isSpeech) {
             lines.append("_Nothing was heard yet._")
@@ -80,10 +80,14 @@ public enum MeetingFiles {
             case .jot(let jot):
                 lines += ["**Your note** · \(clock(jot.at))  ", jot.text, ""]
             case .pause(let pause):
-                // The window's words, in italics: one wording for a pause.
-                lines += ["_\(MeetingTimeline.pauseLabel(pause))_", ""]
+                // The window's words, in italics: one wording for a pause,
+                // in English like the rest of the file.
+                let label = pause.end.map { "Paused \(clock(pause.start))–\(clock($0))" }
+                    ?? "Paused from \(clock(pause.start))"
+                lines += ["_\(label)_", ""]
             case .language(let listening):
-                lines += ["_\(MeetingTimeline.languageLabel(listening))_", ""]
+                let name = CallLanguageFollow.name(of: listening.language) ?? listening.language
+                lines += ["_\(name) from \(clock(listening.from))_", ""]
             }
         }
         return lines.joined(separator: "\n").trimmingCharacters(in: .newlines) + "\n"
@@ -161,10 +165,11 @@ public enum MeetingFiles {
     /// (`MeetingRecord.topic`). Otherwise "Call with Ana" when the invite
     /// says it was one person, and "Call in Zoom" when nothing better is
     /// known.
-    public static func title(of record: MeetingRecord) -> String {
+    /// `inFile` keeps the English wording, for the files the app writes.
+    public static func title(of record: MeetingRecord, inFile: Bool = false) -> String {
         if record.event?.name == nil, let recording = record.recording { return recording.title }
         return title(event: record.event, callName: record.callName, inPerson: record.isInPerson,
-                     topic: record.topic)
+                     topic: record.topic, inFile: inFile)
     }
 
     /// Whether `title(of:)` is a name, kept as written ("Budget review",
@@ -180,11 +185,15 @@ public enum MeetingFiles {
     /// about them and the list they are found in say the same.
     /// A meeting in person is a "Meeting", not a "Call in In person".
     public static func title(event: MeetingEvent?, callName: String, inPerson: Bool = false,
-                             topic: String? = nil) -> String {
+                             topic: String? = nil, inFile: Bool = false) -> String {
         if let name = event?.name { return name }
         if let topic { return topic }
-        if let other = event?.oneToOne { return "\(inPerson ? "Meeting" : "Call") with \(other)" }
-        return inPerson ? "Meeting in person" : "Call in \(callName)"
+        if let other = event?.oneToOne {
+            if inFile { return "\(inPerson ? "Meeting" : "Call") with \(other)" }
+            return inPerson ? String(localized: "Meeting with \(other)") : String(localized: "Call with \(other)")
+        }
+        if inFile { return inPerson ? "Meeting in person" : "Call in \(callName)" }
+        return inPerson ? String(localized: "Meeting in person") : String(localized: "Call in \(callName)")
     }
 
     /// "2026-10-08 14:30–15:12 · 42 min", or "… 14:30 · in progress".

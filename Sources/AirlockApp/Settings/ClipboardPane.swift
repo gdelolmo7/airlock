@@ -22,7 +22,7 @@ struct ClipboardPane: View {
 
     var body: some View {
         @Bindable var clipboard = clipboard
-        LookPage("Clipboard", subtitle: "Everything you copy, kept on this Mac.",
+        LookPage(String(localized: "Clipboard"), subtitle: String(localized: "Everything you copy, kept on this Mac."),
                  learnMore: SettingsPane.clipboard.learnMore, moreOptions: $moreOptions) {
             LookToggleRow("Record clipboard history", isOn: $clipboard.isEnabled)
                 .settingsAnchor(.clipboardHistory)
@@ -77,7 +77,7 @@ struct ClipboardPane: View {
                 .lookRowBox()
             LookRow("Always") { LookValue("Anything an app marks private") }
                 .settingsAnchor(.neverRecorded)
-            LookToggleRow("Also skip known password managers", subtitle: "For the ones that don't mark copies private",
+            LookToggleRow("Also skip known password managers", subtitle: String(localized: "For the ones that don't mark copies private"),
                           isOn: $clipboard.ignoresPasswordManagerTypes)
             if let skip = clipboard.lastSkip {
                 LookRow("Last copy skipped") { LookValue(describe(skip)) }
@@ -102,29 +102,27 @@ struct ClipboardPane: View {
                 // wrong app" with no error anywhere. Only where that app is:
                 // ⇧⌘C is the default, so everyone else read about an app they
                 // never had.
-                LookNote("⇧⌘C is also Maccy's default. If Maccy is still running, one of the two "
-                         + "will get the key and it won't be predictable which.")
+                LookNote("⇧⌘C is also Maccy's default. If Maccy is still running, one of the two will get the key and it won't be predictable which.")
             }
 
             LookToggleRow("Paste automatically when I pick an item",
-                          subtitle: clipboard.pastesAutomatically ? "Types ⌘V into the app in front" : "You paste it yourself",
+                          subtitle: clipboard.pastesAutomatically ? String(localized: "Types ⌘V into the app in front") : String(localized: "You paste it yourself"),
                           isOn: $clipboard.pastesAutomatically)
                 .settingsAnchor(.autoPaste)
             if clipboard.pastesAutomatically && !clipboard.pasteIsTrusted {
-                ProblemCard(sentence: "Nothing will paste until Airlock has the Accessibility permission.",
-                            button: "Open Accessibility Settings",
+                ProblemCard(sentence: String(localized: "Nothing will paste until Airlock has the Accessibility permission."),
+                            button: String(localized: "Open Accessibility Settings"),
                             action: { PasteService.openAccessibilitySettings() })
             }
         } more: {
             LookGroupLabel("History")
-            LookNote("With history off, Airlock doesn't look at what you copy, and nothing new is kept. "
-                     + "Items already saved stay until you clear them.")
+            LookNote("With history off, Airlock doesn't look at what you copy, and nothing new is kept. Items already saved stay until you clear them.")
             LookNote("Pinned items survive Clear unpinned. Clear all deletes the saved images too, not just the rows.")
             // Where it is kept belongs with what is kept, not with what is
             // refused.
             // The folder itself is for whoever turned on advanced settings;
             // everyone else gets a way to look at it.
-            LookRow("Kept at", subtitle: advanced ? nil : "A folder on this Mac") {
+            LookRow("Kept at", subtitle: advanced ? nil : String(localized: "A folder on this Mac")) {
                 HStack(spacing: 8) {
                     if advanced {
                         LookValue(clipboard.storageDirectory, monospaced: true)
@@ -138,11 +136,8 @@ struct ClipboardPane: View {
             LookNote("Only your account on this Mac can read it, and it's never synced anywhere.")
 
             LookGroupLabel("Never remembered")
-            LookNote("Password managers and two-factor apps mark what they copy as private. "
-                     + "Airlock always respects that, and there is no setting to turn it off — "
-                     + "you can't agree on behalf of the app that marked it.")
-            LookNote("Also skip known password managers covers the ones that don't mark their copies as private — "
-                     + "1Password, Bitwarden, Dashlane, Enpass, LastPass and Keychain Access.")
+            LookNote("Password managers and two-factor apps mark what they copy as private. Airlock always respects that, and there is no setting to turn it off — you can't agree on behalf of the app that marked it.")
+            LookNote("Also skip known password managers covers the ones that don't mark their copies as private — 1Password, Bitwarden, Dashlane, Enpass, LastPass and Keychain Access.")
 
             LookGroupLabel("Opening it")
             if !clipboard.isEnabled {
@@ -150,16 +145,13 @@ struct ClipboardPane: View {
                 // the panel on Home, which explains nothing. It is released
                 // instead — and the setting says so rather than sitting there
                 // switched on and inert.
-                LookNote("History is off, so the key isn't registered — there would be no clipboard "
-                         + "tab for it to open. Your choice of key is kept and comes back with it.")
+                LookNote("History is off, so the key isn't registered — there would be no clipboard tab for it to open. Your choice of key is kept and comes back with it.")
             } else {
                 LookNote("Press it again while the clipboard is open to close it.")
             }
             LookNote(clipboard.pastesAutomatically
-                     ? "Picking an item types ⌘V into whatever app is in front. This is the only "
-                        + "part of the clipboard that needs a permission."
-                     : "Picking an item puts it on the clipboard and you paste it yourself. "
-                        + "No permission needed.")
+                     ? "Picking an item types ⌘V into whatever app is in front. This is the only part of the clipboard that needs a permission."
+                     : "Picking an item puts it on the clipboard and you paste it yourself. No permission needed.")
             AdvancedSwitch()
         }
     }
@@ -198,9 +190,9 @@ struct ClipboardPane: View {
     private var storedSummary: String {
         let items = clipboard.history.items
         let pinned = items.filter(\.pinned).count
-        guard !items.isEmpty else { return "nothing yet" }
-        let count = "\(items.count) item\(items.count == 1 ? "" : "s")"
-        return pinned > 0 ? "\(count) · \(pinned) pinned" : count
+        guard !items.isEmpty else { return String(localized: "nothing yet") }
+        let count = items.count == 1 ? String(localized: "1 item") : String(localized: "\(items.count) items")
+        return pinned > 0 ? String(localized: "\(count) · \(pinned) pinned") : count
     }
 
     private func describe(_ reason: ClipboardSkipReason) -> String {

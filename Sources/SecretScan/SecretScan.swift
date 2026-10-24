@@ -64,6 +64,7 @@ public enum SecretScan {
     /// release output says it was.
     public static let publicByName: [String: String] = [
         "ALLicensePublicKey": "the licence check's public key",
+        "ALCallLockPublicKey": "the call lock's public key",
         "SUPublicEDKey": "the updater's public key",
         "ALSentryDSN": "the crash reports address",
     ]

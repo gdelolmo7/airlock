@@ -158,10 +158,10 @@ public actor BridgeServer {
         continuation.finish()
     }
 
-    /// Answer a question the agent asked. Delivered as a deny + reason: the
-    /// documented PreToolUse contract feeds `permissionDecisionReason` back to
-    /// the agent, so the choice reaches it as explicit user input instead of
-    /// the tool prompting again in the terminal.
+    /// Answer a question the agent asked: `HookDirective.answered`, which the
+    /// hook hands Claude as the user's answer to its question. `choice` is the
+    /// whole reply in one line, for the hook's fallback; `answers` the same by
+    /// question, and empty sends only the fallback.
     /// `requestID` for the same reason as `resolve` — an answer is a decision
     /// too, and one delivered to another waiting question is worse than none.
     /// Returns whether the answer reached a waiting hook. False means the gate
@@ -169,12 +169,10 @@ public actor BridgeServer {
     /// settling it — and nothing was delivered, which the caller needs to know
     /// before it writes down that the agent was answered.
     @discardableResult
-    public func answer(sessionID: String, requestID: String, choice: String) -> Bool {
+    public func answer(sessionID: String, requestID: String, choice: String,
+                       answers: [String: String] = [:]) -> Bool {
         guard let gate = release(sessionID: sessionID, requestID: requestID) else { return false }
-        gate.connection.send(.directive(HookDirective(
-            action: .deny,
-            reason: "The user answered from Airlock: \(choice)"
-        )))
+        gate.connection.send(.directive(.answered(answers, reply: choice)))
         gate.connection.close()
         return true
     }
@@ -355,7 +353,7 @@ public actor BridgeServer {
         case .allow(let rule):
             connection.send(.directive(.approved(byRule: rule)))
             connection.close()
-            emit(gateEvent.replacing(kind: .activity(summary: "Auto-approved · \(subject)")))
+            emit(gateEvent.replacing(kind: .activity(summary: String(localized: "Auto-approved · \(subject)"))))
             onAutoDecision?(GateRecord(request: request, outcome: .autoAllowed,
                                        agent: payload.source, projectRoot: payload.cwd,
                                        decidedAt: Date()))
@@ -367,7 +365,7 @@ public actor BridgeServer {
             // Running: rm -rf ./dist" says the blocked command is under way.
             // See `PermissionRequest.refusal`.
             let refused = request.refusal ?? request.command ?? request.summary
-            emit(gateEvent.replacing(kind: .activity(summary: "Auto-denied · \(refused)")))
+            emit(gateEvent.replacing(kind: .activity(summary: String(localized: "Auto-denied · \(refused)"))))
             onAutoDecision?(GateRecord(request: request, outcome: .autoDenied,
                                        agent: payload.source, projectRoot: payload.cwd,
                                        decidedAt: Date()))

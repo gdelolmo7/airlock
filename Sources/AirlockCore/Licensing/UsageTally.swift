@@ -44,15 +44,19 @@ public struct UsageTally: Codable, Sendable, Equatable {
     public var lines: [(count: Int, label: String)] {
         var lines: [(Int, String)] = []
         if approvals > 0 {
-            lines.append((approvals,
-                          "command\(approvals == 1 ? "" : "s") approved without leaving what you were doing"))
+            lines.append((approvals, approvals == 1
+                          ? String(localized: "command approved without leaving what you were doing")
+                          : String(localized: "commands approved without leaving what you were doing")))
         }
         if answers > 0 {
-            lines.append((answers, "question\(answers == 1 ? "" : "s") answered from the notch"))
+            lines.append((answers, answers == 1
+                          ? String(localized: "question answered from the notch")
+                          : String(localized: "questions answered from the notch")))
         }
         if dictations > 0 {
-            lines.append((dictations,
-                          "dictation\(dictations == 1 ? "" : "s") typed straight into the app you were in"))
+            lines.append((dictations, dictations == 1
+                          ? String(localized: "dictation typed straight into the app you were in")
+                          : String(localized: "dictations typed straight into the app you were in")))
         }
         return lines
     }

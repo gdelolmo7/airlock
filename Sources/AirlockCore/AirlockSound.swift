@@ -53,11 +53,10 @@ extension Moment {
     public var sound: AirlockSound? {
         switch self {
         case .gateArrived: .needsYou
-        case .agentFinished, .guideDone: .done
+        case .agentFinished: .done
         case .approved: .approved
-        case .agentFailed, .guideEnded: .wentWrong
+        case .agentFailed: .wentWrong
         case .denied,
-             .guideStep, .guideLost,
              .pointerArrived, .islandOpened, .islandClosed, .tabChanged,
              .listeningStarted, .listeningStopped,
              .copied, .pastedFromHistory,

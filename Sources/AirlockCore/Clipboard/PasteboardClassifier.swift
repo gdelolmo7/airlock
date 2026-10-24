@@ -25,21 +25,22 @@ public extension ClipboardSkipReason {
     /// app target can do.
     func words(appName: (String) -> String) -> String {
         switch self {
-        case .markedPrivate: return "the app it came from marked it private"
-        case .ignoredType: return "it came from a password manager"
-        case .ignoredApp(let bundle): return "it came from \(appName(bundle)), which is never recorded"
-        case .empty: return "there was nothing in it to keep"
-        case .unsupported: return "it wasn't text, a picture or a file"
+        case .markedPrivate: return String(localized: "the app it came from marked it private")
+        case .ignoredType: return String(localized: "it came from a password manager")
+        case .ignoredApp(let bundle): return String(localized: "it came from \(appName(bundle)), which is never recorded")
+        case .empty: return String(localized: "there was nothing in it to keep")
+        case .unsupported: return String(localized: "it wasn't text, a picture or a file")
         case .tooLarge(let bytes):
-            return "it was too large to keep (\(ClipboardLimits.describe(bytes: bytes)))"
+            let size = ClipboardLimits.describe(bytes: bytes)
+            return String(localized: "it was too large to keep (\(size))")
         }
     }
 
     /// What the clipboard tab says after a copy too large to keep — otherwise
     /// the copy simply never appears, and the notch says nothing about why.
     static func tooLargeNotice(bytes: Int) -> String {
-        "The last thing you copied was too large to keep (\(ClipboardLimits.describe(bytes: bytes))). "
-            + "It's still on the clipboard, just not in the history."
+        let size = ClipboardLimits.describe(bytes: bytes)
+        return String(localized: "The last thing you copied was too large to keep (\(size)). It's still on the clipboard, just not in the history.")
     }
 }
 

@@ -79,29 +79,29 @@ public enum KeepAwakeTimer {
     /// making the evening-to-morning trip a long walk.
     public static let untilStep = 15
 
-    public static let untilTitle = "Until…"
-    public static let untilTurnedOffTitle = "Until I turn it off"
+    public static let untilTitle = String(localized: "Until…")
+    public static let untilTurnedOffTitle = String(localized: "Until I turn it off")
     /// The button beside the countdown. Spelled out by `spokenAddedTime`.
-    public static let addedTimeTitle = "+30 min"
+    public static let addedTimeTitle = String(localized: "+30 min")
 
     /// A length as the menu says it: "30 minutes", "1 hour", "2 hours".
     public static func title(minutes: Int) -> String {
-        guard minutes >= 60 else { return "\(minutes) minutes" }
+        guard minutes >= 60 else { return String(localized: "\(minutes) minutes") }
         let hours = minutes / 60
         let rest = minutes % 60
-        let lead = hours == 1 ? "1 hour" : "\(hours) hours"
-        return rest == 0 ? lead : "\(lead) \(rest) minutes"
+        if rest == 0 { return hours == 1 ? String(localized: "1 hour") : String(localized: "\(hours) hours") }
+        return hours == 1 ? String(localized: "1 hour \(rest) minutes") : String(localized: "\(hours) hours \(rest) minutes")
     }
 
     /// What VoiceOver says for each item. The visible words lean on the menu
     /// around them; spoken one at a time they need the verb back.
     public static func spokenTitle(minutes: Int) -> String {
-        "Keep awake for \(title(minutes: minutes))"
+        String(localized: "Keep awake for \(title(minutes: minutes))")
     }
 
-    public static let spokenUntilTitle = "Keep awake until a time you pick"
-    public static let spokenUntilTurnedOffTitle = "Keep awake until you turn it off"
-    public static let spokenAddedTime = "Add 30 minutes"
+    public static let spokenUntilTitle = String(localized: "Keep awake until a time you pick")
+    public static let spokenUntilTurnedOffTitle = String(localized: "Keep awake until you turn it off")
+    public static let spokenAddedTime = String(localized: "Add 30 minutes")
 
     /// Where the "Until…" picker starts when nothing was picked before: on the
     /// hour, at least an hour away. Every length up to four hours is already
@@ -178,30 +178,42 @@ public enum KeepAwakeTimer {
     /// its boundary (`nextWordingChange`), so a redraw scheduled for that
     /// instant already finds the new words.
     public static func timeLeft(until deadline: Date, now: Date) -> String {
-        guard let minutes = minutesLeft(until: deadline, now: now) else { return "less than a minute left" }
-        guard minutes >= 60 else { return "\(minutes) min left" }
+        guard let minutes = minutesLeft(until: deadline, now: now) else { return String(localized: "less than a minute left") }
+        guard minutes >= 60 else { return String(localized: "\(minutes) min left") }
+        let hours = minutes / 60
         let rest = minutes % 60
-        return rest == 0 ? "\(minutes / 60) h left" : "\(minutes / 60) h \(rest) min left"
+        return rest == 0 ? String(localized: "\(hours) h left") : String(localized: "\(hours) h \(rest) min left")
     }
 
     /// The line under the switch while a hold with an end runs.
     public static func countdownLine(until deadline: Date, now: Date) -> String {
-        "Awake · \(timeLeft(until: deadline, now: now))"
+        String(localized: "Awake · \(timeLeft(until: deadline, now: now))")
     }
 
     /// The same line for VoiceOver, with the abbreviations spelled out:
     /// "min" is read as "minimum" and "h" as a letter.
     public static func spokenCountdown(until deadline: Date, now: Date) -> String {
-        "Keeping this Mac awake, \(spokenTimeLeft(until: deadline, now: now))"
+        String(localized: "Keeping this Mac awake, \(spokenTimeLeft(until: deadline, now: now))")
     }
 
     static func spokenTimeLeft(until deadline: Date, now: Date) -> String {
-        guard let minutes = minutesLeft(until: deadline, now: now) else { return "less than a minute left" }
-        func count(_ n: Int, _ unit: String) -> String { n == 1 ? "1 \(unit)" : "\(n) \(unit)s" }
-        guard minutes >= 60 else { return "\(count(minutes, "minute")) left" }
+        guard let minutes = minutesLeft(until: deadline, now: now) else {
+            // Its own key: the written one is shortened in some languages.
+            return String(localized: "spoken.lessThanAMinuteLeft", defaultValue: "less than a minute left")
+        }
+        guard minutes >= 60 else {
+            return minutes == 1 ? String(localized: "1 minute left") : String(localized: "\(minutes) minutes left")
+        }
+        let hours = minutes / 60
         let rest = minutes % 60
-        let hours = count(minutes / 60, "hour")
-        return rest == 0 ? "\(hours) left" : "\(hours) \(count(rest, "minute")) left"
+        switch (hours == 1, rest) {
+        case (true, 0): return String(localized: "1 hour left")
+        case (false, 0): return String(localized: "\(hours) hours left")
+        case (true, 1): return String(localized: "1 hour 1 minute left")
+        case (true, _): return String(localized: "1 hour \(rest) minutes left")
+        case (false, 1): return String(localized: "\(hours) hours 1 minute left")
+        case (false, _): return String(localized: "\(hours) hours \(rest) minutes left")
+        }
     }
 
     /// When the countdown's words next change, for a redraw then and at no
@@ -235,11 +247,11 @@ public enum KeepAwakeTimer {
         let end = nextOccurrence(of: time, after: now, calendar: calendar)
         let clock = end.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale,
                                                    calendar: calendar, timeZone: calendar.timeZone))
-        return calendar.isDate(end, inSameDayAs: now) ? "Until \(clock)" : "Until \(clock) tomorrow"
+        return calendar.isDate(end, inSameDayAs: now) ? String(localized: "Until \(clock)") : String(localized: "Until \(clock) tomorrow")
     }
 
     /// Said in the open island when a hold reaches its end. The same quiet
     /// news as the battery cutoff's line, kept until seen by the same rule
     /// (`KeepAwakePolicy.keepsStoppedNotice`).
-    public static let endedMessage = "Keep awake ended. Your Mac can sleep again."
+    public static let endedMessage = String(localized: "Keep awake ended. Your Mac can sleep again.")
 }

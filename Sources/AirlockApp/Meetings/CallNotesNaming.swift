@@ -97,8 +97,9 @@ struct CallNotesWhosWho: View {
             Image(systemName: "person.2")
                 .font(.system(size: 11, weight: .medium))
                 .accessibilityHidden(true)
-            Text((call.record.isInPerson ? "More than one person in the room?" : "More than one person on the other side?")
-                 + " Plus tells each voice apart: Person 1, Person 2\u{2026}")
+            Text(call.record.isInPerson
+                 ? String(localized: "More than one person in the room? Plus tells each voice apart: Person 1, Person 2\u{2026}")
+                 : String(localized: "More than one person on the other side? Plus tells each voice apart: Person 1, Person 2\u{2026}"))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             Button(action: showPlans) {
@@ -215,7 +216,7 @@ struct CallTranscriptName: View {
         let colour = CallsLook.colour(for: seat)
         let renaming = CallNotesLibrary.Renaming(call: call.id, entry: entry)
         Button { library.renaming = renaming } label: {
-            Text(name)
+            Text(MeetingRecord.shownLabel(name))
                 .font(Theme.chrome(12.5, .semibold))
                 .foregroundStyle(colour)
                 .underline(hovered, color: colour.opacity(0.55))
@@ -280,7 +281,7 @@ struct CallVoiceRename: View {
         let sketch = MeetingNaming.sketches(of: record).first { $0.voice == voice }
         let label = record.givenLabel(of: voice) ?? sketch?.label ?? MeetingRecord.personLabel(voice)
         VStack(alignment: .leading, spacing: 0) {
-            Text("Who is \(label)?")
+            Text("Who is \(MeetingRecord.shownLabel(label))?")
                 .font(Theme.chrome(12.5, .bold))
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
@@ -311,7 +312,7 @@ struct CallVoiceRename: View {
             offers.contains { CallNotesNaming.same($0.name, name) }
         }
         for given in record.names where given.voice != voice && !given.isYou && !taken(given.name) {
-            offers.append(.init(name: given.name, title: "Same as \(given.name)"))
+            offers.append(.init(name: given.name, title: String(localized: "Same as \(given.name)")))
         }
         for suggestion in sketch?.suggestions ?? [] where !taken(suggestion.name) {
             offers.append(.init(suggestion))
@@ -379,7 +380,7 @@ struct CallNotesNameField: View {
                 } label: {
                     HStack(spacing: 7) {
                         CallPersonAvatar(name: MeetingSpeaker.me.label, seat: .you, size: 17)
-                        Text(MeetingSpeaker.me.label)
+                        Text(MeetingRecord.shownLabel(MeetingSpeaker.me.label))
                             .font(Theme.chrome(13))
                             .foregroundStyle(Theme.textPrimary)
                         Spacer(minLength: 0)
@@ -440,7 +441,7 @@ struct CallNotesNameChips: View {
         init(_ suggestion: MeetingNaming.Sketch.Suggestion) {
             name = suggestion.name
             if let heard = suggestion.heard {
-                title = "Heard “\(heard)”"
+                title = String(localized: "Heard “\(heard)”")
                 symbol = "sparkle"
             } else {
                 title = suggestion.name
@@ -471,7 +472,7 @@ struct CallNotesNameChips: View {
         if inPerson || !offers.isEmpty {
             ChipFlow(spacing: 5, rowSpacing: 5) {
                 if inPerson {
-                    CallNotesNameChip(title: "That's me", symbol: draft.isYou ? "checkmark" : nil,
+                    CallNotesNameChip(title: String(localized: "That's me"), symbol: draft.isYou ? "checkmark" : nil,
                                       on: draft.isYou) {
                         let you = !draft.isYou
                         draft = you ? CallNotesNameDraft(isYou: true) : CallNotesNameDraft()
@@ -528,14 +529,14 @@ private struct CallNotesNameChip: View {
 
 /// Cancel, and Save in Airlock's blue.
 struct CallNotesNamingButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let primary: Bool
     let small: Bool
     let action: () -> Void
 
     @State private var hovered = false
 
-    init(_ title: String, primary: Bool = false, small: Bool = false, action: @escaping () -> Void) {
+    init(_ title: LocalizedStringKey, primary: Bool = false, small: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.primary = primary
         self.small = small
@@ -580,7 +581,7 @@ enum CallNotesNaming {
 
     /// "spoke once", "spoke 18 times".
     static func spoke(_ turns: Int) -> String {
-        turns == 1 ? "spoke once" : "spoke \(turns) times"
+        turns == 1 ? String(localized: "spoke once") : String(localized: "spoke \(turns) times")
     }
 
     /// “What it said.” and, in purple, when: the time of day, as the

@@ -78,8 +78,8 @@ final class UsageCountsTests: XCTestCase {
     func testThisProcessHasNoEndpoint() {
         XCTAssertNil(UsageCounts.bundleEndpoint)
         XCTAssertFalse(UsageCounts.shared.isAvailable)
-        XCTAssertFalse(SettingsAnchor.usageCounts.isAvailable(guideOn: false))
-        XCTAssertFalse(SettingsAnchor.search("usage", guideOn: false).contains(.usageCounts))
+        XCTAssertFalse(SettingsAnchor.usageCounts.isAvailable())
+        XCTAssertFalse(SettingsAnchor.search("usage").contains(.usageCounts))
     }
 
     // MARK: - Only after a yes

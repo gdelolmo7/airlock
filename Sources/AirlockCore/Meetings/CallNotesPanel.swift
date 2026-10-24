@@ -9,16 +9,16 @@ public enum CallNotesPanel {
     /// What "Copy" puts on the clipboard for the call's chat. Short, because
     /// it lands in the middle of other people's meeting. Not "on my Mac":
     /// on Plus and Pro the notes are written online.
-    public static let headsUp = "Heads up: I'm taking notes of this call. No recording is kept."
+    public static let headsUp = String(localized: "Heads up: I'm taking notes of this call. No recording is kept.")
 
     /// The heads-up at a meeting in the room, where there is no chat to
     /// paste into: a reminder to say it out loud.
-    public static let roomHeadsUp = "Let everyone in the room know you're taking notes. No audio is kept."
+    public static let roomHeadsUp = String(localized: "Let everyone in the room know you're taking notes. No audio is kept.")
 
     /// Said once notes stop because the Mac went to sleep
     /// (`MeetingNotesFlow.endedBySleep`), so they don't seem to have
     /// stopped by themselves.
-    public static let stoppedBySleep = "Stopped when the Mac went to sleep."
+    public static let stoppedBySleep = String(localized: "Stopped when the Mac went to sleep.")
 
     /// How long into the notes the panel offers the heads-up. The start of a
     /// call is when people say who is on it and how; after that, the line is
@@ -45,12 +45,12 @@ public enum CallNotesPanel {
     /// What the panel says once "Mark" is pressed: how far back the mark
     /// reaches, in the record's own words (`MeetingRecord.markReach`).
     public static var marked: String {
-        "Marked the last \(Int(MeetingRecord.markReach)) seconds"
+        String(localized: "Marked the last \(Int(MeetingRecord.markReach)) seconds")
     }
 
     /// "2 jotted" beside the jot field; nothing before the first line.
     public static func jotted(_ count: Int) -> String? {
-        count > 0 ? "\(count) jotted" : nil
+        count > 0 ? String(localized: "\(count) jotted") : nil
     }
 
     /// The running clock beside "Taking notes": m:ss, or h:mm:ss past the
@@ -152,9 +152,9 @@ public enum CallNotesPanel {
     }
 
     /// The line for `Ready.tooLittleSaid`, in the panel and on the island.
-    public static let tooLittleSaid = "Not enough was said for notes"
+    public static let tooLittleSaid = String(localized: "Not enough was said for notes")
     /// The line for `Ready.later`, in the panel and on the island.
-    public static let notesLater = "Call saved, notes later"
+    public static let notesLater = String(localized: "Call saved, notes later")
 
     /// `ready(of:notes:)`, or `later` when the page has no notes yet and
     /// says when they will come.
@@ -199,7 +199,7 @@ public enum CallNotesPanel {
         guard ready == .notes else { return nil }
         let when = record.endedAt.map { CallsCard.span(from: record.startedAt, to: $0, calendar: calendar) }
         let body = [when, CallsCard.todos(todos)].compactMap { $0 }.joined(separator: " · ")
-        return Notice(title: "Call notes ready", body: body.isEmpty ? "Click to read them." : body)
+        return Notice(title: String(localized: "Call notes ready"), body: body.isEmpty ? String(localized: "Click to read them.") : body)
     }
 
     /// How many sentences of the summary the panel shows. The rest is one
@@ -240,7 +240,7 @@ public enum CallNotesPanel {
         }
 
         /// "+2 more", or nil when every to-do is listed.
-        public var moreLine: String? { more > 0 ? "+\(more) more" : nil }
+        public var moreLine: String? { more > 0 ? String(localized: "+\(more) more") : nil }
     }
 
     public static func todos(_ items: [MeetingNotes.Item], shown: Int = todosShown) -> Todos {

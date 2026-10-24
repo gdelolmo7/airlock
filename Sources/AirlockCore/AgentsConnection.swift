@@ -54,7 +54,10 @@ public struct AgentsConnection: Equatable, Sendable {
     /// The empty card's line when something is connected — which agents, so
     /// a healthy tab reads differently from a broken one.
     public var emptyLine: String {
-        "\(Self.names(connected)) \(connected.count == 1 ? "is" : "are") connected. Start \(connected.count == 1 ? "it" : "either") in any terminal and it shows up here, with anything it asks."
+        let names = Self.names(connected)
+        return connected.count == 1
+            ? String(localized: "\(names) is connected. Start it in any terminal and it shows up here, with anything it asks.")
+            : String(localized: "\(names) are connected. Start either in any terminal and it shows up here, with anything it asks.")
     }
 
     /// The card for an agent that cannot connect, in words: whose file, what
@@ -62,8 +65,7 @@ public struct AgentsConnection: Equatable, Sendable {
     /// write, so the fix is the person's — the card says so rather than
     /// offering a button that would not do it.
     public static func blockedSentence(_ link: Link) -> String {
-        "\(link.name) can't connect yet. Its settings file already has Airlock lines that Airlock didn't add, "
-            + "so it leaves them alone. Delete those lines, then connect again."
+        String(localized: "\(link.name) can't connect yet. Its settings file already has Airlock lines that Airlock didn't add, so it leaves them alone. Delete those lines, then connect again.")
     }
 
     /// "Claude Code", "Claude Code and Codex", "A, B and C".
@@ -71,7 +73,10 @@ public struct AgentsConnection: Equatable, Sendable {
         switch list.count {
         case 0: return ""
         case 1: return list[0]
-        default: return list.dropLast().joined(separator: ", ") + " and " + list[list.count - 1]
+        default:
+            let leading = list.dropLast().joined(separator: ", ")
+            let last = list[list.count - 1]
+            return String(localized: "\(leading) and \(last)")
         }
     }
 }
@@ -97,9 +102,9 @@ public enum TerminalTrouble: Equatable, Sendable {
     public var sentence: String {
         switch self {
         case .notAllowed(let app):
-            return "Airlock isn't allowed to control \(app). Allow it under Automation in System Settings, then try again."
+            return String(localized: "Airlock isn't allowed to control \(app). Allow it under Automation in System Settings, then try again.")
         case .didNotOpen(let app):
-            return "\(app) didn't respond, so nothing opened. Check it's working, then try again."
+            return String(localized: "\(app) didn't respond, so nothing opened. Check it's working, then try again.")
         }
     }
 

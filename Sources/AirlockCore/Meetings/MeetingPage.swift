@@ -35,7 +35,10 @@ public enum MeetingPage {
                 flush()
             } else if let heading = heading(line) {
                 flush()
-                blocks.append(.heading(heading.text, level: heading.level))
+                // A section title in either language the page may be written
+                // in reads as Airlock's English name (`MeetingFiles.canonicalHeading`).
+                let text = heading.level == 2 ? MeetingFiles.canonicalHeading(heading.text) : heading.text
+                blocks.append(.heading(text, level: heading.level))
             } else if line == "---" || line == "***" {
                 flush()
                 blocks.append(.rule)

@@ -260,8 +260,19 @@ enum GalleryWidgets {
             GalleryState("W45", area, "Shortcut map: clipboard and shelf rows", width: panel) {
                 keyMap(dictation: false).frame(width: side)
             },
-            GalleryState("W46", area, "Shortcut map: asking off, so no \"Hold to ask the notch\"", width: panel) {
-                keyMap(dictation: true, asks: false).frame(width: side)
+
+            // MARK: Try these
+            GalleryState("W78", area, "Try these: a new Mac, nothing done yet", width: panel) {
+                tryThese(done: [], dictation: true, calendar: true)
+            },
+            GalleryState("W79", area, "Try these: two done, no dictation, no calendar", width: panel) {
+                tryThese(done: [.copyTwice], dictation: false, calendar: false)
+            },
+            GalleryState("W80", area, "Try these: above the music and the controls", width: panel) {
+                VStack(spacing: PanelStackMetrics.columnGap) {
+                    tryThese(done: [.copyTwice, .dropFile], dictation: true, calendar: true)
+                    homeRow(sound: soundCard())
+                }
             },
 
             // MARK: System stats
@@ -378,25 +389,7 @@ enum GalleryWidgets {
             GalleryState("W69", area, "Agents tab: no usage figures, so no line", width: panel) {
                 agentsTab(usage: nil)
             },
-        ] + askStripStates
-    }
-
-    /// The Ask strip is the guide's, so it is drawn only where the guide is.
-    private static var askStripStates: [GalleryState] {
-        #if AIRLOCK_GUIDE
-        [
-            // MARK: Ask strip
-            GalleryState("W55", area, "Ask strip: asking off (default)", width: panel) {
-                AskStripCard(strip: AskStrip(holdKey: nil, typeKey: nil))
-            },
-            GalleryState("W56", area, "Ask strip: hold to ask / type", width: panel) {
-                AskStripCard(strip: AskStrip(holdKey: HoldKeyMonitor.Key.option.glyph,
-                                             typeKey: GlobalHotkey.Binding.optionSpace.displayName))
-            },
         ]
-        #else
-        []
-        #endif
     }
 
     // MARK: - Geometry
@@ -510,11 +503,17 @@ enum GalleryWidgets {
         SystemControlsModel.wifiRefused
     }
 
-    private static func keyMap(dictation: Bool, asks: Bool = true) -> some View {
+    private static func keyMap(dictation: Bool) -> some View {
         KeyMapCard(rows: KeyMapSectionView.rows(
-            dictation: dictation ? (hold: HoldKeyMonitor.Key.control.glyph,
-                                    ask: asks ? HoldKeyMonitor.Key.option.glyph : nil) : nil,
+            dictation: dictation ? HoldKeyMonitor.Key.control.glyph : nil,
             clipboardKey: GlobalHotkey.Binding.commandShiftC.displayName))
+    }
+
+    private static func tryThese(done: Set<FirstStep>, dictation: Bool, calendar: Bool) -> some View {
+        let available = FirstStepsCard.available(dictation: dictation, calendar: calendar)
+        return FirstStepsCard(steps: FirstSteps(startedAt: Date()).steps(available: available),
+                              done: done, holdKey: HoldKeyMonitor.Key.control.displayName, onHide: {})
+            .frame(width: stack)
     }
 
     // MARK: - Sound

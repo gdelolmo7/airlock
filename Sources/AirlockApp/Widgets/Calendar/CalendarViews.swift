@@ -155,8 +155,9 @@ struct WeekStripView: View {
         // whether anything is on it, and whether it is the selected one — none
         // of which survives being read as "14".
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(day.formatted(date: .complete, time: .omitted)
-                            + (hasEvents ? ", has events" : ""))
+        .accessibilityLabel(hasEvents
+                            ? String(localized: "\(day.formatted(date: .complete, time: .omitted)), has events")
+                            : day.formatted(date: .complete, time: .omitted))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { calendar.select(day: isSelected ? nil : day) }
     }
@@ -260,9 +261,9 @@ struct CalendarSectionView: View {
     private var timedEvents: [CalendarEvent] { agenda.filter { !$0.isAllDay } }
 
     private var emptyNote: String {
-        guard let day = calendar.selectedDay else { return "No meetings in the next 24 hours." }
-        if Calendar.current.isDateInToday(day) { return "Nothing left today." }
-        return "Nothing on \(day.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))."
+        guard let day = calendar.selectedDay else { return String(localized: "No meetings in the next 24 hours.") }
+        if Calendar.current.isDateInToday(day) { return String(localized: "Nothing left today.") }
+        return String(localized: "Nothing on \(day.formatted(.dateTime.weekday(.wide).day().month(.abbreviated))).")
     }
 
     /// The first-run offer keeps its quiet look; every other state is a
@@ -484,8 +485,8 @@ private struct AllDayStripView: View {
     /// says "there is a call here" to anyone who can see it; `callSummary` is
     /// that same fact in words.
     private func accessibilityLabel(_ event: CalendarEvent) -> String {
-        guard let meeting = event.meeting else { return "\(event.title), all day" }
-        return "\(event.title), all day, \(meeting.callSummary)"
+        guard let meeting = event.meeting else { return String(localized: "\(event.title), all day") }
+        return String(localized: "\(event.title), all day, \(meeting.callSummary)")
     }
 }
 
@@ -657,7 +658,7 @@ private struct EventRowView: View {
         func qualified(_ text: String) -> String {
             dayLabel.map { "\($0) · \(text)" } ?? text
         }
-        if event.isAllDay { return qualified("All day") }
+        if event.isAllDay { return qualified(String(localized: "All day")) }
         // Another day gets a plain span and no countdown. Every relative phrase
         // below is measured against a clock that is not running inside the day
         // on screen: yesterday's 09:00 read as "now · until 10:00", which is not
@@ -676,12 +677,13 @@ private struct EventRowView: View {
         if untilStart <= 0 {
             // Already running, so it is plainly today whatever the calendar
             // says — a "Tomorrow · now" would be nonsense.
-            return "now · until \(Self.clock(event.end))"
+            return String(localized: "now · until \(Self.clock(event.end))")
         }
         if untilStart < 3600 {
             // Under an hour away cannot be another day in any useful sense, and
             // "in 40m" is more precise than a day name.
-            return "in \(max(1, Int(untilStart / 60)))m · \(Self.clock(event.start))"
+            return String(localized: "in \(max(1, Int(untilStart / 60)))m · \(Self.clock(event.start))")
+
         }
         return qualified(Self.clock(event.start))
     }

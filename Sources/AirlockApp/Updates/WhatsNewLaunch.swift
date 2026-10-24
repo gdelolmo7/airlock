@@ -70,16 +70,25 @@ enum WhatsNewLaunch {
         log.notice("seen \(version, privacy: .public)")
     }
 
-    /// `Airlock --whats-new-html [version]`: prints the notes as the HTML
-    /// fragment Sparkle's update window shows, and exits — before the app,
-    /// its logs or its windows start. The release script runs it on the
-    /// freshly built bundle, so the appcast carries exactly what that build
-    /// would show. Prints nothing (and still exits 0) for a version without
-    /// notes, and the script then writes no file.
+    /// `Airlock --whats-new-html [version] [--lang es]`: prints the notes as
+    /// the HTML fragment Sparkle's update window shows, and exits — before
+    /// the app, its logs or its windows start. The release script runs it on
+    /// the freshly built bundle, once per language, so the appcast carries
+    /// exactly what that build would show. Prints nothing (and still exits 0)
+    /// for a version without notes, and the script then writes no file.
     static func printHTMLIfAsked(_ arguments: [String]) -> Bool {
         guard let flag = arguments.firstIndex(of: "--whats-new-html") else { return false }
+        // In the language asked for, English by default, whatever the
+        // releasing Mac speaks.
+        let language = arguments.firstIndex(of: "--lang").flatMap { at in
+            arguments.indices.contains(at + 1) ? arguments[at + 1] : nil
+        } ?? "en"
+        let defaults = UserDefaults.standard
+        var domain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        domain["AppleLanguages"] = [language]
+        defaults.setVolatileDomain(domain, forName: UserDefaults.argumentDomain)
         let next = arguments.index(after: flag)
-        let version = next < arguments.endIndex ? arguments[next] : runningVersion
+        let version = next < arguments.endIndex && !arguments[next].hasPrefix("--") ? arguments[next] : runningVersion
         if let notes = WhatsNew.notes(for: version) {
             print(WhatsNew.html(notes), terminator: "")
         }

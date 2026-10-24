@@ -47,9 +47,10 @@ final class PlansPageTests: XCTestCase {
         XCTAssertEqual(free.current.plan, .free)
         XCTAssertEqual(free.current.title, "Free")
         XCTAssertEqual(free.current.summary, "clipboard keeps 100, one coding agent at a time, "
-                       + "notes for the first 30 minutes of a call.")
+                       + "notes for the first 30 minutes of a call, the drop box without WebP or background removal.")
         XCTAssertEqual(free.current.sentence, "You're on **Free**: clipboard keeps 100, one coding agent "
-                       + "at a time, notes for the first 30 minutes of a call.")
+                       + "at a time, notes for the first 30 minutes of a call, the drop box without WebP "
+                       + "or background removal.")
         XCTAssertNil(free.current.price)
         XCTAssertFalse(free.current.manages)
         XCTAssertFalse(free.current.needsAttention)
@@ -303,7 +304,9 @@ final class PlansPageTests: XCTestCase {
     /// The lists are the website's, and their numbers are the ones enforced.
     func testWhatEachPlanAdds() {
         let plus = PlanCatalog.features(.plus)
-        XCTAssertEqual(plus.count, 6)
+        XCTAssertEqual(plus.count, 7)
+        XCTAssertTrue(plus.contains { $0.title == "Drop box extras" },
+                      "Plus lists what the drop box keeps from Free (PlanLimits.dropBoxExtras)")
         XCTAssertTrue(plus.contains { $0.title == "Who said what" },
                       "Plus says it tells voices apart, which Free never does")
         XCTAssertEqual(plus.first { $0.symbol == "list.clipboard" }?.title, "Clipboard keeps 1,000")
@@ -360,12 +363,26 @@ final class PlansPageTests: XCTestCase {
     /// limits lifted, Pro's are what it adds.
     func testTheCardSaysWhatUnlocked() {
         let plus = WelcomeCard(.plus)!.rows.map(\.sentence)
-        XCTAssertEqual(plus.count, 4)
+        XCTAssertEqual(plus.count, 5)
         XCTAssertTrue(plus[0].contains("1,000"))
         XCTAssertTrue(plus.contains { $0.contains("Every coding agent") })
+        XCTAssertTrue(plus.contains { $0.contains("drop box") })
         let pro = WelcomeCard(.pro)!.rows.map(\.sentence)
         XCTAssertTrue(pro.contains { $0.contains("best model") })
         XCTAssertTrue(pro.contains { $0.contains("Twice as many") })
+    }
+
+    /// Pro straight from Free is measured against Free: nothing about Plus,
+    /// a plan this person never had.
+    func testProFromFreeListsWhatFreeLeftOut() {
+        let card = WelcomeCard.due(before: .free, after: .licensed(license(.pro)))
+        XCTAssertEqual(card?.from, .free)
+        let rows = card?.rows.map(\.sentence) ?? []
+        XCTAssertFalse(rows.contains { $0.contains("Plus") || $0.contains("Twice") })
+        XCTAssertTrue(rows.contains { $0.contains("best model") })
+        XCTAssertTrue(rows.contains { $0.contains("Every coding agent") })
+        XCTAssertEqual(WelcomeCard.due(before: .licensed(license(.plus)), after: .licensed(license(.pro)))?.from,
+                       .plus)
     }
 
     func testTheRedoQuestionNamesTheModel() {
@@ -393,6 +410,22 @@ final class PlansPageTests: XCTestCase {
                        card.redoQuestion(title: title, when: "yesterday", minutes: minutes))
         XCTAssertTrue(card.redoQuestion(for: record, now: start.addingTimeInterval(5 * 86_400), calendar: calendar)
             .contains("(Thu 15 Oct, "))
+        XCTAssertEqual(WelcomeCard.redoReason(for: record), WelcomeCard.redoReason)
+    }
+
+    /// A Free call the new plan just opened is offered whole, and says why.
+    func testAnOpenedCallIsOfferedWhole() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = utc
+        calendar.locale = Locale(identifier: "en_GB")
+        let start = date("2026-10-15")
+        var record = call("thursday", startedAt: start).record
+        record.openedMinutes = 12
+        let minutes = Int((record.endedAt!.timeIntervalSince(start) / 60).rounded())
+        XCTAssertEqual(WelcomeCard(.plus)!.redoQuestion(for: record, now: start.addingTimeInterval(3_600), calendar: calendar),
+                       LockedCallWords.redoQuestion(title: MeetingFiles.title(of: record), when: "today", minutes: minutes))
+        XCTAssertEqual(WelcomeCard.redoReason(for: record),
+                       "Free's notes covered the first 30 minutes. The other 12 were kept on this Mac, and are open now.")
     }
 
     /// A welcome is for more than before: a bigger plan, or the same plan

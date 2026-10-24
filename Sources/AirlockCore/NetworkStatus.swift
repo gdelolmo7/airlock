@@ -74,27 +74,27 @@ public struct NetworkStatus: Equatable, Sendable {
     ///   "Wi-Fi is on and getting nowhere" — the same outward silence, opposite
     ///   things to do about it.
     public func line(radioOn: Bool, hasResolved: Bool = true) -> String {
-        guard hasResolved else { return "Checking…" }
+        guard hasResolved else { return String(localized: "Checking…") }
 
         guard isSatisfied else {
-            if !radioOn { return "Wi-Fi is off" }
+            if !radioOn { return String(localized: "Wi-Fi is off") }
             // The case this whole type exists for. The chip is lit, the menu bar
             // shows bars, and nothing works — a captive portal, a router with no
             // uplink, a network you joined but never signed in to.
-            return "Wi-Fi is on, but nothing is reachable"
+            return String(localized: "Wi-Fi is on, but nothing is reachable")
         }
 
         var parts = [name]
         // Ordered by what changes a decision. "Costs money" outranks "is slow".
-        if isExpensive { parts.append("metered") }
-        if isConstrained { parts.append("Low Data Mode") }
+        if isExpensive { parts.append(String(localized: "metered")) }
+        if isConstrained { parts.append(String(localized: "Low Data Mode")) }
         // Wired while the radio is still on is worth stating: the traffic is not
         // going where the lit Wi-Fi button implies.
-        if link == .wired, radioOn { parts.append("Wi-Fi on but unused") }
+        if link == .wired, radioOn { parts.append(String(localized: "Wi-Fi on but unused")) }
         // Only when it is bad. A strip that prints "strong" every day is one
         // nobody reads on the day it says "weak" — and the number is always
         // fine, right up until it is the answer to "why is this slow".
-        if signal == .weak { parts.append("weak signal") }
+        if signal == .weak { parts.append(String(localized: "weak signal")) }
         return parts.joined(separator: " · ")
     }
 
@@ -112,12 +112,12 @@ public struct NetworkStatus: Equatable, Sendable {
 
     private var name: String {
         switch link {
-        case .wifi: return isExpensive ? "Personal hotspot" : "Wi-Fi"
+        case .wifi: return isExpensive ? String(localized: "Personal hotspot") : String(localized: "Wi-Fi")
         case .wired: return "Ethernet"
-        case .cellular: return "Cellular"
+        case .cellular: return String(localized: "Cellular")
         // A VPN or a virtual interface. Naming it "other" would be honest and
         // useless; "Connected" is what the user can act on.
-        case .other, .none: return "Connected"
+        case .other, .none: return String(localized: "Connected")
         }
     }
 }

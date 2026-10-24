@@ -62,8 +62,8 @@ final class CrashReporterTests: XCTestCase {
     func testThisProcessHasNoDSN() {
         XCTAssertNil(CrashReporter.bundleDSN)
         XCTAssertFalse(CrashReporter.shared.isAvailable)
-        XCTAssertFalse(SettingsAnchor.crashReports.isAvailable(guideOn: false))
-        XCTAssertFalse(SettingsAnchor.search("crash", guideOn: false).contains(.crashReports))
+        XCTAssertFalse(SettingsAnchor.crashReports.isAvailable())
+        XCTAssertFalse(SettingsAnchor.search("crash").contains(.crashReports))
     }
 
     // MARK: - Consent

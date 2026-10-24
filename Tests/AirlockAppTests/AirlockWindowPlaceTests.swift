@@ -23,7 +23,7 @@ final class AirlockWindowPlaceTests: XCTestCase {
     /// Nothing remembered yet: General, not the calls.
     func testAFirstOpenIsGeneral() {
         let model = SettingsModel(previewing: [])
-        model.restorePlace(guideOn: false, defaults: defaults)
+        model.restorePlace(defaults: defaults)
         XCTAssertEqual(model.pane, .general)
         XCTAssertFalse(model.showsCalls)
     }
@@ -32,12 +32,12 @@ final class AirlockWindowPlaceTests: XCTestCase {
     /// before still there for "Settings…".
     func testLeftOnTheCallsOpensOnTheCalls() {
         let before = SettingsModel(previewing: [])
-        before.restorePlace(guideOn: false, defaults: defaults)
+        before.restorePlace(defaults: defaults)
         before.pane = .license
         before.showsCalls = true
 
         let after = SettingsModel(previewing: [])
-        after.restorePlace(guideOn: false, defaults: defaults)
+        after.restorePlace(defaults: defaults)
         XCTAssertTrue(after.showsCalls)
         XCTAssertEqual(after.pane, .license)
     }
@@ -45,12 +45,12 @@ final class AirlockWindowPlaceTests: XCTestCase {
     /// Left on a page, it opens on that page.
     func testLeftOnAPageOpensOnIt() {
         let before = SettingsModel(previewing: [])
-        before.restorePlace(guideOn: false, defaults: defaults)
+        before.restorePlace(defaults: defaults)
         before.showsCalls = true
         before.pane = .voice
 
         let after = SettingsModel(previewing: [])
-        after.restorePlace(guideOn: false, defaults: defaults)
+        after.restorePlace(defaults: defaults)
         XCTAssertFalse(after.showsCalls)
         XCTAssertEqual(after.pane, .voice)
     }
@@ -78,7 +78,7 @@ final class AirlockWindowPlaceTests: XCTestCase {
     /// is remembered there.
     func testAFoldedPageLandsWhereItMovedAndIsRememberedThere() {
         let model = SettingsModel(previewing: [])
-        model.restorePlace(guideOn: false, defaults: defaults)
+        model.restorePlace(defaults: defaults)
         model.showsCalls = true
         model.pane = .widgets
         XCTAssertEqual(model.pane, .appearance)
@@ -87,16 +87,16 @@ final class AirlockWindowPlaceTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: SettingsModel.callsKey))
     }
 
-    /// A page the column no longer has (a guide page, in a build without
-    /// the guide) or a name nothing knows opens General; a folded page opens
+    /// A page the column no longer has (the guide's old pages) or a name
+    /// nothing knows opens General; a folded page opens
     /// where it moved.
     func testAPageTheColumnLacksOpensGeneral() {
-        XCTAssertEqual(SettingsModel.place(pane: "guide", showsCalls: false, guideOn: false).pane, .general)
-        XCTAssertEqual(SettingsModel.place(pane: "guide", showsCalls: false, guideOn: true).pane, .guide)
-        XCTAssertEqual(SettingsModel.place(pane: "nonsense", showsCalls: true, guideOn: false).pane, .general)
-        XCTAssertTrue(SettingsModel.place(pane: "nonsense", showsCalls: true, guideOn: false).showsCalls)
-        XCTAssertEqual(SettingsModel.place(pane: "widgets", showsCalls: false, guideOn: false).pane, .appearance)
-        XCTAssertEqual(SettingsModel.place(pane: nil, showsCalls: false, guideOn: false).pane, .general)
+        XCTAssertEqual(SettingsModel.place(pane: "guide", showsCalls: false).pane, .general)
+        XCTAssertEqual(SettingsModel.place(pane: "privacy", showsCalls: false).pane, .general)
+        XCTAssertEqual(SettingsModel.place(pane: "nonsense", showsCalls: true).pane, .general)
+        XCTAssertTrue(SettingsModel.place(pane: "nonsense", showsCalls: true).showsCalls)
+        XCTAssertEqual(SettingsModel.place(pane: "widgets", showsCalls: false).pane, .appearance)
+        XCTAssertEqual(SettingsModel.place(pane: nil, showsCalls: false).pane, .general)
     }
 
     /// Nothing is written before the place is restored, so a model that

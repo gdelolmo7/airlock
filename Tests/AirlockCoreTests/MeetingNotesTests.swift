@@ -1183,7 +1183,6 @@ final class MeetingStoreTests: XCTestCase {
 
         XCTAssertEqual(store.calls().map(\.folder.lastPathComponent), [keptFolder.lastPathComponent])
         XCTAssertNil(store.keptRecord(in: droppedFolder))
-        XCTAssertNil(store.record(in: droppedFolder.lastPathComponent), "the call search reads it too")
         XCTAssertEqual(store.loadRecord(in: droppedFolder)?.droppedAt, dropped.droppedAt,
                        "still on disk, so a call that comes back can carry on into it")
     }

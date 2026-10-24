@@ -24,15 +24,11 @@ struct KeyMapSectionView: View {
     // owner, seeing it, asked what it was. The Agents tab says the same thing
     // where it belongs.
     var body: some View {
-        // Both keys are watched by one event tap, so without Input Monitoring
-        // neither row's gesture fires — dictation switched on is not enough.
+        // The hold key is watched by an event tap, so without Input Monitoring
+        // the row's gesture never fires — dictation switched on is not enough.
         let watches = dictation.isEnabled && dictation.readiness.canWatchHoldKey
-        // The conditions `DictationModel` starts the ask monitor on: the
-        // assistant on, and a key of its own. "Hold to ask the notch" with the
-        // assistant off was a row promising a gesture that does nothing.
-        let asks = dictation.assistant?.isEnabled == true && dictation.askKey != dictation.holdKey
         let rows = Self.rows(
-            dictation: watches ? (hold: dictation.holdKey.glyph, ask: asks ? dictation.askKey?.glyph : nil) : nil,
+            dictation: watches ? dictation.holdKey.glyph : nil,
             clipboardKey: clipboard.isEnabled && clipboard.hotkeyEnabled ? clipboard.hotkey.displayName : nil)
         if !rows.isEmpty { KeyMapCard(rows: rows) }
     }
@@ -40,36 +36,31 @@ struct KeyMapSectionView: View {
     // MARK: - Rows
 
     /// Built from the live models, so a row is present exactly when its gesture
-    /// is. Dictation ships off, which is why the first two are conditional
+    /// is. Dictation ships off, which is why the first is conditional
     /// rather than decorative. Values in, so the state gallery draws the same
     /// rows from made-up settings.
     ///
     /// - Parameters:
-    ///   - dictation: the hold key's glyph and the ask key's, while dictation
-    ///     is on; nil while it is off.
+    ///   - dictation: the hold key's glyph while dictation is on; nil while
+    ///     it is off.
     ///   - clipboardKey: the clipboard's shortcut while it has one, else nil.
-    static func rows(dictation: (hold: String, ask: String?)?, clipboardKey: String?) -> [KeyMapRow] {
+    static func rows(dictation: String?, clipboardKey: String?) -> [KeyMapRow] {
         var rows: [KeyMapRow] = []
         if let dictation {
             rows.append(KeyMapRow(id: "dictate", symbol: "mic.fill",
-                                  title: "Hold to dictate anywhere",
-                                  trailing: .cap(dictation.hold)))
-            if let ask = dictation.ask {
-                rows.append(KeyMapRow(id: "ask", symbol: "sparkle",
-                                      title: "Hold to ask the notch",
-                                      trailing: .cap(ask)))
-            }
+                                  title: String(localized: "Hold to dictate anywhere"),
+                                  trailing: .cap(dictation)))
         }
         if let clipboardKey {
             rows.append(KeyMapRow(id: "clipboard", symbol: "list.clipboard",
-                                  title: "Everything you copy",
+                                  title: String(localized: "Everything you copy"),
                                   trailing: .cap(clipboardKey)))
         }
         // No switch and no binding — the drop target is the notch itself, and it
         // is the one row that is true on every install.
         rows.append(KeyMapRow(id: "tray", symbol: "tray",
-                              title: "Drop a file on the notch to shelve it",
-                              trailing: .hint("Try it")))
+                              title: String(localized: "Drop a file on the notch to shelve it"),
+                              trailing: .hint(String(localized: "Try it"))))
         return rows
     }
 }

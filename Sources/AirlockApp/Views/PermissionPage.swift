@@ -16,7 +16,7 @@ enum PermissionPage: Equatable {
 
     /// What a button that opens one of these says. "System Settings" in full:
     /// in the notch, "Settings" alone reads as Airlock's own.
-    static let button = "Open System Settings"
+    static let button = String(localized: "Open System Settings")
 
     var url: URL? {
         switch self {

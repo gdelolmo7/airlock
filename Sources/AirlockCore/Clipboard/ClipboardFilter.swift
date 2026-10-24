@@ -16,7 +16,15 @@ public enum ClipboardFilter: String, CaseIterable, Sendable, Identifiable, Codab
 
     /// Capitalised, as the design draws them — the one place in this panel's
     /// chrome that is, because they are buttons rather than labels.
-    public var label: String { rawValue.capitalized }
+    public var label: String {
+        switch self {
+        case .all: return String(localized: "All")
+        case .text: return String(localized: "Text")
+        case .links: return String(localized: "Links")
+        case .images: return String(localized: "Images")
+        case .files: return String(localized: "Files")
+        }
+    }
 
     /// For the icon-only form, used when the panel is too narrow for words.
     public var symbol: String {
@@ -33,11 +41,11 @@ public enum ClipboardFilter: String, CaseIterable, Sendable, Identifiable, Codab
     /// lands here", which is only true when the history itself is empty.
     public var emptyMessage: String {
         switch self {
-        case .all: return "Copy something and it lands here."
-        case .text: return "No text copied yet."
-        case .links: return "No links copied yet."
-        case .images: return "No images copied yet."
-        case .files: return "No files copied yet."
+        case .all: return String(localized: "Copy something and it lands here.")
+        case .text: return String(localized: "No text copied yet.")
+        case .links: return String(localized: "No links copied yet.")
+        case .images: return String(localized: "No images copied yet.")
+        case .files: return String(localized: "No files copied yet.")
         }
     }
 
@@ -48,13 +56,13 @@ public enum ClipboardFilter: String, CaseIterable, Sendable, Identifiable, Codab
     public func searchMissMessage(query: String) -> String {
         let quoted = "\u{201C}\(query.trimmingCharacters(in: .whitespaces))\u{201D}"
         switch self {
-        case .all: return "Nothing matches \(quoted)"
-        default: return "Nothing in \(label) matches \(quoted)"
+        case .all: return String(localized: "Nothing matches \(quoted)")
+        default: return String(localized: "Nothing in \(label) matches \(quoted)")
         }
     }
 
     /// The button under a filtered search miss: switches to All, keeps the query.
-    public static let searchEverythingButton = "Search everything"
+    public static let searchEverythingButton = String(localized: "Search everything")
 
     public func matches(_ item: ClipboardItem) -> Bool {
         switch self {

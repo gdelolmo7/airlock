@@ -18,7 +18,7 @@ import XCTest
 /// two lines only, which is the list giving way. Drawn from sample data, so the
 /// picture is the same on every run and on every Mac.
 ///
-/// Drawn the way `PanelSnapshot` draws the cards, and with the same caveat: dark
+/// Drawn the way the state gallery draws, and with the same caveat: dark
 /// explicitly, because `ImageRenderer` resolves light whatever the system says;
 /// at 2×, because the thing under review is 10pt type; on flat near-black,
 /// which is the honest stand-in for the panel's glass. It answers "is the

@@ -47,6 +47,10 @@ public final class EchoRemover {
         /// Blocks that went through without the speakers' sound arriving
         /// in time.
         public var unmatchedBlocks = 0
+        /// Filter copies wiped for making the microphone louder, and
+        /// blocks given back as the microphone for it (`EchoCanceller`).
+        public var wipes = 0
+        public var passedThrough = 0
     }
 
     public static let sampleRate = 16_000.0
@@ -66,6 +70,15 @@ public final class EchoRemover {
     static let closeEnough = 0.024
     /// Before any delay is found: a MacBook's own speakers.
     static let assumedDelay = 0.05
+    /// Once a delay is in use, a different one must be at least this share
+    /// as clear as the delay in use last read: on a call, the line-up in use
+    /// read at 40 and stray readings at 8 to 11 moved it anyway, each move
+    /// throwing away what the filter had learned.
+    static let clearAgainstLock: Float = 0.5
+    /// How much of the delay in use's clarity is still counted after each
+    /// search that did not read it again: halved in about fourteen
+    /// searches, so a real change of room wins in the end.
+    static let lockFades: Float = 0.95
 
     private let n = EchoCanceller.block
     private let rate = Int(sampleRate)
@@ -91,7 +104,15 @@ public final class EchoRemover {
     /// far enough to matter.
     private var measured: Int?
     private var found = false
-    private var candidate: Int?
+    /// The last reading of the delay in use: the one moved to, or one
+    /// close enough to it to leave the line-up where it is.
+    private var agreed: Int?
+    /// How clear the delay in use last read, fading (`lockFades`).
+    private var lockStrength: Float = 0
+    /// A different delay read once, and where the microphone window it was
+    /// read from ended: the next reading that agrees counts only from a
+    /// window after that, not from mostly the same seconds.
+    private var candidate: (lag: Int, end: Int)?
     private var blocksSinceSearch = 0
     private var skipFirstBlock = true
     private var blocks = 0
@@ -163,7 +184,9 @@ public final class EchoRemover {
         var report = self.report
         report.micSeconds = Double(blocks * n) / Self.sampleRate
         report.speakersSeconds = Double(speakerBlocks * n) / Self.sampleRate
-        report.delayMilliseconds = measured.map { Double($0) / Self.sampleRate * 1000 }
+        report.delayMilliseconds = agreed.map { Double($0) / Self.sampleRate * 1000 }
+        report.wipes = canceller.wipes
+        report.passedThrough = canceller.passedThrough
         if canceller.leftAfterFilter > 0 {
             report.filterDB = 10 * log10(canceller.heard / canceller.leftAfterFilter)
         }
@@ -286,6 +309,7 @@ public final class EchoRemover {
         guard let estimate = EchoDelay.estimate(mic: mic, reference: speakers,
                                                 maxLag: maxLag, maxLead: maxLead) else { return }
         report.strength = estimate.strength
+        lockStrength *= Self.lockFades
         guard estimate.strength >= Self.clearStrength else { return }
         report.estimates += 1
         measured = estimate.lag
@@ -293,18 +317,29 @@ public final class EchoRemover {
         // would only throw away what it has learned.
         let close = Int(Self.closeEnough * Self.sampleRate)
         if abs(estimate.lag - lag) <= close {
+            // A guess this close counts as found: from now on only a
+            // clear, confirmed reading moves it.
+            found = true
+            agreed = estimate.lag
+            lockStrength = max(lockStrength, estimate.strength)
             candidate = nil
             return
         }
         // Further off, the first clear finding is taken at once (until then
-        // the line-up is a guess), and a change once found only when the
-        // next search agrees.
-        if found, candidate.map({ abs($0 - estimate.lag) > rate / 500 }) ?? true {
-            candidate = estimate.lag
-            return
+        // the line-up is a guess). A change once found must be about as
+        // clear as the delay in use, and read again from fresh seconds.
+        if found {
+            guard estimate.strength >= Self.clearAgainstLock * lockStrength else { return }
+            guard let candidate, abs(candidate.lag - estimate.lag) <= rate / 500 else {
+                self.candidate = (estimate.lag, end)
+                return
+            }
+            guard start >= candidate.end else { return }
         }
         lag = estimate.lag
         found = true
+        agreed = estimate.lag
+        lockStrength = estimate.strength
         candidate = nil
         report.realigned += 1
         canceller.forgetTheRoom()

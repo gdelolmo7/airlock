@@ -185,3 +185,73 @@ final class TranscriptRaceTests: XCTestCase {
                                                  showing: "en_US"), "en_US")
     }
 }
+
+/// A call's race called early, on a lead too wide to be noise.
+final class TranscriptRaceClearWinnerTests: XCTestCase {
+    private func candidate(_ locale: String, _ text: String, _ confidence: Double)
+    -> TranscriptRace.Candidate {
+        TranscriptRace.Candidate(localeIdentifier: locale, text: text, confidence: confidence)
+    }
+
+    private let sentence = String(repeating: "Bueno, te lo voy a aceptar. ", count: 3)
+
+    /// The owner's Discord call: Spanish 0.81, English 0.33.
+    func testAWideLeadWinsEarly() {
+        let winner = TranscriptRace.clearWinner(among: [
+            candidate("en_US", "Yes, sir. Accept a melo por favor.", 0.33),
+            candidate("es_ES", sentence, 0.81),
+        ])
+        XCTAssertEqual(winner?.localeIdentifier, "es_ES")
+    }
+
+    /// An English call heard by both: 0.96 against 0.87 waits for the paragraph.
+    func testASameLanguageGapDoesNotDecide() {
+        XCTAssertNil(TranscriptRace.clearWinner(among: [
+            candidate("en_US", String(repeating: "I need you to check the file. ", count: 3), 0.96),
+            candidate("es_ES", "I need you to check the file.", 0.87),
+        ]))
+    }
+
+    func testTooLittleTextDoesNotDecide() {
+        XCTAssertNil(TranscriptRace.clearWinner(among: [
+            candidate("en_US", "Yes, sir.", 0.30),
+            candidate("es_ES", "Bueno.", 0.90),
+        ]))
+    }
+
+    /// A take that has scored nothing yet is a blank, not a loser.
+    func testAnUnscoredTakeDoesNotLose() {
+        XCTAssertNil(TranscriptRace.clearWinner(among: [
+            candidate("en_US", "", 0),
+            candidate("es_ES", sentence, 0.90),
+        ]))
+    }
+
+    func testTheMarginItselfIsEnough() {
+        let winner = TranscriptRace.clearWinner(among: [
+            candidate("en_US", "Yes.", 0.50),
+            candidate("es_ES", sentence, 0.50 + TranscriptRace.clearMargin),
+        ])
+        XCTAssertEqual(winner?.localeIdentifier, "es_ES")
+    }
+
+    func testJustUnderTheMarginWaits() {
+        XCTAssertNil(TranscriptRace.clearWinner(among: [
+            candidate("en_US", "Yes.", 0.50),
+            candidate("es_ES", sentence, 0.50 + TranscriptRace.clearMargin - 0.01),
+        ]))
+    }
+
+    /// The primary far ahead is a clear winner too: an English call settles early.
+    func testThePrimaryCanWinEarly() {
+        let winner = TranscriptRace.clearWinner(among: [
+            candidate("en_US", String(repeating: "Run the tests again please. ", count: 3), 0.95),
+            candidate("es_ES", "Ron de tess", 0.55),
+        ])
+        XCTAssertEqual(winner?.localeIdentifier, "en_US")
+    }
+
+    func testOneTakeIsNoRace() {
+        XCTAssertNil(TranscriptRace.clearWinner(among: [candidate("es_ES", sentence, 0.9)]))
+    }
+}

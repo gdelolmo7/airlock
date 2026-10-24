@@ -47,7 +47,9 @@ struct RuleSuggestionCard: View {
             HStack(spacing: 5) {
                 Image(systemName: "text.badge.checkmark")
                     .font(.system(size: 9, weight: .bold))
-                Text("You've \(suggestion.kind == .allow ? "allowed" : "denied") this \(countWord) times")
+                Text(suggestion.kind == .allow
+                     ? String(localized: "You've allowed this \(countWord) times")
+                     : String(localized: "You've denied this \(countWord) times"))
                     .font(Theme.chrome(11, .semibold))
                 Spacer(minLength: 4)
                 Text(Self.clock.string(from: suggestion.lastSeen))
@@ -91,12 +93,12 @@ struct RuleSuggestionCard: View {
             }
 
             HStack(spacing: 6) {
-                action(suggestion.kind == .allow ? "Allow it" : "Deny it",
+                action(suggestion.kind == .allow ? String(localized: "Allow it") : String(localized: "Deny it"),
                        fg: Color(red: 0.02, green: 0.15, blue: 0.06), bg: Theme.done) {
                     onAccept(current, false)
                 }
                 if suggestion.candidates.count > 1 {
-                    action(showsCandidates ? "Fewer" : "Narrower…",
+                    action(showsCandidates ? String(localized: "Fewer") : String(localized: "Narrower…"),
                            fg: Theme.textSecondary, bg: .clear, bordered: true) {
                         showsCandidates.toggle()
                     }
@@ -105,12 +107,12 @@ struct RuleSuggestionCard: View {
                 // the same answer `acceptSuggestion` writes with. Otherwise
                 // there is no "this project" to mean.
                 if suggestion.projectRoot != nil {
-                    action("Just this project", fg: Theme.textSecondary, bg: .clear, bordered: true) {
+                    action(String(localized: "Just this project"), fg: Theme.textSecondary, bg: .clear, bordered: true) {
                         onAccept(current, true)
                     }
                 }
                 Spacer(minLength: 0)
-                action("Not this", fg: Theme.textTertiary, bg: .clear) { onDecline() }
+                action(String(localized: "Not this"), fg: Theme.textTertiary, bg: .clear) { onDecline() }
             }
         }
     }
@@ -139,19 +141,19 @@ struct RuleSuggestionCard: View {
                 .foregroundStyle(Theme.danger)
                 .lineLimit(2)
 
-            Text("\(suggestion.riskReason ?? "It trips the built-in floor"), and the floor beats every allow rule — so the notch would keep asking and the rule would be a promise nothing keeps. Denying it does work.")
+            Text("\(suggestion.riskReason ?? String(localized: "It trips the built-in floor")), and the floor beats every allow rule — so the notch would keep asking and the rule would be a promise nothing keeps. Denying it does work.")
                 .font(Theme.chrome(10.5))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 6) {
-                action("Never run this", fg: Theme.textPrimary,
+                action(String(localized: "Never run this"), fg: Theme.textPrimary,
                        bg: Theme.danger.opacity(0.85)) {
                     onAccept(RuleCandidate(text: suggestion.ruleText,
                                            summary: "Never runs", isExact: true), false)
                 }
                 Spacer(minLength: 0)
-                action("Not this", fg: Theme.textTertiary, bg: .clear) { onDecline() }
+                action(String(localized: "Not this"), fg: Theme.textTertiary, bg: .clear) { onDecline() }
             }
         }
     }
@@ -176,9 +178,9 @@ struct RuleSuggestionCard: View {
 
     private var countWord: String {
         switch suggestion.count {
-        case 2: return "two"
-        case 3: return "three"
-        case 4: return "four"
+        case 2: return String(localized: "two")
+        case 3: return String(localized: "three")
+        case 4: return String(localized: "four")
         default: return "\(suggestion.count)"
         }
     }
@@ -205,7 +207,7 @@ struct RuleSuggestionCard: View {
 
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        formatter.setLocalizedDateFormatFromTemplate("HHmm")
         return formatter
     }()
 }

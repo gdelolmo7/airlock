@@ -31,11 +31,11 @@ public enum PermissionKind: String, CaseIterable, Sendable {
     /// What macOS calls it, as System Settings shows it.
     public var systemName: String {
         switch self {
-        case .screenRecording: "Screen Recording"
-        case .accessibility: "Accessibility"
-        case .inputMonitoring: "Input Monitoring"
-        case .microphone: "Microphone"
-        case .calendar: "Calendars"
+        case .screenRecording: String(localized: "Screen & System Audio Recording")
+        case .accessibility: String(localized: "Accessibility")
+        case .inputMonitoring: String(localized: "Input Monitoring")
+        case .microphone: String(localized: "Microphone")
+        case .calendar: String(localized: "Calendars")
         }
     }
 
@@ -93,37 +93,37 @@ public enum PermissionKind: String, CaseIterable, Sendable {
     /// reads not allowed is usually just not allowed yet, and the Fix is for
     /// the other case — switched on, and still refused (X33).
     public var fixQuestion: String {
-        "Already switched on for Airlock in System Settings, and still not allowed here?"
+        String(localized: "Already switched on for Airlock in System Settings, and still not allowed here?")
     }
 
     /// The same question, short, for every Fix after the first on a page:
     /// the long one is read once, not once per row.
     public var fixQuestionAgain: String {
-        "\(systemName) also switched on and still not allowed?"
+        String(localized: "\(systemName) also switched on and still not allowed?")
     }
 
     /// The sentence beside the Fix button: what it does, before it does it.
     public var fixExplanation: String {
-        var text = "macOS may be holding an old approval from an earlier version of Airlock. "
-            + "Fix clears Airlock's record only, and nothing else's."
-        if needsAdministrator { text += " macOS asks for your Mac's password." }
-        return text
+        if needsAdministrator {
+            return String(localized: "macOS may be holding an old approval from an earlier version of Airlock. Fix clears Airlock's record only, and nothing else's. macOS asks for your Mac's password.")
+        }
+        return String(localized: "macOS may be holding an old approval from an earlier version of Airlock. Fix clears Airlock's record only, and nothing else's.")
     }
 
     /// After the reset: the one thing left to do, in plain words. "Allow" is
     /// the one name for asking across Settings (X36).
     public var afterFix: String {
-        if asksWithADialog { return "Done. Press Allow and macOS asks you once more." }
-        let base = "Done. In the list that opened, switch Airlock on again, or add it with + if it is gone."
-        return needsReopen ? base + " Then choose Quit & Reopen." : base
+        if asksWithADialog { return String(localized: "Done. Press Allow and macOS asks you once more.") }
+        return needsReopen
+            ? String(localized: "Done. In the list that opened, switch Airlock on again, or add it with + if it is gone. Then choose Quit & Reopen.")
+            : String(localized: "Done. In the list that opened, switch Airlock on again, or add it with + if it is gone.")
     }
 
     /// When the old approval is known rather than suspected — Input Monitoring
     /// reads as granted while the key it should watch stays dead — the
     /// problem in plain words, with no "maybe".
     public var oldApprovalSentence: String {
-        "macOS still has the old approval from an earlier version of Airlock, "
-            + "so \(systemName) looks on but doesn't work."
+        String(localized: "macOS still has the old approval from an earlier version of Airlock, so \(systemName) looks on but doesn't work.")
     }
 
     /// What to do about it, beside the one button that does most of it.
@@ -132,8 +132,6 @@ public enum PermissionKind: String, CaseIterable, Sendable {
     /// cleared: take Airlock out of the list and put it back. No Terminal
     /// command — a customer is never sent to one (X34).
     public var oldApprovalSteps: String {
-        "Fix removes it and opens \(systemName) in System Settings: switch Airlock on there, "
-            + "or add it with + if it isn't listed, then quit and reopen Airlock. "
-            + "If that doesn't take, select Airlock in the list, remove it with –, and add it back with +."
+        String(localized: "Fix removes it and opens \(systemName) in System Settings: switch Airlock on there, or add it with + if it isn't listed, then quit and reopen Airlock. If that doesn't take, select Airlock in the list, remove it with –, and add it back with +.")
     }
 }

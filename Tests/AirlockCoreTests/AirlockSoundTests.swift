@@ -12,15 +12,15 @@ final class AirlockSoundTests: XCTestCase {
         })
         XCTAssertEqual(sounding, [
             .gateArrived: .needsYou,
-            .agentFinished: .done, .guideDone: .done,
+            .agentFinished: .done,
             .approved: .approved,
-            .agentFailed: .wentWrong, .guideEnded: .wentWrong,
+            .agentFailed: .wentWrong,
         ])
     }
 
     /// Things you just did or just saw make no sound at any level.
     func testEverydayMomentsAreSilent() {
-        for moment in [Moment.copied, .tabChanged, .islandOpened, .fileDropped, .denied, .guideStep] {
+        for moment in [Moment.copied, .tabChanged, .islandOpened, .fileDropped, .denied] {
             XCTAssertNil(moment.sound, "\(moment)")
         }
     }

@@ -41,11 +41,9 @@ public enum TranscriptCleanup {
     public static func noModelLine(_ availability: ModelAvailability) -> String? {
         switch availability {
         case .needsAppleIntelligence:
-            "Tidying up needs Apple Intelligence, which is switched off on this Mac. "
-                + "Until it's on, dictation types your words as you said them."
+            String(localized: "Tidying up needs Apple Intelligence, which is switched off on this Mac. Until it's on, dictation types your words as you said them.")
         case .deviceNotEligible:
-            "Tidying up needs Apple Intelligence, which this Mac can't run. "
-                + "Dictation still types your words as you said them."
+            String(localized: "Tidying up needs Apple Intelligence, which this Mac can't run. Dictation still types your words as you said them.")
         case .ready, .modelNotReady, .unknown:
             nil
         }

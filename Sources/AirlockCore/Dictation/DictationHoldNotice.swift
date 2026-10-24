@@ -26,14 +26,18 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// elsewhere. What went wrong is in the log; the person gets ours.
     case microphoneFailedToStart
     /// The first hold was spent on macOS's own microphone prompt, and it was
-    /// allowed. `key` is the held key's name ("⌃ Control"); `asking` says
-    /// which key it was, so the advice names the right one.
-    case microphoneAllowed(key: String, asking: Bool)
+    /// allowed. `key` is the held key's name ("⌃ Control").
+    case microphoneAllowed(key: String)
     /// The hold ran and the recogniser found no words. `key` is the held
     /// key's name, so "try again" says which one.
     case nothingCaught(key: String)
     /// Nothing in front could take text, so the words went to the clipboard.
     case copiedNowhereToType
+    /// Accessibility is off, so the words went to the clipboard rather than
+    /// being typed. The one copy that is a problem: it happens on every hold
+    /// until the switch is on, and without the reason it reads as dictation
+    /// deciding at random where words go.
+    case copiedCantTypeYet
     /// A key or a click came while the person was talking. The hold kept
     /// listening, and the words went to the clipboard rather than to wherever
     /// that key or click left the cursor (`HoldInterruption`).
@@ -55,12 +59,16 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case chooseInput
         /// Settings › Voice, at the language picker.
         case chooseLanguage
+        /// Asks for Accessibility and opens its list in System Settings,
+        /// the only place macOS turns it on.
+        case letAirlockType
 
         public var button: String {
             switch self {
-            case .openMicrophoneSettings: return "Open System Settings"
-            case .chooseInput: return "Choose input…"
-            case .chooseLanguage: return "Choose language…"
+            case .openMicrophoneSettings: return String(localized: "Open System Settings")
+            case .chooseInput: return String(localized: "Choose input…")
+            case .chooseLanguage: return String(localized: "Choose language…")
+            case .letAirlockType: return String(localized: "Let Airlock type")
             }
         }
     }
@@ -81,28 +89,32 @@ public enum DictationHoldNotice: Equatable, Sendable {
     public var sentence: String {
         switch self {
         case .microphoneDenied:
-            return "Airlock can't use the microphone."
+            return String(localized: "Airlock can't use the microphone.")
         case .noSpeechModel(let locale):
             return Self.noSpeechModelSentence(locale: locale)
         case .notBundled:
             return Self.notBundledSentence
         case .microphoneFailedToStart:
-            return "The microphone couldn't start. Try again in a moment."
-        case .microphoneAllowed(let key, let asking):
-            return "Microphone allowed. Hold \(key) again to \(asking ? "ask" : "dictate")."
+            return String(localized: "The microphone couldn't start. Try again in a moment.")
+        case .microphoneAllowed(let key):
+            return String(localized: "Microphone allowed. Hold \(key) again to dictate.")
         case .nothingCaught(let key):
-            return "Didn't catch anything. Hold \(key) and try again."
+            return String(localized: "Didn't catch anything. Hold \(key) and try again.")
         case .copiedNowhereToType:
-            return "There was nowhere to type, so your words are on the clipboard."
+            return String(localized: "There was nowhere to type, so your words are on the clipboard.")
+        case .copiedCantTypeYet:
+            return String(localized: "Airlock isn't allowed to type yet, so your words are on the clipboard.")
         case .copiedAfterKeyOrClick:
-            return "You pressed a key or clicked while talking, so your words are on the clipboard."
+            return String(localized: "You pressed a key or clicked while talking, so your words are on the clipboard.")
         case .reachedLimit:
-            return "Dictation stops at two minutes. Everything before that was typed."
+            return String(localized: "Dictation stops at two minutes. Everything before that was typed.")
         case .tidyingFailed:
             return Self.tidyingFailedSentence
         case .secureInput(let holder):
-            return "\(holder ?? "Another app") is keeping your typing private, "
-                + "so the notch waits a second before it opens."
+            if let holder {
+                return String(localized: "\(holder) is keeping your typing private, so the notch waits a second before it opens.")
+            }
+            return String(localized: "Another app is keeping your typing private, so the notch waits a second before it opens.")
         }
     }
 
@@ -111,13 +123,14 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case .microphoneDenied: return .openMicrophoneSettings
         case .microphoneFailedToStart: return .chooseInput
         case .noSpeechModel: return .chooseLanguage
+        case .copiedCantTypeYet: return .letAirlockType
         default: return nil
         }
     }
 
     public var tone: Tone {
         switch self {
-        case .microphoneDenied, .noSpeechModel, .notBundled, .microphoneFailedToStart:
+        case .microphoneDenied, .noSpeechModel, .notBundled, .microphoneFailedToStart, .copiedCantTypeYet:
             return .problem
         case .microphoneAllowed, .nothingCaught, .copiedNowhereToType, .copiedAfterKeyOrClick,
              .reachedLimit, .tidyingFailed, .secureInput:
@@ -136,6 +149,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case .microphoneAllowed: return "mic"
         case .nothingCaught: return "ear"
         case .copiedNowhereToType, .copiedAfterKeyOrClick: return "doc.on.clipboard"
+        case .copiedCantTypeYet: return "keyboard"
         case .reachedLimit: return "timer"
         case .tidyingFailed: return "wand.and.stars"
         case .secureInput: return "lock"
@@ -186,11 +200,11 @@ public enum DictationHoldNotice: Equatable, Sendable {
 
     /// Shared with `DictationReadiness.Blocker.message`, so the notch and
     /// Settings never word it two ways.
-    static let notBundledSentence = "Dictation only works in the installed Airlock app."
+    static let notBundledSentence = String(localized: "Dictation only works in the installed Airlock app.")
 
     /// Shared with `CleanupService`, which puts the same words in Settings.
     public static let tidyingFailedSentence =
-        "Tidying up didn't work, so your words were typed as you said them."
+        String(localized: "Tidying up didn't work, so your words were typed as you said them.")
 
     /// The language by name, never the identifier: `en_US` is how the speech
     /// framework spells it, not how anyone does.
@@ -198,8 +212,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// Named in `displayLocale`, which is the person's own — so a Spanish Mac
     /// reads "inglés (Estados Unidos)" — and a parameter so the test can pin it.
     static func noSpeechModelSentence(locale: String, displayLocale: Locale = .current) -> String {
-        "Dictation isn't available in \(languageName(locale, displayLocale: displayLocale)) on this Mac yet. "
-            + "Choose another language to dictate in."
+        String(localized: "Dictation isn't available in \(languageName(locale, displayLocale: displayLocale)) on this Mac yet. Choose another language to dictate in.")
     }
 
     /// "English (United States)" for `en_US`; "your language" when there is no
@@ -208,7 +221,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// `en_US@rg=eszzzz` is named too (`SpokenLanguages.plain`).
     public static func languageName(_ identifier: String, displayLocale: Locale = .current) -> String {
         guard let name = SpokenLanguages.name(identifier, displayLocale: displayLocale),
-              name != identifier else { return "your language" }
+              name != identifier else { return String(localized: "your language") }
         return name
     }
 }

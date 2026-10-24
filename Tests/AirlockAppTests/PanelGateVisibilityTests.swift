@@ -54,22 +54,23 @@ final class PanelGateVisibilityTests: XCTestCase {
         sections.map(\.id)
     }
 
-    /// THE regression. An answer is up, a gate arrives, and the card is drawn.
-    func testAPendingGateIsStillDrawnWhileAnAnswerOwnsThePanel() {
+    /// THE regression. Setup owns the panel, a gate arrives, and the card is drawn.
+    func testAPendingGateIsStillDrawnWhileSetupOwnsThePanel() {
         let (model, _, registry) = gatedRegistry()
         XCTAssertEqual(model.attentionCount, 1)
         XCTAssertTrue(registry.demandsAttention)
 
-        let content = PanelStackContent.resolve(dictating: false, answering: true,
-                                                demandsAttention: registry.demandsAttention)
+        let content = PanelStackContent.resolve(dictating: false,
+                                                demandsAttention: registry.demandsAttention,
+                                                onboarding: true)
         let sections = registry.sections(content, in: .stack, tab: .agents, column: .full)
         XCTAssertTrue(ids(sections).contains("agents"),
                       "the card that unblocks the agent has to be on screen")
     }
 
-    /// And it is a NARROWED region, not the whole tab: an answer is still up and
+    /// And it is a NARROWED region, not the whole tab: setup is still up and
     /// still has to fit. Everything not blocking stays out of the way.
-    func testNothingButTheBlockingWidgetSharesThePanelWithTheAnswer() {
+    func testNothingButTheBlockingWidgetSharesThePanelWithSetup() {
         let (_, _, registry) = gatedRegistry()
         let sections = registry.sections(.attentionOnly, in: .stack, tab: .agents, column: .full)
         XCTAssertEqual(ids(sections), ["agents"])
@@ -90,8 +91,8 @@ final class PanelGateVisibilityTests: XCTestCase {
                        ["agents"])
     }
 
-    /// Resolved, and the panel goes back to the answer alone — otherwise every
-    /// answer after the first gate would be sharing the panel with a stale card.
+    /// Resolved, and the panel goes back to setup alone — otherwise it would
+    /// keep sharing the panel with a stale card.
     func testAnsweringTheGateGivesThePanelBack() {
         let (model, _, registry) = gatedRegistry()
         guard let session = model.state.sessions["demo-claude"] else {
@@ -102,8 +103,9 @@ final class PanelGateVisibilityTests: XCTestCase {
         XCTAssertEqual(model.attentionCount, 0)
         XCTAssertFalse(registry.demandsAttention)
         XCTAssertEqual(
-            PanelStackContent.resolve(dictating: false, answering: true,
-                                      demandsAttention: registry.demandsAttention),
+            PanelStackContent.resolve(dictating: false,
+                                      demandsAttention: registry.demandsAttention,
+                                      onboarding: true),
             .none)
     }
 

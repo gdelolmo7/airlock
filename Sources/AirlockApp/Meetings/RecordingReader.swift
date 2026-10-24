@@ -93,7 +93,7 @@ final class RecordingReader {
         guard !stopped else { return .stopped }
 
         guard let (picked, format, listeners) = await MeetingNotesModel.speechSetup(settings: settings, log: log)
-        else { return .failed("The speech model isn't installed for your language yet.") }
+        else { return .failed(String(localized: "The speech model isn't installed for your language yet.")) }
         guard !stopped else { return .stopped }
 
         let call = OngoingCall.inPerson(at: startedAt)
@@ -107,7 +107,7 @@ final class RecordingReader {
             try store.saveTranscript(record, in: folder)
         } catch {
             log("recording: folder FAILED: \(error.localizedDescription)")
-            return .failed("Airlock couldn't save the notes in your Meetings folder.")
+            return .failed(String(localized: "Airlock couldn't save the notes in your Meetings folder."))
         }
         onFolder(folder, record)
 
@@ -182,7 +182,7 @@ final class RecordingReader {
         } catch {
             log("recording: transcript save FAILED: \(error.localizedDescription)")
             _ = removed(folder)
-            return .failed("Airlock couldn't save the notes in your Meetings folder.")
+            return .failed(String(localized: "Airlock couldn't save the notes in your Meetings folder."))
         }
         log("recording: \(record.segments.count) lines")
 
@@ -206,7 +206,7 @@ final class RecordingReader {
             }
         } catch {
             log("recording: notes save FAILED: \(error.localizedDescription)")
-            return .failed("Airlock couldn't save the notes in your Meetings folder.")
+            return .failed(String(localized: "Airlock couldn't save the notes in your Meetings folder."))
         }
         do {
             try store.saveTopic(written?.title, in: folder)

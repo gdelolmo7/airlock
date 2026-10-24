@@ -39,11 +39,9 @@ public enum CallLive {
     /// Why the notes stopped, each with the way on: said in the notch, and
     /// under "The notes stopped" in the call's window.
     public enum Stopped {
-        public static let noFolder = "Couldn't make a folder for the notes. Check that your Mac has free space, "
-            + "then take notes again."
-        public static let noSpeechModel = "Airlock couldn't get the speech model for your language. Check that "
-            + "this Mac is online, then take notes again."
-        public static let notSaved = "Couldn't save the notes. The transcript so far is kept in Calls."
+        public static let noFolder = String(localized: "Couldn't make a folder for the notes. Check that your Mac has free space, then take notes again.")
+        public static let noSpeechModel = String(localized: "Airlock couldn't get the speech model for your language. Check that this Mac is online, then take notes again.")
+        public static let notSaved = String(localized: "Couldn't save the notes. The transcript so far is kept in Calls.")
     }
 
     /// A failure says so at once: notes that stop mid-call leave the call
@@ -63,33 +61,39 @@ public enum CallLive {
 
     /// "13 min so far", where an ended call says how long it lasted.
     public static func soFar(_ record: MeetingRecord, now: Date) -> String {
-        "\(CallsCard.length(from: record.startedAt, to: now)) so far"
+        String(localized: "\(CallsCard.length(from: record.startedAt, to: now)) so far")
     }
 
     /// "Call ended · 13 min", across the transcript under its last line.
     public static func endedLine(_ record: MeetingRecord) -> String? {
         guard let end = record.endedAt else { return nil }
-        return "Call ended · \(CallsCard.length(from: record.startedAt, to: end))"
+        return String(localized: "Call ended · \(CallsCard.length(from: record.startedAt, to: end))")
     }
 
     /// "3 new lines": what arrived while the person read further up.
     public static func newLines(_ count: Int) -> String {
-        count == 1 ? "1 new line" : "\(count) new lines"
+        count == 1 ? String(localized: "1 new line") : String(localized: "\(count) new lines")
     }
 
     /// Under "Your notes are ready": what they hold.
     public static func readyDetail(todos: Int) -> String {
         switch todos {
-        case ..<1: "A summary of what was said."
-        case 1: "A summary and one to-do from this call."
-        default: "A summary and \(spelled(todos)) to-dos from this call."
+        case ..<1: String(localized: "A summary of what was said.")
+        case 1: String(localized: "A summary and one to-do from this call.")
+        default: String(localized: "A summary and \(spelled(todos)) to-dos from this call.")
         }
     }
 
     /// "two" to "ten" in words, past that in figures.
     static func spelled(_ count: Int) -> String {
+        guard (0...10).contains(count) else { return "\(count)" }
+        guard Locale.current.language.languageCode == .english else {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .spellOut
+            return formatter.string(from: NSNumber(value: count)) ?? "\(count)"
+        }
         let words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
-        return words.indices.contains(count) ? words[count] : "\(count)"
+        return words[count]
     }
 
     /// How long a line counts as "just now" after it ends.
@@ -127,12 +131,35 @@ public enum CallLive {
     /// The sides speaking now, you first: what the transcript draws under
     /// its last line. Nothing while paused, since nothing said then is
     /// written down.
-    public static func speaking(_ hearing: [MeetingSpeaker: Hearing], paused: Bool = false) -> [Hearing] {
+    ///
+    /// Not your words when they are the other side's coming back through
+    /// the speakers (`MeetingEcho`, against what they say now and the lines
+    /// of `record`): the notes drop that line once it is finished, and
+    /// shown until then, the other side's words run under your name while
+    /// they talk.
+    public static func speaking(_ hearing: [MeetingSpeaker: Hearing], paused: Bool = false,
+                                in record: MeetingRecord? = nil, now: Date = Date()) -> [Hearing] {
         guard !paused else { return [] }
         return [MeetingSpeaker.me, .them].compactMap { speaker in
             guard let heard = hearing[speaker], !heard.text.isEmpty else { return nil }
+            if speaker == .me, let record, isEcho(heard, of: hearing[.them], in: record, now: now) {
+                return nil
+            }
             return heard
         }
+    }
+
+    /// Whether your words being heard are the other side's: what they are
+    /// saying now and their lines, against yours so far, as lines.
+    static func isEcho(_ mine: Hearing, of theirs: Hearing?, in record: MeetingRecord, now: Date) -> Bool {
+        func line(_ heard: Hearing) -> MeetingSegment {
+            MeetingSegment(speaker: heard.speaker, start: heard.since.timeIntervalSince(record.startedAt),
+                           end: now.timeIntervalSince(record.startedAt), text: heard.text)
+        }
+        let mine = line(mine)
+        var lines = record.segments.filter { $0.speaker == .them && $0.end >= mine.start - MeetingEcho.window }
+        if let theirs, !theirs.text.isEmpty { lines.append(line(theirs)) }
+        return !lines.isEmpty && MeetingEcho.isEcho(mine, of: lines)
     }
 
     /// Whether `hearing` carries on the last turn of `entries`, and so is

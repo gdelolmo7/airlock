@@ -64,6 +64,30 @@ public enum TranscriptRace {
         return best.confidence > primary.confidence + takeoverMargin ? best : primary
     }
 
+    /// How far ahead a take has to be to win a call's race early.
+    ///
+    /// A call's race waits for about a paragraph from each recogniser, which
+    /// with a quiet first minute showed the wrong language for all of it. On
+    /// the owner's Spanish calls the Spanish take led from its first lines,
+    /// and at the end of the race by 0.21 to 0.66; on English calls the two
+    /// were never more than 0.12 apart. A lead this wide is not noise.
+    public static let clearMargin = 0.25
+    /// Characters the leading take must have heard before its lead counts:
+    /// a sentence or two, so one badly heard word cannot decide a call.
+    public static let clearAfter = 80
+
+    /// The take that has already won, before the race's usual length: the
+    /// one at least `clearAfter` characters in and `clearMargin` ahead of
+    /// every other. Nil while any take is unscored (zero), as in
+    /// `liveChoice`: a blank is not a bad score.
+    public static func clearWinner(among candidates: [Candidate]) -> Candidate? {
+        guard candidates.count > 1, candidates.allSatisfy({ $0.confidence > 0 }),
+              let best = candidates.max(by: { $0.confidence < $1.confidence }),
+              best.text.count >= clearAfter else { return nil }
+        let others = candidates.filter { $0.localeIdentifier != best.localeIdentifier }
+        return others.allSatisfy { best.confidence >= $0.confidence + clearMargin } ? best : nil
+    }
+
     /// Which take the **live preview** should follow, while the words are still
     /// appearing.
     ///

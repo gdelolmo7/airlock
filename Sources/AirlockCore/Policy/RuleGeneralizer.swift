@@ -95,7 +95,7 @@ public enum RuleGeneralizer {
         return prefixes.reversed().map { prefix in
             let joined = prefix.joined(separator: " ")
             return RuleCandidate(text: "\(tool)(\(joined) *)",
-                                 summary: "Any `\(joined)` command",
+                                 summary: String(localized: "Any `\(joined)` command"),
                                  isExact: false)
         }
     }
@@ -111,14 +111,14 @@ public enum RuleGeneralizer {
         if directory != "/" && !directory.isEmpty {
             result.append(RuleCandidate(
                 text: "\(tool)(\(directory)/*)",
-                summary: "Any file in \(url.deletingLastPathComponent().lastPathComponent)/",
+                summary: String(localized: "Any file in \(url.deletingLastPathComponent().lastPathComponent)/"),
                 isExact: false))
         }
 
         let ext = url.pathExtension
         if !ext.isEmpty {
             result.append(RuleCandidate(text: "\(tool)(*.\(ext))",
-                                        summary: "Any .\(ext) file, anywhere",
+                                        summary: String(localized: "Any .\(ext) file, anywhere"),
                                         isExact: false))
         }
         return result
@@ -139,11 +139,8 @@ public enum RuleGeneralizer {
         guard let subject = PolicyRule.subject(of: request), !subject.isEmpty else {
             // The rule is written with the raw name; the promise is read by a
             // person. An MCP tool's raw name is `mcp__<uuid>__trelloWriteCard`.
-            return "Any use of \(ToolPhrase.name(request.toolName))"
+            return String(localized: "Any use of \(ToolPhrase.name(request.toolName))")
         }
-        if let spoken = VoiceActionCatalog.exactRuleSummary(toolName: request.toolName) {
-            return spoken
-        }
-        return request.toolName == "Bash" ? "Only this exact command" : "Only this file"
+        return request.toolName == "Bash" ? String(localized: "Only this exact command") : String(localized: "Only this file")
     }
 }

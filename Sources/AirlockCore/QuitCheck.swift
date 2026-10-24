@@ -64,13 +64,13 @@ public enum QuitCheck {
     /// launch writes the notes of any call that was cut off. So what is lost
     /// is the rest of the call, not what was already said.
     public static func question(inPerson: Bool) -> Question {
-        let what = inPerson ? "this meeting" : "this call"
         return Question(
-            title: "Airlock is taking notes",
-            message: "Quitting now stops the notes for \(what). What's been said so far is kept, "
-                + "and the notes are written from it when Airlock opens again.",
-            keep: "Keep taking notes",
-            quit: "Quit anyway"
+            title: String(localized: "Airlock is taking notes"),
+            message: inPerson
+                ? String(localized: "Quitting now stops the notes for this meeting. What's been said so far is kept, and the notes are written from it when Airlock opens again.")
+                : String(localized: "Quitting now stops the notes for this call. What's been said so far is kept, and the notes are written from it when Airlock opens again."),
+            keep: String(localized: "Keep taking notes"),
+            quit: String(localized: "Quit anyway")
         )
     }
 }

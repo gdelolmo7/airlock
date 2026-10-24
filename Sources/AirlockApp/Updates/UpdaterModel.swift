@@ -13,7 +13,7 @@ import AirlockCore
 ///
 /// **It is not the app's only outbound request**, which this comment and the
 /// General page both used to say: the licence server is contacted to activate
-/// a key and around renewal, the guide asks an online service, and crash
+/// a key and around renewal, call notes can be written online, and crash
 /// reports go out for anyone who said yes to them. What stays true is that a
 /// check is not telemetry: Sparkle asks for one XML file and sends no
 /// identifiers with it. Automatic checking is a setting, and somebody who

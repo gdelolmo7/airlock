@@ -50,9 +50,9 @@ public struct GitStatus: Equatable, Sendable {
 
         public var text: String {
             switch self {
-            case .conflicts(let count): count == 1 ? "1 conflict" : "\(count) conflicts"
-            case .changed(let count): "\(count) changed"
-            case .new(let count): "\(count) new"
+            case .conflicts(let count): count == 1 ? String(localized: "1 conflict") : String(localized: "\(count) conflicts")
+            case .changed(let count): String(localized: "\(count) changed")
+            case .new(let count): String(localized: "\(count) new")
             }
         }
     }
@@ -74,7 +74,7 @@ public struct GitStatus: Equatable, Sendable {
 
     /// The same facts as one line, for a place with no room for dots.
     public var factsLine: String {
-        isClean ? "clean" : facts.map(\.text).joined(separator: " · ")
+        isClean ? String(localized: "clean") : facts.map(\.text).joined(separator: " · ")
     }
 
     /// What stands where the branch name goes: the operation under way, since
@@ -82,7 +82,7 @@ public struct GitStatus: Equatable, Sendable {
     /// accident. "detached" was git's word for no branch, not a person's.
     public var headLabel: String {
         if let operation { return operation.label }
-        return branch ?? "No branch"
+        return branch ?? String(localized: "No branch")
     }
 }
 
@@ -93,10 +93,10 @@ public enum GitOperation: Equatable, Sendable {
 
     public var label: String {
         switch self {
-        case .rebase: "rebasing"
-        case .merge: "merging"
-        case .cherryPick: "cherry-picking"
-        case .revert: "reverting"
+        case .rebase: String(localized: "rebasing")
+        case .merge: String(localized: "merging")
+        case .cherryPick: String(localized: "cherry-picking")
+        case .revert: String(localized: "reverting")
         }
     }
 

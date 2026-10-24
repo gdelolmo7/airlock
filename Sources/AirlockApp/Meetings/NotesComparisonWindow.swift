@@ -44,7 +44,7 @@ final class NotesComparisonWindowController {
         let hosting = NSHostingController(rootView: view)
         hosting.sizingOptions = [.minSize]
         let window = NSWindow(contentViewController: hosting)
-        window.title = "What each plan writes"
+        window.title = String(localized: "What each plan writes")
         window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -58,7 +58,8 @@ final class NotesComparisonWindowController {
 }
 
 /// Three plan tiles across the top, each saying where its notes are written,
-/// how much of the call they heard and how many to-dos they found; under
+/// how much of the call they heard, how many to-dos they found and whether
+/// they told the voices apart; under
 /// them, the notes of the one picked, as one readable page. The foot offers
 /// only plans above the one this Mac is on.
 struct NotesComparisonView: View {
@@ -124,8 +125,7 @@ struct NotesComparisonView: View {
                     .font(Theme.chrome(19, .bold))
                     .foregroundStyle(Theme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
-                Text("The same \(NotesComparisonSample.minutes)-minute call, written by each plan. "
-                     + "Pick one to read its notes. An example call, not one of yours.")
+                Text("The same \(NotesComparisonSample.minutes)-minute call, written by each plan. Pick one to read its notes. An example call, not one of yours.")
                     .font(Theme.chrome(13))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -145,8 +145,7 @@ struct NotesComparisonView: View {
     /// Where the notes are written, and only the plans above this Mac's.
     private var foot: some View {
         HStack(spacing: 10) {
-            Text("Free notes are written on your Mac and never leave it. Plus and Pro write them online, "
-                 + "and no audio is kept.")
+            Text("Free notes are written on your Mac and never leave it. Plus and Pro write them online, and no audio is kept.")
                 .font(Theme.chrome(12))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -162,8 +161,9 @@ struct NotesComparisonView: View {
 }
 
 /// One plan, as a tile to pick: its name and tag, where its notes are
-/// written and by what, how much of the call they heard, and how many
-/// to-dos they found. The picked one takes its plan's colour.
+/// written and by what, how much of the call they heard, how many to-dos
+/// they found, and whether each voice was told apart. The picked one takes
+/// its plan's colour.
 private struct NotesComparisonTile: View {
     let plan: AirlockPlan
     let picked: Bool
@@ -195,7 +195,9 @@ private struct NotesComparisonTile: View {
                     .padding(.top, 10)
                 fact(heard, symbol: "waveform")
                     .padding(.top, 5)
-                fact("\(NotesComparisonSample.todos(plan)) to-dos found", symbol: "checklist")
+                fact(String(localized: "\(NotesComparisonSample.todos(plan)) to-dos found"), symbol: "checklist")
+                    .padding(.top, 5)
+                fact(voices, symbol: "person.2")
                     .padding(.top, 5)
             }
             .padding(14)
@@ -234,16 +236,24 @@ private struct NotesComparisonTile: View {
 
     private var written: String {
         switch plan {
-        case .free: "On your Mac, basic model"
-        case .plus: "Online, a better model"
-        case .pro: "Online, the best model"
+        case .free: String(localized: "On your Mac, basic model")
+        case .plus: String(localized: "Online, a better model")
+        case .pro: String(localized: "Online, the best model")
         }
     }
 
     private var heard: String {
         plan == .free
-            ? "First \(Int(NotesComparisonSample.freeListened / 60)) of \(NotesComparisonSample.minutes) minutes"
-            : "The whole call"
+            ? String(localized: "First \(Int(NotesComparisonSample.freeListened / 60)) of \(NotesComparisonSample.minutes) minutes")
+            : String(localized: "The whole call")
+    }
+
+    /// Who said what: `PlanLimits.tellsVoicesApart`, said as the transcript
+    /// shows it.
+    private var voices: String {
+        PlanSnapshot(plan: plan, isPaid: plan != .free).limits.tellsVoicesApart
+            ? String(localized: "Each voice told apart")
+            : String(localized: "Everyone else is \u{201C}Them\u{201D}")
     }
 }
 
@@ -260,8 +270,7 @@ private struct NotesComparisonPage: View {
                     Image(systemName: "clock")
                         .font(.system(size: 11, weight: .semibold))
                         .accessibilityHidden(true)
-                    Text("Free's notes stopped at \(Int(NotesComparisonSample.freeListened / 60)) minutes: "
-                         + "the last \(NotesComparisonSample.freeLeavesOut) aren't in them.")
+                    Text("Free's notes stopped at \(Int(NotesComparisonSample.freeListened / 60)) minutes: the last \(NotesComparisonSample.freeLeavesOut) aren't in them.")
                         .font(Theme.chrome(12.5))
                         .fixedSize(horizontal: false, vertical: true)
                 }

@@ -3,8 +3,8 @@ import XCTest
 
 /// The one decision in the levels card that a test can see.
 ///
-/// The card's view layer is out of reach of an assertion — `PanelSnapshot`
-/// renders only `ActionCardView` — so the rule was pulled into Core precisely
+/// The card's view layer is out of reach of an assertion, so the rule was
+/// pulled into Core precisely
 /// so this file could exist.
 final class LevelsFormTests: XCTestCase {
 

@@ -271,26 +271,26 @@ final class CallNotesLibrary {
     static func said(_ redo: CloudNotesService.Redo, plan: PlanSnapshot, locale: Locale = .current,
                      timeZone: TimeZone = .current) -> String? {
         func usedUp(_ until: Date) -> String {
-            MeetingFiles.allowanceUsedMacLead + ". Online notes are back on "
-                + "\(CloudNotesAllowance.day(until, locale: locale, timeZone: timeZone))."
-                + (plan.plan == .plus ? " " + MeetingFiles.proHasMore : "")
+            String(localized: "This month's online notes are used up.") + " "
+                + String(localized: "Online notes are back on \(CloudNotesAllowance.day(until, locale: locale, timeZone: timeZone)).")
+                + (plan.plan == .plus ? " " + String(localized: "Pro has twice as many.") : "")
         }
-        let offline = "This Mac is offline. Try again once it's back online."
+        let offline = String(localized: "This Mac is offline. Try again once it's back online.")
         switch redo {
         case .written: return nil
         case .allowanceUsed(let until): return usedUp(until)
         case .offline: return offline
-        case .failed: return "The online notes service didn't answer. Try again in a while."
+        case .failed: return String(localized: "The online notes service didn't answer. Try again in a while.")
         case .notSent(let reason):
             switch reason {
             case .allowanceUsed(let until): return usedUp(until)
             case .offline: return offline
-            case .settingOff: return "Writing notes online is switched off in Settings."
-            case .tooShort: return "Too little was said on this call for notes."
-            case .tooLong: return "This call is too long to send for notes online."
-            case .notSubscribed: return "Your plan writes notes on your Mac."
+            case .settingOff: return String(localized: "Writing notes online is switched off in Settings.")
+            case .tooShort: return String(localized: "Too little was said on this call for notes.")
+            case .tooLong: return String(localized: "This call is too long to send for notes online.")
+            case .notSubscribed: return String(localized: "Your plan writes notes on your Mac.")
             case .hiddenSwitchOff, .noToken, .noServer, .notEligible:
-                return "Online notes aren't available on this Mac right now."
+                return String(localized: "Online notes aren't available on this Mac right now.")
             }
         }
     }
@@ -576,7 +576,7 @@ final class CallNotesLibrary {
         AirlockCopy.put(text)
         let done = Copied(call: call.id, tab: tab)
         copied = done
-        AccessibilityNotification.Announcement("Copied").post()
+        AccessibilityNotification.Announcement(String(localized: "Copied")).post()
         copiedEnds?.cancel()
         copiedEnds = Task { [weak self] in
             try? await Task.sleep(for: MeetingNotesBanner.flashFor)
@@ -604,7 +604,7 @@ final class CallNotesLibrary {
             case .speech(let turn, _):
                 "\(record.label(for: turn)) · \(time(turn.start))\n\(turn.text)"
             case .jot(let jot):
-                "Your note · \(time(jot.at))\n\(jot.text)"
+                "\(String(localized: "Your note")) · \(time(jot.at))\n\(jot.text)"
             case .pause(let pause):
                 MeetingTimeline.pauseLabel(pause, clock: time)
             case .language(let listening):
@@ -883,7 +883,7 @@ private struct CallNotesListRow: View {
     /// read is as long as the recording.
     private var subline: String {
         let start = CallsCard.time(call.record.startedAt)
-        guard let end = call.record.shownEnd else { return "\(start) · now" }
+        guard let end = call.record.shownEnd else { return String(localized: "\(start) · now") }
         return "\(start) · \(CallsCard.length(from: call.record.startedAt, to: end))"
     }
 }
@@ -1093,16 +1093,16 @@ private struct CallNotesHeader: View {
     private func tools(compact: Bool, nameCompact: Bool = false) -> some View {
         HStack(spacing: 8) {
             if CallNotesLibrary.canName(call.record) {
-                CallNotesTool("Name people", symbol: "person.2", tone: .take, compact: nameCompact) {
+                CallNotesTool(String(localized: "Name people"), symbol: "person.2", tone: .take, compact: nameCompact) {
                     withAnimation(Motion.open.animation(reduceMotion: reduceMotion)) { library.naming = call.id }
                 }
             }
-            CallNotesTool("Copy", symbol: "doc.on.doc", compact: compact,
-                          confirmation: "Copied", confirmed: library.justCopied(call)) { library.copy(call) }
+            CallNotesTool(String(localized: "Copy"), symbol: "doc.on.doc", compact: compact,
+                          confirmation: String(localized: "Copied"), confirmed: library.justCopied(call)) { library.copy(call) }
             if live, let open = library.live?.openWindow {
-                CallNotesTool("Open in a window", symbol: "sidebar.right", tone: .live, compact: compact) { open() }
+                CallNotesTool(String(localized: "Open in a window"), symbol: "sidebar.right", tone: .live, compact: compact) { open() }
             }
-            CallNotesTool("Show in Finder", symbol: "folder", compact: compact) { library.reveal(call) }
+            CallNotesTool(String(localized: "Show in Finder"), symbol: "folder", compact: compact) { library.reveal(call) }
         }
         .fixedSize()
     }
@@ -1121,10 +1121,10 @@ private struct CallNotesHeader: View {
                     label("clock", CallLive.soFar(record, now: context.date))
                 }
             } else {
-                label("clock", record.shownEnd.map { CallsCard.length(from: record.startedAt, to: $0) } ?? "now")
+                label("clock", record.shownEnd.map { CallsCard.length(from: record.startedAt, to: $0) } ?? String(localized: "now"))
             }
             if record.recording != nil {
-                label("waveform", "From a recording")
+                label("waveform", String(localized: "From a recording"))
             }
             if let line {
                 HStack(spacing: 5) {
@@ -1307,7 +1307,7 @@ private struct CallNotesTabs: View {
         }
     }
 
-    private func item(_ title: String, _ symbol: String, _ value: CallNotesLibrary.Tab) -> some View {
+    private func item(_ title: LocalizedStringKey, _ symbol: String, _ value: CallNotesLibrary.Tab) -> some View {
         let on = tab == value
         return Button {
             withAnimation(Motion.swap.animation(reduceMotion: reduceMotion)) { tab = value }
@@ -1442,8 +1442,8 @@ private struct CallNotesReading: View {
                 .frame(height: 1)
                 .padding(.top, 18)
             HStack(spacing: 18) {
-                Text(reading.stopping ? "Stopping\u{2026}" : progress.timeLeftSentence
-                     + " You can close this window: Airlock carries on, and the notch shows a tick when the notes are ready.")
+                Text(reading.stopping ? String(localized: "Stopping\u{2026}") : progress.timeLeftSentence + " "
+                     + String(localized: "You can close this window: Airlock carries on, and the notch shows a tick when the notes are ready."))
                     .font(Theme.chrome(12))
                     .foregroundStyle(Theme.textSecondary)
                     .lineSpacing(3)
@@ -1765,7 +1765,7 @@ struct CallNotesCard: View {
     private func draw(_ line: MeetingPage.Placed, look: CallNotesCardLook, shared: Bool) -> some View {
         switch line.block {
         case .paragraph(let text):
-            Text(CallNotesItem.inline(text))
+            Text(CallNotesItem.inline(MeetingNotesShown.line(text)))
                 .font(Theme.chrome(look.kind == .summary ? 14 : 13.5))
                 .foregroundStyle(paragraphInk(look, yours: line.isYours))
                 .lineSpacing(look.kind == .summary ? 4 : 3)
@@ -1777,7 +1777,7 @@ struct CallNotesCard: View {
             // an open question says what it came up in.
             let question = section.heading == MeetingFiles.questionsHeading ? MeetingPage.question(text) : nil
             let others = shared ? MeetingOwners.others(owner) : []
-            let detail = question?.context ?? (others.isEmpty ? nil : "with " + others.joined(separator: ", "))
+            let detail = question?.context ?? (others.isEmpty ? nil : String(localized: "with \(others.map(MeetingRecord.shownLabel).joined(separator: ", "))"))
             let item = CallNotesItem(text: question?.text ?? text, checked: checked, owner: shared ? nil : owner,
                                      said: said, look: look, yours: line.isYours, people: people, detail: detail)
             if let at, let call {
@@ -1800,7 +1800,7 @@ struct CallNotesCard: View {
         case .heading(let text, _):
             // Only ever a section's own heading, drawn above; kept for a page
             // whose sections could not be told apart.
-            Text(text)
+            Text(MeetingNotesShown.heading(text))
                 .font(Theme.chrome(12, .bold))
                 .foregroundStyle(Theme.textPrimary)
         case .rule:
@@ -1837,7 +1837,7 @@ private struct CallNotesCardHead: View {
                     .font(.system(size: 13, weight: .semibold))
                     .accessibilityHidden(true)
             }
-            Text(heading)
+            Text(MeetingNotesShown.heading(heading))
                 .font(Theme.chrome(12, .bold))
             if look.kind != .summary, count > 0 {
                 Text("\(count)")
@@ -1875,7 +1875,7 @@ private struct CallNotesOwnerHead: View {
                     .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
             }
-            Text(owner ?? "Not assigned")
+            Text(owner.map(MeetingRecord.shownLabel) ?? String(localized: "Not assigned"))
                 .font(Theme.chrome(12, .semibold))
                 .foregroundStyle(CallsLook.quietText)
             Text("\(count)")
@@ -2150,9 +2150,9 @@ private struct CallNotesClosing: View {
                         if case .paragraph(let text) = line.block {
                             Group {
                                 if index == 0, offers.seePlus {
-                                    Text(CallNotesItem.inline(text)) + Text("  ") + seePlus
+                                    Text(CallNotesItem.inline(MeetingNotesShown.line(text))) + Text("  ") + seePlus
                                 } else {
-                                    Text(CallNotesItem.inline(text))
+                                    Text(CallNotesItem.inline(MeetingNotesShown.line(text)))
                                 }
                             }
                             .lineSpacing(2)
@@ -2179,7 +2179,7 @@ private struct CallNotesClosing: View {
 
     /// "See what Plus writes ›", a link inside the line so it wraps with it.
     private var seePlus: Text {
-        var link = AttributedString("See what Plus writes ›")
+        var link = AttributedString(localized: "See what Plus writes ›")
         link.link = Self.seePlusLink
         link.foregroundColor = PlanTag.plusText
         link.font = Theme.chrome(11.5, .semibold)
@@ -2204,7 +2204,7 @@ private struct CallNotesRedoButton: View {
     @Environment(CallNotesLibrary.self) private var library
     let call: CallNotesLibrary.Call
     let offers: CallNotesOffers
-    var title = "Redo with better notes"
+    var title = String(localized: "Redo with better notes")
 
     var body: some View {
         let busy = library.redoing == call.id
@@ -2220,7 +2220,7 @@ private struct CallNotesRedoButton: View {
                             .font(.system(size: 10.5, weight: .semibold))
                             .accessibilityHidden(true)
                     }
-                    Text(busy ? "Writing them again…" : title)
+                    Text(busy ? String(localized: "Writing them again…") : title)
                         .font(Theme.chrome(12, .medium))
                     if offers.redoTagged { PlanTag(.plus) }
                 }
@@ -2291,14 +2291,22 @@ private struct CallNotesNoticeBanner: View {
     private var look: Look? {
         switch notice {
         case .cover(let text):
-            return Look(symbol: "clock", text: Self.bold(text, from: "first ", to: [" of a", "."]))
+            var said = Self.bold(MeetingNotesShown.line(text), from: ["first ", "primer"], to: [" of a", " de una", "."],
+                                 keepingStart: true)
+            if let locked = lockedLine { said += AttributedString(" ") + locked }
+            return Look(symbol: "clock", text: said)
         case .allowanceUsed(let text):
-            return Look(symbol: "cloud", text: Self.bold(text, from: "back on ", to: ["."]))
+            return Look(symbol: "cloud", text: Self.bold(MeetingNotesShown.line(text), from: ["back on ", "vuelven el "],
+                                                         to: ["."]))
         case .waitingForAllowance(let text):
             return Look(symbol: "clock.badge.exclamationmark",
-                        text: Self.bold(text, from: "written on ", to: ["."]), warning: true)
-        case .waitingForService(let text), .waitingForNetwork(let text), .improvedOnline(let text):
-            return Look(symbol: "wifi.slash", text: AttributedString(text))
+                        text: Self.bold(MeetingNotesShown.afterNoNotesYet(text), from: ["written on ", "escribirán el "],
+                                        to: ["."]),
+                        warning: true)
+        case .waitingForService(let text), .waitingForNetwork(let text):
+            return Look(symbol: "wifi.slash", text: AttributedString(MeetingNotesShown.afterNoNotesYet(text)))
+        case .improvedOnline(let text):
+            return Look(symbol: "wifi.slash", text: AttributedString(MeetingNotesShown.line(text)))
         case .noModel:
             return nil
         }
@@ -2323,17 +2331,34 @@ private struct CallNotesNoticeBanner: View {
                         .disabled(library.redoing != nil)
                 }
             }
-        case .cover, .waitingForNetwork, .improvedOnline, .noModel:
+        case .cover:
+            if let part = call.record.locked, part.removedAt == nil, library.offering != nil {
+                seePlan("See Plus")
+            }
+        case .waitingForNetwork, .improvedOnline, .noModel:
             EmptyView()
         }
     }
 
-    private var seePro: some View {
+    /// After the cover line of a Free call heard past its limit: until when
+    /// the rest is kept, or that it was removed, with the day in bold.
+    private var lockedLine: AttributedString? {
+        guard let part = call.record.locked, let minutes = call.record.lockedMinutes else { return nil }
+        if let removed = part.removedAt {
+            return Self.bold(LockedCallWords.removed(minutes: minutes, on: removed),
+                             from: ["removed on ", "eliminaron el ", "eliminó el "], to: ["."])
+        }
+        return Self.bold(LockedCallWords.kept(minutes: minutes, until: part.keptUntil), from: ["until ", "hasta el "], to: ["."])
+    }
+
+    private var seePro: some View { seePlan("See Pro") }
+
+    private func seePlan(_ said: LocalizedStringKey) -> some View {
         Button {
             library.offering?.showPlans()
         } label: {
             HStack(spacing: 3) {
-                Text("See Pro")
+                Text(said)
                 Image(systemName: "chevron.right").font(.system(size: 9.5, weight: .bold))
             }
             .font(Theme.chrome(12.5, .semibold))
@@ -2344,15 +2369,17 @@ private struct CallNotesNoticeBanner: View {
         .fixedSize()
     }
 
-    /// `text` with the words from `from` up to the first of `to` in bold and
-    /// in the brighter grey: the minutes, the day.
-    static func bold(_ text: String, from start: String, to ends: [String]) -> AttributedString {
+    /// `text` with the words after the first of `starts` it holds, up to the
+    /// first of `ends`, in bold and in the brighter grey: the minutes, the
+    /// day. The starts are the same words in each language the app speaks.
+    static func bold(_ text: String, from starts: [String], to ends: [String],
+                     keepingStart: Bool = false) -> AttributedString {
         var said = AttributedString(text)
-        guard let opening = said.range(of: start) else { return said }
+        guard let opening = starts.lazy.compactMap({ said.range(of: $0) }).first else { return said }
         let rest = said[opening.upperBound...]
         guard let closing = ends.compactMap({ rest.range(of: $0) }).min(by: { $0.lowerBound < $1.lowerBound })
         else { return said }
-        let from = start == "first " ? opening.lowerBound : opening.upperBound
+        let from = keepingStart ? opening.lowerBound : opening.upperBound
         said[from..<closing.lowerBound].font = Theme.chrome(12.5, .semibold)
         said[from..<closing.lowerBound].foregroundColor = Theme.textPrimary
         return said
@@ -2406,22 +2433,19 @@ private struct CallNotesNoModel: View {
 
     private var title: String {
         switch empty {
-        case .turnOnAppleIntelligence: "Turn on Apple Intelligence to get notes and to-dos"
-        case .cantWriteNotes: "This Mac can't write notes itself"
+        case .turnOnAppleIntelligence: String(localized: "Turn on Apple Intelligence to get notes and to-dos")
+        case .cantWriteNotes: String(localized: "This Mac can't write notes itself")
         }
     }
 
     private var detail: String {
         switch empty {
         case .turnOnAppleIntelligence:
-            "Airlock writes call notes with Apple Intelligence, and it's switched off. "
-                + "The transcript of this call is ready."
+            String(localized: "Airlock writes call notes with Apple Intelligence, and it's switched off. The transcript of this call is ready.")
         case .cantWriteNotes where offers.seePlus:
-            "Apple Intelligence isn't available on this Mac, for example because of its region or language. "
-                + "Plus writes notes online, on any Mac. The transcript is ready."
+            String(localized: "Apple Intelligence isn't available on this Mac, for example because of its region or language. Plus writes notes online, on any Mac. The transcript is ready.")
         case .cantWriteNotes:
-            "Apple Intelligence isn't available on this Mac, for example because of its region or language. "
-                + "The transcript is ready."
+            String(localized: "Apple Intelligence isn't available on this Mac, for example because of its region or language. The transcript is ready.")
         }
     }
 
@@ -2448,7 +2472,7 @@ private struct CallNotesNoModel: View {
             }
             // A plan that writes notes online can have this call's now.
             if offers.redo == .rewritesOnline {
-                CallNotesRedoButton(call: call, offers: offers, title: "Write the notes online")
+                CallNotesRedoButton(call: call, offers: offers, title: String(localized: "Write the notes online"))
             }
         }
     }
@@ -2459,13 +2483,13 @@ private struct CallNotesNoModel: View {
 struct CallNotesOfferButton: View {
     enum Tone { case outline, light, plus, pro }
 
-    let title: String
+    let title: LocalizedStringKey
     let tone: Tone
     let action: () -> Void
 
     @State private var hovered = false
 
-    init(_ title: String, tone: Tone = .outline, action: @escaping () -> Void) {
+    init(_ title: LocalizedStringKey, tone: Tone = .outline, action: @escaping () -> Void) {
         self.title = title
         self.tone = tone
         self.action = action
@@ -2530,8 +2554,8 @@ private struct CallNotesUnwritten: View {
                 .foregroundStyle(Theme.textTertiary)
                 .frame(width: 14)
                 .accessibilityHidden(true)
-            Text(start.map { start in stretch.sentence(clock: { CallsCard.time($0, into: start) }) }
-                 ?? stretch.sentence)
+            Text(MeetingNotesShown.unwritten(stretch, clock: start.map { start in { CallsCard.time($0, into: start) } }
+                                                ?? MeetingFiles.clock))
                 .font(Theme.chrome(12.5).italic())
                 .foregroundStyle(Theme.textSecondary)
                 .lineSpacing(3)
@@ -2583,7 +2607,7 @@ private struct CallNotesItem: View {
             if let owner {
                 HStack(spacing: 5) {
                     CallPersonAvatar(name: owner, seat: CallPeople.seat(of: owner, in: people), size: 16)
-                    Text(owner)
+                    Text(MeetingRecord.shownLabel(owner))
                         .font(Theme.chrome(11.5, .semibold))
                         .foregroundStyle(CallsLook.quietText)
                         .lineLimit(1)
@@ -2723,7 +2747,8 @@ private struct CallTranscript: View {
     var body: some View {
         let entries = MeetingTimeline.shown(of: call.record)
         let people = CallPeople.people(of: call.record)
-        let hearing = live ? CallLive.speaking(library.live?.call.hearing ?? [:], paused: library.isPaused) : []
+        let hearing = live ? CallLive.speaking(library.live?.call.hearing ?? [:], paused: library.isPaused,
+                                                  in: call.record) : []
         if entries.isEmpty, hearing.isEmpty {
             CallNotesEmpty(title: "Nothing written down",
                            detail: call.record.endedAt == nil
@@ -2740,15 +2765,31 @@ private struct CallTranscript: View {
             // Asked once for the whole call: it reads every line, so asked
             // for each turn as it scrolled in, a long call stuttered.
             let nameable = CallNotesLibrary.canName(call.record)
+            let offering = library.offering
+            let voicesHint = offering.flatMap { offering in
+                FreeVoicesHint.shows(for: call.record, plan: offering.plan())
+                    ? Self.firstThem(entries, headed: headed.entries) : nil
+            }
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
                     row(entry, index: index, people: people, newest: index == newest,
                         headed: headed.entries[index], nameable: nameable,
                         carryingOn: index == entries.count - 1 ? carried?.text : nil)
                         .id(index)
+                    if index == voicesHint, let offering {
+                        CallTranscriptVoicesHint(who: FreeVoicesHint.who(of: call.record),
+                                                 showPlans: offering.showPlans)
+                    }
                 }
                 ForEach(Array(others.enumerated()), id: \.element.speaker) { index, heard in
                     hearingRow(heard, people: people, headed: headed.hearing[index])
+                }
+                if !live, let part = call.record.locked, part.removedAt == nil,
+                   let minutes = call.record.lockedMinutes, let endedAt = call.record.endedAt {
+                    CallTranscriptWaiting(minutes: minutes,
+                                          from: call.record.startedAt.addingTimeInterval(part.from),
+                                          to: endedAt, until: part.keptUntil,
+                                          showPlans: offering?.showPlans)
                 }
                 if live {
                     CallLiveListening(paused: library.isPaused, size: 12.5)
@@ -2784,11 +2825,22 @@ private struct CallTranscript: View {
     /// Where the words under a name start: past the face (24) and its gap.
     private static let underName: CGFloat = 35
 
+    /// The last line of the first "Them" turn, where the box saying Plus
+    /// tells voices apart goes: once a call, not under every line.
+    private static func firstThem(_ entries: [MeetingTimeline.Entry], headed: [Bool]) -> Int? {
+        func them(_ index: Int) -> Bool {
+            if case .speech(let turn, _) = entries[index] { turn.speaker == .them } else { false }
+        }
+        guard var last = entries.indices.first(where: them) else { return nil }
+        while last + 1 < entries.count, !headed[last + 1], them(last + 1) { last += 1 }
+        return last
+    }
+
     private func hearingTurn(_ hearing: CallLive.Hearing, name: String, seat: CallPeople.Seat) -> some View {
         HStack(alignment: .top, spacing: 11) {
             CallPersonAvatar(name: name, seat: seat, size: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
+                Text(MeetingRecord.shownLabel(name))
                     .font(Theme.chrome(12.5, .semibold))
                     .foregroundStyle(CallsLook.colour(for: seat))
                     .lineLimit(1)
@@ -2832,7 +2884,7 @@ private struct CallTranscript: View {
             }
             .padding(.horizontal, -10)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(call.record.label(for: turn)): \(turn.text)")
+            .accessibilityLabel("\(MeetingRecord.shownLabel(call.record.label(for: turn))): \(turn.text)")
             .accessibilityValue(marked ? "Marked" : "")
         case .speech(let turn, let marked):
             let name = call.record.label(for: turn)
@@ -2844,7 +2896,7 @@ private struct CallTranscript: View {
                         if nameable, let voice = call.record.voice(of: turn) {
                             CallTranscriptName(call: call, voice: voice, entry: index, name: name, seat: seat)
                         } else {
-                            Text(name)
+                            Text(MeetingRecord.shownLabel(name))
                                 .font(Theme.chrome(12.5, .semibold))
                                 .foregroundStyle(CallsLook.colour(for: seat))
                                 .lineLimit(1)
@@ -2922,7 +2974,7 @@ private struct CallTranscript: View {
 
     /// "20:58", and "20:58 · just now" on a line just said.
     private func time(_ turn: MeetingSegment, justNow: Bool) -> some View {
-        Text(justNow ? "\(clock(turn.start)) · just now" : clock(turn.start))
+        Text(justNow ? String(localized: "\(clock(turn.start)) · just now") : clock(turn.start))
             .font(Theme.chrome(11, .medium))
             .monospacedDigit()
             .foregroundStyle(Theme.textTertiary)
@@ -2954,6 +3006,110 @@ private struct CallTranscript: View {
     }
 }
 
+/// On Free, under the first "Them" turn of a call the invite says had two
+/// or more others on it: who showed as "Them", and that Plus tells each
+/// voice apart (`FreeVoicesHint`). Quiet grey, like "Who's who" says it.
+private struct CallTranscriptVoicesHint: View {
+    let who: String
+    let showPlans: @MainActor () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "person.2")
+                .font(.system(size: 11, weight: .medium))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(who)
+                Text(FreeVoicesHint.plusTells)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: showPlans) {
+                HStack(spacing: 3) {
+                    Text("See Plus")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9.5, weight: .bold))
+                }
+                .font(Theme.chrome(12, .semibold))
+                .foregroundStyle(PlanTag.plusText)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+            .clickable()
+            .help("Opens Airlock's plans")
+        }
+        .font(Theme.chrome(12))
+        .foregroundStyle(Theme.textSecondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(shape.fill(Color.white.opacity(0.025)))
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .padding(.leading, 35)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// At the end of a Free call's transcript, where the part heard past its
+/// limit would be: how long it is, until when it is kept, and Plus.
+private struct CallTranscriptWaiting: View {
+    let minutes: Int
+    let from: Date
+    let to: Date
+    let until: Date
+    let showPlans: (@MainActor () -> Void)?
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(PlanTag.plusText)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 7) {
+                    Text(LockedCallWords.waitingTitle(minutes: minutes))
+                        .font(Theme.chrome(13.5, .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                    PlanTag(.plus)
+                }
+                Text(LockedCallWords.waitingDetail(from: from, to: to, until: until))
+                    .font(Theme.chrome(12.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineSpacing(2)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let showPlans {
+                Button(action: showPlans) {
+                    HStack(spacing: 3) {
+                        Text("See Plus")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9.5, weight: .bold))
+                    }
+                    .font(Theme.chrome(12.5, .semibold))
+                    .foregroundStyle(PlanTag.plusText)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+                .clickable()
+                .help("Opens Airlock's plans")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(shape.fill(PlanTag.plusText.opacity(0.06)))
+        .overlay(shape.strokeBorder(PlanTag.plusText.opacity(0.28), lineWidth: 1))
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// "Marked", beside the time of a turn a mark reaches, in Airlock's purple.
 /// The window beside the call has it too.
 struct CallTranscriptMarked: View {
@@ -2974,8 +3130,8 @@ struct CallTranscriptMarked: View {
 }
 
 private struct CallNotesEmpty: View {
-    let title: String
-    let detail: String
+    let title: LocalizedStringKey
+    let detail: LocalizedStringKey
     /// The character above the words, asleep: only for the window with no
     /// call in it at all. Over a call's notes still being written, the call
     /// is what is shown, and nothing there is empty for good.

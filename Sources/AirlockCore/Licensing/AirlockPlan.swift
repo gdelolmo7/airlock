@@ -74,6 +74,11 @@ public struct PlanLimits: Equatable, Sendable {
     /// alone, like the clipboard: it runs on the Mac and costs nothing per call.
     public let tellsVoicesApart: Bool
 
+    /// Whether the drop box offers its Plus chips: WebP copies and cutting a
+    /// subject out (`DropChoice.needs`). Free sees them tagged, and a drop on
+    /// one keeps the file on the shelf.
+    public let dropBoxExtras: Bool
+
     /// What Free keeps of the clipboard.
     public static let freeClipboard = 100
     /// How long Free's call notes listen.
@@ -81,12 +86,13 @@ public struct PlanLimits: Equatable, Sendable {
 
     public init(writesNotesOnline: Bool, clipboardShows: Int? = nil,
                 oneAgentAtATime: Bool = false, notesListenFor: TimeInterval? = nil,
-                tellsVoicesApart: Bool = true) {
+                tellsVoicesApart: Bool = true, dropBoxExtras: Bool = true) {
         self.writesNotesOnline = writesNotesOnline
         self.clipboardShows = clipboardShows
         self.oneAgentAtATime = oneAgentAtATime
         self.notesListenFor = notesListenFor
         self.tellsVoicesApart = tellsVoicesApart
+        self.dropBoxExtras = dropBoxExtras
     }
 
     /// One thing a plan does that another does not, in words for people.
@@ -101,6 +107,9 @@ public struct PlanLimits: Equatable, Sendable {
         /// adds, never as something taken away: telling voices apart has only
         /// ever been on Plus and Pro, so no copy of Airlock had it for free.
         case voicesTogether
+        /// The drop box makes no WebP copies and removes no backgrounds. Said, like
+        /// `voicesTogether`, as what Plus adds.
+        case dropBoxBasics
         /// Notes were written online and are now written on the Mac.
         case notesOnTheMac
 
@@ -110,18 +119,19 @@ public struct PlanLimits: Equatable, Sendable {
         public func sentence(macWritesNotes: Bool) -> String {
             switch self {
             case .shorterClipboard:
-                "The clipboard shows your last \(PlanLimits.freeClipboard) copies. "
-                    + "Older ones are kept out of sight for \(ClipboardHistory.outOfSightDays) days."
+                String(localized: "The clipboard shows your last \(PlanLimits.freeClipboard) copies. Older ones are kept out of sight for \(ClipboardHistory.outOfSightDays) days.")
             case .oneAgentAtATime:
-                "The notch answers one coding agent at a time. Others ask in their own terminal."
+                String(localized: "The notch answers one coding agent at a time. Others ask in their own terminal.")
             case .shorterCallNotes:
-                "Call notes cover the first \(Int(PlanLimits.freeNotesListen / 60)) minutes of each call."
+                String(localized: "Call notes cover the first \(Int(PlanLimits.freeNotesListen / 60)) minutes of each call.")
             case .voicesTogether:
-                "Everyone on the other side of a call is \u{201C}Them\u{201D}. Telling voices apart comes with Plus."
+                String(localized: "Everyone on the other side of a call is \u{201C}Them\u{201D}. Telling voices apart comes with Plus.")
+            case .dropBoxBasics:
+                String(localized: "The drop box makes no WebP copies and removes no backgrounds. Both come with Plus.")
             case .notesOnTheMac:
                 macWritesNotes
-                    ? "Call notes are written on this Mac, not online."
-                    : "Calls keep their transcript. Notes need Apple Intelligence, or Plus."
+                    ? String(localized: "Call notes are written on this Mac, not online.")
+                    : String(localized: "Calls keep their transcript. Notes need Apple Intelligence, or Plus.")
             }
         }
 
@@ -132,6 +142,7 @@ public struct PlanLimits: Equatable, Sendable {
             case .oneAgentAtATime: "terminal"
             case .shorterCallNotes: "timer"
             case .voicesTogether: "person.2"
+            case .dropBoxBasics: "tray.and.arrow.down"
             case .notesOnTheMac: "text.bubble"
             }
         }
@@ -149,6 +160,7 @@ public struct PlanLimits: Equatable, Sendable {
             lost.append(.shorterCallNotes)
         }
         if tellsVoicesApart, !smaller.tellsVoicesApart { lost.append(.voicesTogether) }
+        if dropBoxExtras, !smaller.dropBoxExtras { lost.append(.dropBoxBasics) }
         if writesNotesOnline, !smaller.writesNotesOnline { lost.append(.notesOnTheMac) }
         return lost
     }
@@ -180,7 +192,8 @@ public struct PlanSnapshot: Codable, Equatable, Sendable {
                           clipboardShows: free ? PlanLimits.freeClipboard : nil,
                           oneAgentAtATime: free,
                           notesListenFor: free ? PlanLimits.freeNotesListen : nil,
-                          tellsVoicesApart: !free)
+                          tellsVoicesApart: !free,
+                          dropBoxExtras: !free)
     }
 
     /// The plan a task that started on `startedOn` runs under now: never less
@@ -203,21 +216,18 @@ public struct PlanSnapshot: Codable, Equatable, Sendable {
 /// rows come from that table: somebody who meets a limit a week in should
 /// remember having read it here, not feel caught out.
 public enum PlanSetupNote {
-    public static let title = "Airlock is free"
+    public static let title = String(localized: "You start on Free")
     public static var detail: String {
-        "No trial and no card. \(free) \(plus) See Settings › Plans whenever you like."
+        String(localized: "No trial and no card. \(free) \(plus) See Settings › Plans whenever you like.")
     }
 
     /// Free's three limits, in the order the Free card lists them.
     static var free: String {
-        "On Free, the clipboard shows your last \(PlanLimits.freeClipboard) copies, the notch "
-            + "answers one coding agent at a time, and call notes cover the first "
-            + "\(Int(PlanLimits.freeNotesListen / 60)) minutes of each call."
+        String(localized: "On Free, the clipboard shows your last \(PlanLimits.freeClipboard) copies, the notch answers one coding agent at a time, and call notes cover the first \(Int(PlanLimits.freeNotesListen / 60)) minutes of each call.")
     }
 
     /// What Plus adds over them, and its smaller price.
     static var plus: String {
-        "Plus covers whole calls, writes the notes online, tells voices apart and answers "
-            + "every agent, from \(License.Period.monthly.price)."
+        String(localized: "Plus covers whole calls, writes the notes online, tells voices apart and answers every agent, from \(License.Period.monthly.price).")
     }
 }

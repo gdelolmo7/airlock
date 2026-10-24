@@ -69,14 +69,13 @@ public struct CalendarSelection: Equatable, Sendable {
     /// `CalendarWidgetModel.fetch` does with it too.
     public func summary(amongst all: [String]) -> String {
         guard let chosen else {
-            return "Nobody has picked yet, so all \(all.count) are read — including any you add later."
+            return String(localized: "Nobody has picked yet, so all \(all.count) are read — including any you add later.")
         }
         let ticked = all.filter(chosen.contains).count
         guard ticked > 0 else {
-            return "Nothing is ticked, so the calendar shows no events. Tick one to bring it back."
+            return String(localized: "Nothing is ticked, so the calendar shows no events. Tick one to bring it back.")
         }
-        return "Reading \(ticked) of \(all.count). Now that you have picked, a calendar added later "
-            + "stays off until you tick it too."
+        return String(localized: "Reading \(ticked) of \(all.count). Now that you have picked, a calendar added later stays off until you tick it too.")
     }
 
     /// What goes into UserDefaults. Sorted so a re-store is a no-op diff, and

@@ -30,7 +30,7 @@ final class SoundsTests: XCTestCase {
         moments.announce(.gateArrived, now: t0)
         rig.now = t0.addingTimeInterval(2)
         moments.announce(.approved, now: rig.now)
-        moments.announce(.guideEnded, now: rig.now)
+        moments.announce(.agentFailed, now: rig.now)
         moments.announce(.agentFinished, now: rig.now)
         XCTAssertEqual(rig.played, ["AirlockNeedsYou", "AirlockDone"])
         _ = sounds
@@ -42,7 +42,7 @@ final class SoundsTests: XCTestCase {
         let sounds = make(rig, moments)
         moments.announce(.approved, now: t0)
         rig.now = t0.addingTimeInterval(1)
-        moments.announce(.guideEnded, now: rig.now)
+        moments.announce(.agentFailed, now: rig.now)
         XCTAssertEqual(rig.played, ["AirlockApproved", "AirlockWentWrong"])
         _ = sounds
     }

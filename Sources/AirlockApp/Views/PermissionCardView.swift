@@ -134,7 +134,7 @@ struct PermissionCardView: View {
             HStack(spacing: 5) {
                 Image(systemName: "bubble.left.fill")
                     .font(.system(size: 9, weight: .bold))
-                Text(question.header ?? "\(session.agent.displayName) asks")
+                Text(question.header ?? String(localized: "\(session.agent.displayName) asks"))
                     .font(Theme.chrome(11, .semibold))
                 if question.multiSelect {
                     // The one word that changes what every row below means. A
@@ -256,7 +256,7 @@ struct PermissionCardView: View {
             restoreDraft(next)
         case let .finished(reply):
             walk = next
-            model.answer(session, choice: reply)
+            model.answer(session, choice: reply, answers: next.answersByQuestion)
         }
     }
 
@@ -342,8 +342,8 @@ struct PermissionCardView: View {
 
     /// The field's words: an invitation beside options, the whole answer
     /// where there are none.
-    static let wordsPlaceholder = "None of these? Answer in your own words…"
-    static let wordsOnlyPlaceholder = "Answer in your own words…"
+    static let wordsPlaceholder = String(localized: "None of these? Answer in your own words…")
+    static let wordsOnlyPlaceholder = String(localized: "Answer in your own words…")
 
     private func freeTextRow(placeholder: String) -> some View {
         HStack(spacing: 6) {
@@ -503,10 +503,10 @@ struct PermissionCardView: View {
     /// "Send 2", "Next (1)" — or, with nothing ticked, what it needs.
     private var sendLabel: String {
         if picked.isEmpty { return Self.pickFirst }
-        return liveWalk.isLast ? "Send \(picked.count)" : "Next (\(picked.count))"
+        return liveWalk.isLast ? String(localized: "Send \(picked.count)") : String(localized: "Next (\(picked.count))")
     }
 
-    static let pickFirst = "Tick at least one"
+    static let pickFirst = String(localized: "Tick at least one")
 
     private func toggle(_ label: String) {
         picks[liveWalk.step, default: []].formSymmetricDifference([label])
@@ -660,12 +660,12 @@ struct PermissionCardView: View {
                 // button and Approve is outlined in the warning colour. The
                 // keys and the order stay put, so a hand that knows ⌘Y is not
                 // retrained — only the eye is told which one is the safe one.
-                actionButton("Approve", shortcut: showsShortcuts ? "Y" : nil,
+                actionButton(String(localized: "Approve"), shortcut: showsShortcuts ? "Y" : nil,
                              fg: isRisky ? Theme.danger : Color(red: 0.02, green: 0.15, blue: 0.06),
                              bg: isRisky ? Theme.danger.opacity(0.12) : Theme.done,
                              bordered: isRisky, border: Theme.danger.opacity(0.5)) { answer(.allowOnce) }
                     .keyboardShortcut(key(KeyboardShortcut("y", modifiers: .command)))
-                actionButton("Deny", shortcut: showsShortcuts ? "N" : nil,
+                actionButton(String(localized: "Deny"), shortcut: showsShortcuts ? "N" : nil,
                              fg: isRisky ? Color(red: 0.08, green: 0.08, blue: 0.09) : Theme.textPrimary,
                              bg: isRisky ? Theme.textPrimary : Color.white.opacity(0.08)) { answer(.deny) }
                     .keyboardShortcut(key(KeyboardShortcut("n", modifiers: .command)))
@@ -673,7 +673,7 @@ struct PermissionCardView: View {
                 // before any allow rule, so on a risky card "Always" wrote a
                 // rule that never fired and the card came back every time.
                 if request.offersAlways {
-                    actionButton("Always", shortcut: nil, fg: Theme.textSecondary,
+                    actionButton(String(localized: "Always"), shortcut: nil, fg: Theme.textSecondary,
                                  bg: .clear, bordered: true) { answer(.alwaysAllow) }
                         .help(rulesInWords
                               ? "Allows \(Self.lowercasedFirst(alwaysRule.summary)) from now on"
@@ -692,8 +692,7 @@ struct PermissionCardView: View {
                     if rulesInWords {
                         Text("Always allows \(Self.lowercasedFirst(alwaysRule.summary))")
                     } else {
-                        Text("Always writes ")
-                            + Text(alwaysRule.text).font(Theme.code)
+                        Text("Always writes \(Text(alwaysRule.text).font(Theme.code))")
                     }
                     Spacer(minLength: 0)
                 }

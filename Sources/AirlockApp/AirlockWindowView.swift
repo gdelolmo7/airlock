@@ -33,7 +33,7 @@ struct AirlockWindowView: View {
             .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
             .overlay {
                 HStack(spacing: 0) {
-                    LookSidebar(pages: SettingsPane.sidebar(),
+                    LookSidebar(pages: SettingsPane.sidebarCases,
                                 selection: Binding(get: { model.pane.resolved },
                                                    set: { model.pane = $0; query = "" }),
                                 calls: callsRow,

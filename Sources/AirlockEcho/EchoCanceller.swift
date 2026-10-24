@@ -16,6 +16,18 @@ import Accelerate
 /// own back when the learner goes wrong. That is what keeps it steady while
 /// both people talk at once, which is when a learning filter drifts.
 ///
+/// **Never louder than the microphone.** Taking a prediction away can only
+/// make the microphone quieter when the prediction is right; a filter that
+/// learned from your voice over a near-silent speaker predicts a roar the
+/// next time the speakers play, and taking that away adds it, turned
+/// around: the other side, louder than the microphone ever heard it, then
+/// turned down by the suppressor to about the level of your voice. On a
+/// call that wrote the other side down as you for minutes, the filter's
+/// leftover thirty times the microphone's. So a block whose leftover comes
+/// out louder than the microphone gives the microphone instead, and a
+/// copy whose leftover stays louder than the microphone for a few tenths
+/// of a second is wiped and learns again.
+///
 /// **2. A suppressor for what is left.** No filter takes all of it: the
 /// speakers distort, the room moves. The suppressor estimates, per
 /// frequency, how much of what is left is still the speakers, and turns that
@@ -52,6 +64,12 @@ final class EchoCanceller {
     /// Speaker blocks quieter than this (mean square) teach the filter
     /// nothing: there is nothing in them to learn from.
     static let quietReference: Float = 1e-8
+    /// How much of the long energies each block keeps: about a third of a
+    /// second (`slowMic`).
+    static let slowKeep: Float = 0.95
+    /// A copy whose leftover stays this much louder than the microphone
+    /// (about 1 dB) is wiped.
+    static let worseThanMic: Float = 1.25
 
     private let n = block
     private let fft = EchoFFT(size: 2 * block)
@@ -69,6 +87,11 @@ final class EchoCanceller {
     private var micEnergy: Float = 0
     private var usedEnergy: Float = 0
     private var learningEnergy: Float = 0
+    // The same over about a third of a second: what tells a copy gone
+    // wrong from one block it got wrong.
+    private var slowMic: Float = 0
+    private var slowUsed: Float = 0
+    private var slowLearning: Float = 0
 
     // Suppressor: smoothed spectra of the leftover and the prediction,
     // their cross-spectrum, the leftover ratio per frequency, and the
@@ -100,6 +123,10 @@ final class EchoCanceller {
     private(set) var leftAfterAll: Double = 0
     private(set) var takeovers = 0
     private(set) var handbacks = 0
+    /// Copies wiped for making the microphone louder, and blocks given
+    /// back as the microphone for it.
+    private(set) var wipes = 0
+    private(set) var passedThrough = 0
 
     init() {
         let bins = Self.block
@@ -149,6 +176,9 @@ final class EchoCanceller {
         micEnergy = 0
         usedEnergy = 0
         learningEnergy = 0
+        slowMic = 0
+        slowUsed = 0
+        slowLearning = 0
     }
 
     /// One block in (`mic` and the speakers' `reference`, lined up, `block`
@@ -186,9 +216,12 @@ final class EchoCanceller {
         micEnergy = 0.6 * micEnergy + 0.4 * micNow
         usedEnergy = 0.6 * usedEnergy + 0.4 * usedNow
         learningEnergy = 0.6 * learningEnergy + 0.4 * learningNow
+        let keep = Self.slowKeep
+        slowMic = keep * slowMic + (1 - keep) * micNow
+        slowLearning = keep * slowLearning + (1 - keep) * learningNow
         var leftover = leftoverUsed
         var prediction = predictionUsed
-        if learningEnergy < 0.85 * usedEnergy && learningEnergy < micEnergy {
+        if learningEnergy < 0.85 * usedEnergy && learningEnergy < micEnergy && slowLearning <= slowMic {
             for index in 0..<Self.partitions { used[index].copy(from: learning[index]) }
             usedEnergy = learningEnergy
             leftover = leftoverLearning
@@ -197,7 +230,29 @@ final class EchoCanceller {
         } else if learningEnergy > 4 * usedEnergy && learningEnergy > micEnergy {
             for index in 0..<Self.partitions { learning[index].copy(from: used[index]) }
             learningEnergy = usedEnergy
+            slowLearning = slowUsed
             handbacks += 1
+        }
+        slowUsed = keep * slowUsed + (1 - keep) * Self.sumOfSquares(leftover)
+
+        // Never louder than the microphone: a copy that stays louder is
+        // wiped, and a block that comes out louder is the microphone.
+        if slowLearning > Self.worseThanMic * slowMic {
+            for index in 0..<Self.partitions { learning[index].zero() }
+            learningEnergy = micEnergy
+            slowLearning = slowMic
+            wipes += 1
+        }
+        if slowUsed > Self.worseThanMic * slowMic {
+            for index in 0..<Self.partitions { used[index].zero() }
+            usedEnergy = micEnergy
+            slowUsed = slowMic
+            wipes += 1
+        }
+        if Self.sumOfSquares(leftover) > Self.worseThanMic * micNow {
+            leftover = Array(mic)
+            prediction = [Float](repeating: 0, count: n)
+            passedThrough += 1
         }
 
         suppress(prediction: prediction, leftover: leftover,

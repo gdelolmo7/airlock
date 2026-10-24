@@ -39,24 +39,24 @@ import AirlockCore
 final class SystemControlsModel {
     /// Said when macOS turns the Wi-Fi switch down. Static so the state
     /// gallery draws the same sentence.
-    static let wifiRefused = "macOS didn't let Airlock change Wi-Fi. Use the Wi-Fi menu in the menu bar instead."
-    static let noWiFi = "This Mac has no Wi-Fi."
+    static let wifiRefused = String(localized: "macOS didn't let Airlock change Wi-Fi. Use the Wi-Fi menu in the menu bar instead.")
+    static let noWiFi = String(localized: "This Mac has no Wi-Fi.")
     /// Automation refused for System Events. Names the permission, never the
     /// app being controlled: "System Events" is a name only scripts use.
-    static let appearanceRefused = "Dark mode needs the Automation permission."
-    static let appearanceFailed = "macOS didn't change the appearance."
+    static let appearanceRefused = String(localized: "Dark mode needs the Automation permission.")
+    static let appearanceFailed = String(localized: "macOS didn't change the appearance.")
     /// Said beside a press, not instead of it: the tool still runs, so the
     /// first press is still the one macOS asks on.
-    static let screenshotNeedsPermission = "Screenshots need the Screen Recording permission."
-    static let recordingNeedsPermission = "Recording needs the Screen Recording permission."
+    static let screenshotNeedsPermission = String(localized: "Screenshots need Screen & System Audio Recording.")
+    static let recordingNeedsPermission = String(localized: "Recording needs Screen & System Audio Recording.")
     /// The tool would not even open, so there is no reason to give beyond
     /// that — only the macOS shortcut that does the same job.
-    static let screenshotDidNotStart = "The screenshot tool didn't open. Press ⇧⌘4 to take one instead."
-    static let recorderDidNotStart = "The screen recorder didn't open. Press ⇧⌘5 to record from there instead."
-    static let displaySleepDidNotStart = "The display didn't go to sleep."
+    static let screenshotDidNotStart = String(localized: "The screenshot tool didn't open. Press ⇧⌘4 to take one instead.")
+    static let recorderDidNotStart = String(localized: "The screen recorder didn't open. Press ⇧⌘5 to record from there instead.")
+    static let displaySleepDidNotStart = String(localized: "The display didn't go to sleep.")
     /// Under the rail while an agent holds the Mac awake and the switch is
     /// off, so the cup in the notch and the unlit button stop disagreeing.
-    static let heldForAgentsNote = "Staying awake while an agent works."
+    static let heldForAgentsNote = String(localized: "Staying awake while an agent works.")
 
     /// Why the last press did nothing, and the page that fixes it when there
     /// is one — a refusal with nowhere to go was half an answer.
@@ -130,12 +130,12 @@ final class SystemControlsModel {
         /// arrange mode's chip, so the same button has one name in both.
         var title: String {
             switch self {
-            case .wifi: return "Wi-Fi"
-            case .awake: return "Awake"
-            case .dark: return "Dark"
-            case .capture: return "Screenshot"
-            case .record: return "Record"
-            case .sleepDisplay: return "Sleep"
+            case .wifi: return String(localized: "Wi-Fi")
+            case .awake: return String(localized: "Awake")
+            case .dark: return String(localized: "Dark")
+            case .capture: return String(localized: "Screenshot")
+            case .record: return String(localized: "Record")
+            case .sleepDisplay: return String(localized: "Sleep")
             }
         }
 
@@ -164,12 +164,12 @@ final class SystemControlsModel {
 
         var accessibilityLabel: String {
             switch self {
-            case .wifi: return "Wi-Fi"
-            case .awake: return "Keep this Mac awake"
-            case .dark: return "Dark appearance"
-            case .capture: return "Take a screenshot"
-            case .record: return "Record the screen"
-            case .sleepDisplay: return "Put the display to sleep"
+            case .wifi: return String(localized: "Wi-Fi")
+            case .awake: return String(localized: "Keep this Mac awake")
+            case .dark: return String(localized: "Dark appearance")
+            case .capture: return String(localized: "Take a screenshot")
+            case .record: return String(localized: "Record the screen")
+            case .sleepDisplay: return String(localized: "Put the display to sleep")
             }
         }
 
@@ -178,7 +178,7 @@ final class SystemControlsModel {
         /// the choices live behind this. Nil for the rest.
         var menuLabel: String? {
             switch self {
-            case .awake: return "How long to keep this Mac awake"
+            case .awake: return String(localized: "How long to keep this Mac awake")
             case .wifi, .dark, .capture, .record, .sleepDisplay: return nil
             }
         }

@@ -184,21 +184,19 @@ final class SettingsModel {
     /// Puts the window back where it was left on the last run. Called once,
     /// by the window's owner, before it is first shown; until then nothing
     /// is written, so a page set while restoring is not remembered as a move.
-    func restorePlace(guideOn: Bool = SettingsPane.guideIsOn, defaults: UserDefaults = .standard) {
+    func restorePlace(defaults: UserDefaults = .standard) {
         let place = Self.place(pane: defaults.string(forKey: Self.paneKey),
-                               showsCalls: defaults.bool(forKey: Self.callsKey), guideOn: guideOn)
+                               showsCalls: defaults.bool(forKey: Self.callsKey))
         pane = place.pane
         showsCalls = place.showsCalls
         remembers = defaults
     }
 
     /// Where a remembered place puts the window: the page if the column
-    /// still has it (a guide page is gone from a build without the guide),
-    /// else General.
-    static func place(pane stored: String?, showsCalls: Bool,
-                      guideOn: Bool) -> (pane: SettingsPane, showsCalls: Bool) {
+    /// still has it, else General.
+    static func place(pane stored: String?, showsCalls: Bool) -> (pane: SettingsPane, showsCalls: Bool) {
         guard let pane = stored.flatMap(SettingsPane.init(rawValue:))?.resolved,
-              SettingsPane.sidebar(guideOn: guideOn).contains(pane) else { return (.general, showsCalls) }
+              SettingsPane.sidebarCases.contains(pane) else { return (.general, showsCalls) }
         return (pane, showsCalls)
     }
 
@@ -271,7 +269,7 @@ final class SettingsModel {
             }
         } catch {
             Self.log.error("login item change failed: \(error.localizedDescription, privacy: .private)")
-            launchAtLoginNote = "Login Items couldn't be changed. Try it in System Settings › General › Login Items."
+            launchAtLoginNote = String(localized: "Login Items couldn't be changed. Try it in System Settings › General › Login Items.")
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
@@ -351,11 +349,14 @@ final class SettingsModel {
             }
         } catch SettingsError.hookBinaryMissing {
             Self.log.error("connect: the hook binary is missing from the bundle")
-            setError("Part of Airlock is missing. Reinstall it, then try again.", for: row.kind)
+            setError(String(localized: "Part of Airlock is missing. Reinstall it, then try again."), for: row.kind)
         } catch {
             Self.log.error("connect/disconnect failed: \(error.localizedDescription, privacy: .private)")
-            let what = row.status == .installed ? "disconnected" : "connected"
-            setError("\(row.kind.displayName) couldn't be \(what). \(PlainProblem.file(error))", for: row.kind)
+            let name = row.kind.displayName
+            let problem = PlainProblem.file(error)
+            setError(row.status == .installed
+                     ? String(localized: "\(name) couldn't be disconnected. \(problem)")
+                     : String(localized: "\(name) couldn't be connected. \(problem)"), for: row.kind)
         }
         refresh()
     }
@@ -374,7 +375,7 @@ final class SettingsModel {
             try store.writeTemplateIfMissing(projectRoot: policyScope.projectRoot)
         } catch {
             Self.log.error("starter rules failed: \(error.localizedDescription, privacy: .private)")
-            policy.problems.append("Your rules file couldn't be made. \(PlainProblem.file(error))")
+            policy.problems.append(String(localized: "Your rules file couldn't be made. \(PlainProblem.file(error))"))
         }
         refresh()
     }
@@ -385,13 +386,13 @@ final class SettingsModel {
         policyNote = nil
         do {
             if try store.add(text, kind: kind, projectRoot: policyScope.projectRoot) {
-                policyNote = "Added \(kind.label.lowercased()) rule \(text)."
+                policyNote = String(localized: "Added \(kind.label.lowercased()) rule \(text).")
             } else {
-                policyNote = "\(text) is already in the \(kind.label.lowercased()) list."
+                policyNote = String(localized: "\(text) is already in the \(kind.label.lowercased()) list.")
             }
         } catch {
             Self.log.error("rule write failed: \(error.localizedDescription, privacy: .private)")
-            policyNote = "Your rules couldn't be saved. \(PlainProblem.file(error))"
+            policyNote = String(localized: "Your rules couldn't be saved. \(PlainProblem.file(error))")
         }
         refresh()
     }
@@ -415,7 +416,7 @@ final class SettingsModel {
 
     func clearGateHistory() {
         gateLogStore.delete()
-        policyNote = "Cleared the request history."
+        policyNote = String(localized: "Cleared the request history.")
         refresh()
     }
 
@@ -423,18 +424,18 @@ final class SettingsModel {
         policyNote = nil
         do {
             if try store.remove(rule.canonicalText, kind: kind, projectRoot: policyScope.projectRoot) {
-                policyNote = "Removed \(rule.text)."
+                policyNote = String(localized: "Removed \(rule.text).")
             } else {
                 // The list is read from the merged policy, which includes
                 // project files this pane does not edit.
                 // Once the pane edits ONE named file, a failed remove is not
                 // "it came from somewhere else" — it means the file changed
                 // under you.
-                policyNote = "\(rule.text) is no longer in \((scopedPolicy.path as NSString).lastPathComponent) — it may have been edited outside Airlock."
+                policyNote = String(localized: "\(rule.text) is no longer in \((scopedPolicy.path as NSString).lastPathComponent) — it may have been edited outside Airlock.")
             }
         } catch {
             Self.log.error("rule write failed: \(error.localizedDescription, privacy: .private)")
-            policyNote = "Your rules couldn't be saved. \(PlainProblem.file(error))"
+            policyNote = String(localized: "Your rules couldn't be saved. \(PlainProblem.file(error))")
         }
         refresh()
     }

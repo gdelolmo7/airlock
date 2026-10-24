@@ -6,7 +6,7 @@ import AirlockCore
 /// **No `DictationModel` is ever built here.** Its init builds the audio
 /// engine, the hold-key taps and the speech session, which is the microphone
 /// path the gallery must not touch. What the island draws is reachable without
-/// it: `ListeningStrip`, the two cards and `HoldNoticeCard` take plain values.
+/// it: `ListeningStrip`, `HeardNothingCard` and `HoldNoticeCard` take plain values.
 /// What is left is Settings › Dictation, which needs the live model — those
 /// rows say so instead of being faked.
 @MainActor
@@ -18,7 +18,6 @@ enum GalleryDictation {
             strip("T1", "Listening, no words yet", words: ""),
             strip("T2", "Listening with words", words: words),
             strip("T3", "No text field (\"Release to copy it\")", words: words, route: .copy),
-            strip("T4", "Asking (purple)", words: "What's on my calendar tomorrow morning", asking: true),
             strip("T5", "Key released, still finishing the last words", words: words, finishing: true),
             strip("T6", "Tidying up", words: words, listening: false),
             strip("T6a", "Tidying up before any words showed (no grey \"…\" above it)", words: "", listening: false),
@@ -30,18 +29,12 @@ enum GalleryDictation {
                 HeardNothingCard(silent: .init(device: "AirPods Pro", cause: .tooShort),
                                  chooseInput: {}, dismiss: {})
             },
-            GalleryState("T9", area, "Sounded like dictation") {
-                HeardDictationCard(card: .init(text: "Just review the open pull request and come up with a plan for the failing tests",
-                                               app: "Terminal", certain: true),
-                                   keyHint: DictationModel.askKeyHint(askKey: .option, holdKey: .control),
-                                   canAsk: true, type: {}, ask: {}, guide: {}, dismiss: {})
-            },
             .notYet("T10", area, "Can't type (no Accessibility)",
-                    why: "A notification plus a line in Settings › Dictation. " + needsModel),
+                    why: "The notch card is T23. The notification and the line in Settings › Voice: " + needsModel),
             .notYet("T11", area, "Input Monitoring missing / stale",
                     why: "A notification plus the Permissions rows in Settings. " + needsModel),
             notice("T12", "Microphone allowed after macOS's prompt (the hold before was spent on it)",
-                   .microphoneAllowed(key: HoldKeyMonitor.Key.control.displayName, asking: false)),
+                   .microphoneAllowed(key: HoldKeyMonitor.Key.control.displayName)),
             notice("T13", "Nothing caught", .nothingCaught(key: HoldKeyMonitor.Key.control.displayName)),
             notice("T14", "Nothing to type into", .copiedNowhereToType),
             notice("T15", "Microphone denied", .microphoneDenied),
@@ -54,10 +47,11 @@ enum GalleryDictation {
             GalleryState("T21", area, "Secure input on (above the hold it slowed down)") {
                 VStack(alignment: .leading, spacing: 8) {
                     HoldNoticeCard(notice: .secureInput(holder: "1Password"))
-                    listeningStrip(words: "", route: .type, asking: false, listening: true)
+                    listeningStrip(words: "", route: .type, listening: true)
                 }
             },
             notice("T22", "A key or click while talking (words copied, not typed)", .copiedAfterKeyOrClick),
+            notice("T23", "Can't type yet (no Accessibility): words copied, button to the switch", .copiedCantTypeYet),
         ]
     }
 
@@ -73,16 +67,15 @@ enum GalleryDictation {
     /// The hold itself, as the open notch draws it. Levels are made-up peaks —
     /// a quiet room, or a mid-sentence wave — scaled the way the live meter is.
     private static func strip(_ id: String, _ name: String, words: String, route: DictationRoute = .type,
-                              asking: Bool = false, listening: Bool = true, finishing: Bool = false) -> GalleryState {
+                              listening: Bool = true, finishing: Bool = false) -> GalleryState {
         GalleryState(id, area, name) {
-            listeningStrip(words: words, route: route, asking: asking, listening: listening, finishing: finishing)
+            listeningStrip(words: words, route: route, listening: listening, finishing: finishing)
         }
     }
 
-    private static func listeningStrip(words: String, route: DictationRoute, asking: Bool,
+    private static func listeningStrip(words: String, route: DictationRoute,
                                        listening: Bool, finishing: Bool = false) -> ListeningStrip {
-        ListeningStrip(isListening: listening, isFinishing: finishing, isSorting: false, isAsking: asking,
-                       askRoute: nil,
+        ListeningStrip(isListening: listening, isFinishing: finishing,
                        route: route, destinationName: route == .copy ? "Finder" : "Notes",
                        liveText: words,
                        inputLevels: (words.isEmpty || !listening

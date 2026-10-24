@@ -41,7 +41,7 @@ final class PlansTests: XCTestCase {
     func testWhatIsLostGoingToFree() {
         let free = PlanSnapshot.free.limits
         let limits: [PlanLimits.Difference] = [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes,
-                                               .voicesTogether]
+                                               .voicesTogether, .dropBoxBasics]
         XCTAssertEqual(plus.limits.lost(goingTo: free), limits + [.notesOnTheMac])
         XCTAssertEqual(pro.limits.lost(goingTo: free), limits + [.notesOnTheMac])
         XCTAssertEqual(trial.limits.lost(goingTo: free), limits, "a trial never wrote notes online")
@@ -181,12 +181,13 @@ final class PlansTests: XCTestCase {
         let afterTrial = try XCTUnwrap(FreeCard.due(entitlement: .free,
                                                     before: PlanBefore(plan: trial, ending: .trial, endedOn: ended),
                                                     seen: false))
-        XCTAssertEqual(afterTrial.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether])
+        XCTAssertEqual(afterTrial.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether,
+                                             .dropBoxBasics])
         let afterPro = try XCTUnwrap(FreeCard.due(entitlement: .free,
                                                   before: PlanBefore(plan: pro, ending: .subscription, endedOn: ended),
                                                   seen: false))
         XCTAssertEqual(afterPro.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether,
-                                           .notesOnTheMac])
+                                           .dropBoxBasics, .notesOnTheMac])
     }
 
     private func message(_ before: PlanBefore, now: Date) -> String {
@@ -225,7 +226,7 @@ final class PlansTests: XCTestCase {
 
     /// Setup promises no trial, and names only what Plus is known to add.
     func testSetupSaysThereIsNoTrial() {
-        XCTAssertEqual(PlanSetupNote.title, "Airlock is free")
+        XCTAssertEqual(PlanSetupNote.title, "You start on Free")
         XCTAssertTrue(PlanSetupNote.detail.hasPrefix("No trial and no card."))
         XCTAssertTrue(PlanSetupNote.detail.contains("writes the notes online"))
         XCTAssertTrue(PlanSetupNote.detail.contains(License.Period.monthly.price))

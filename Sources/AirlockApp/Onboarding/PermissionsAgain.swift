@@ -11,7 +11,7 @@ import AirlockCore
 /// Settings › Permissions actually shows — read from the same list, never
 /// counted by hand.
 struct PermissionsAgainView: View {
-    /// What Settings › Permissions lists, in its words. See `names(guideOn:)`.
+    /// What Settings › Permissions lists, in its words. See `names`.
     let names: [String]
     var onLater: () -> Void = {}
     var onOpenSettings: () -> Void = {}
@@ -19,14 +19,14 @@ struct PermissionsAgainView: View {
     static let width: CGFloat = 460
 
     /// Every permission row Settings › Permissions shows: one per
-    /// `PermissionKind` — Screen Recording only while the guide is on, as
-    /// the pane does — and Automation, which is not a `PermissionKind`
+    /// `PermissionKind` but Screen Recording, which the pane has no row for,
+    /// and Automation, which is not a `PermissionKind`
     /// because macOS asks for it per terminal app.
-    static func names(guideOn: Bool) -> [String] {
+    static var names: [String] {
         PermissionKind.allCases
-            .filter { $0 != .screenRecording || guideOn }
+            .filter { $0 != .screenRecording }
             .map(\.systemName)
-            + ["Automation"]
+            + [String(localized: "Automation")]
     }
 
     var body: some View {
@@ -40,9 +40,7 @@ struct PermissionsAgainView: View {
                     Text("Airlock needs its macOS permissions again")
                         .font(.system(size: 15, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Your settings, rules, clipboard history and connected agents all came across "
-                         + "when the app was renamed. macOS permissions couldn't, because macOS ties them "
-                         + "to an app's name.")
+                    Text("Your settings, rules, clipboard history and connected agents all came across when the app was renamed. macOS permissions couldn't, because macOS ties them to an app's name.")
                         .font(.system(size: 12.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -71,7 +69,7 @@ struct PermissionsAgainView: View {
                 Spacer()
                 Button("Later", action: onLater)
                     .keyboardShortcut(.cancelAction)
-                Button("Open Settings", action: onOpenSettings)
+                Button("Open System Settings", action: onOpenSettings)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
             }
@@ -104,9 +102,9 @@ struct PermissionsAgainView: View {
 final class PermissionsAgainWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
 
-    func show(guideOn: Bool, openSettings: @escaping () -> Void) {
+    func show(openSettings: @escaping () -> Void) {
         let view = PermissionsAgainView(
-            names: PermissionsAgainView.names(guideOn: guideOn),
+            names: PermissionsAgainView.names,
             onLater: { [weak self] in self?.window?.close() },
             onOpenSettings: { [weak self] in
                 self?.window?.close()

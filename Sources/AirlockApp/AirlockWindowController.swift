@@ -27,7 +27,6 @@ final class AirlockWindowController {
     private let clipboard: ClipboardWidgetModel
     private let dictation: DictationModel
     private let appearance: NotchAppearanceModel
-    private let assistant: AssistantModel
     private let agents: AgentsWidgetModel
     private let repository: RepositoryWidgetModel
     private let license: LicenseModel
@@ -53,7 +52,7 @@ final class AirlockWindowController {
 
     init(model: SettingsModel, media: MediaWidgetModel,
          sound: SoundWidgetModel, appVolume: AppVolumeModel,
-         calendar: CalendarWidgetModel, assistant: AssistantModel,
+         calendar: CalendarWidgetModel,
          battery: BatteryWidgetModel, system: SystemStatsWidgetModel, tray: TrayModel,
          clipboard: ClipboardWidgetModel, dictation: DictationModel,
          appearance: NotchAppearanceModel, agents: AgentsWidgetModel,
@@ -65,7 +64,6 @@ final class AirlockWindowController {
         self.sound = sound
         self.appVolume = appVolume
         self.calendar = calendar
-        self.assistant = assistant
         self.battery = battery
         self.system = system
         self.tray = tray
@@ -126,7 +124,7 @@ final class AirlockWindowController {
                 rootView: root.environment(model).environment(media)
                     .environment(sound).environment(appVolume).environment(calendar)
                     .environment(battery).environment(system).environment(tray)
-                    .environment(clipboard).environment(dictation).environment(assistant)
+                    .environment(clipboard).environment(dictation)
                     .environment(appearance).environment(agents).environment(repository)
                     .environment(license).environment(updater).environment(usage)
                     .environment(controls).environment(usageAlerts)

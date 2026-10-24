@@ -1,38 +1,5 @@
 // swift-tools-version: 6.0
 import PackageDescription
-import Foundation
-
-// The screen guide is private: the public copy of this code is exported
-// without any folder named `Guide` (scripts/export-public.sh). When those
-// folders are here, the guide is compiled in and `AIRLOCK_GUIDE` is defined;
-// when they are not, every `#if AIRLOCK_GUIDE` falls away and the same
-// package builds the app without it. Nothing else decides — the files being
-// present is the switch.
-let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-let hasGuide = FileManager.default.fileExists(
-    atPath: packageRoot.appendingPathComponent("Sources/AirlockCore/Guide").path)
-let guideFlag: [SwiftSetting] = hasGuide ? [.define("AIRLOCK_GUIDE")] : []
-
-// Tools that only make sense with the guide: the owner's cost report and the
-// replay bench. Absent from the public package along with their folders.
-let guideTools: [Target] = hasGuide ? [
-    // Prints the guide's cost, speed and hit rate from the owner's logs.
-    // A tool for the owner, like PromptProbe and LicenseTool: never in the bundle.
-    .executableTarget(
-        name: "GuideReport",
-        dependencies: ["AirlockCore"],
-        swiftSettings: guideFlag
-    ),
-
-    // Sends the owner's saved looks again, cheaper, and prints whether
-    // they still name the same button. Spends money on the owner's key,
-    // so it sends nothing without --go. Never in the bundle.
-    .executableTarget(
-        name: "GuideReplay",
-        dependencies: ["AirlockCore"],
-        swiftSettings: guideFlag
-    ),
-] : []
 
 let package = Package(
     name: "AgenticNotch",
@@ -51,8 +18,8 @@ let package = Package(
     ],
     // TWO external dependencies, and the rule they break is worth restating.
     //
-    // Everything else is vendored (DynamicNotchKit and FluidDiarizer, see
-    // THIRD-PARTY-LICENSES.txt) or written here. Sparkle is the exception because an auto-updater is the
+    // Everything else is vendored (DynamicNotchKit, FluidDiarizer and
+    // libwebp's encoder, see THIRD-PARTY-LICENSES.txt) or written here. Sparkle is the exception because an auto-updater is the
     // single most security-sensitive component an app outside the App Store can
     // have: it downloads code and runs it. Hand-rolling that is how you ship a
     // remote-code-execution path, and vendoring it means owning the job of
@@ -75,14 +42,8 @@ let package = Package(
     ],
     targets: [
         // Shared, UI-free library: domain model, reducer, wire protocol, transport, agent registry.
-        .target(name: "AirlockCore", swiftSettings: guideFlag),
+        .target(name: "AirlockCore"),
 
-
-        // The `@Generable` schema the model fills in, shared by the app and the
-        // probe so the probe measures the type that ships. Deliberately NOT in
-        // Core: `NotchHook` depends on Core, and `FoundationModels` has no
-        // business linked into a fail-open CLI that runs on every tool call.
-        .target(name: "AirlockGenerable", dependencies: ["AirlockCore"], swiftSettings: guideFlag),
 
         // The package's only Objective-C, and as little of it as works: a
         // `@try`/`@catch` around the AVFAudio calls that raise instead of
@@ -96,15 +57,14 @@ let package = Package(
             name: "AirlockApp",
             dependencies: [
                 "AirlockCore",
-                "AirlockGenerable",
                 "AirlockObjC",
                 "AirlockEcho",
                 "DynamicNotchKit",
                 "FluidDiarizer",
+                "CWebP",
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
-            ],
-            swiftSettings: guideFlag
+            ]
         ),
 
         // Tiny fail-open CLI invoked by agent hooks. Forwards stdin → bridge.
@@ -113,21 +73,9 @@ let package = Package(
             dependencies: ["AirlockCore"]
         ),
 
-        // Scores the assistant's instructions against the cases in
-        // `PromptEvaluation`. NOT a test target on purpose: it needs a language
-        // model, which makes it slow and unavailable with Apple Intelligence off,
-        // and `swift test` has to stay fast and hermetic. The grading half is
-        // pure and IS tested there. Never embedded in the app — the packaging
-        // script copies three named binaries and this is not one of them.
-        .executableTarget(
-            name: "PromptProbe",
-            dependencies: ["AirlockCore", "AirlockGenerable"],
-            swiftSettings: guideFlag
-        ),
-
         // Runs the call-voices model over sound files and prints who spoke
         // when, what it cost, and how the lines would be numbered. A tool for
-        // the owner like PromptProbe: it needs the downloaded model, so it is
+        // the owner: it needs the downloaded model, so it is
         // not a test, and it is never in the bundle.
         .executableTarget(
             name: "SpeakerProbe",
@@ -171,6 +119,17 @@ let package = Package(
         // Vendored, not a dependency — see THIRD-PARTY-LICENSES.txt.
         .target(name: "DynamicNotchKit"),
 
+        // Google's WebP encoder, vendored as C source (BSD, see
+        // THIRD-PARTY-LICENSES.txt and Sources/CWebP/README.md): macOS reads
+        // WebP and cannot write it. Only the app links it. The include path is
+        // the target's own folder because libwebp names its headers from
+        // there ("src/dsp/dsp.h"); its licence files and README are not source.
+        .target(
+            name: "CWebP",
+            exclude: ["COPYING", "PATENTS", "README.md"],
+            cSettings: [.headerSearchPath(".")]
+        ),
+
         // Takes the speakers' sound out of the microphone on a call, so that
         // on speakers the other side is not written down as you. Plain sound
         // maths over Accelerate, nothing of the app's: a target of its own so
@@ -193,8 +152,7 @@ let package = Package(
 
         .testTarget(
             name: "AirlockCoreTests",
-            dependencies: ["AirlockCore", "AirlockTestSupport"],
-            swiftSettings: guideFlag
+            dependencies: ["AirlockCore", "AirlockTestSupport"]
         ),
 
         .testTarget(
@@ -209,8 +167,7 @@ let package = Package(
 
         .testTarget(
             name: "AirlockAppTests",
-            dependencies: ["AirlockApp", "AirlockObjC", "AirlockTestSupport"],
-            swiftSettings: guideFlag
+            dependencies: ["AirlockApp", "AirlockObjC", "AirlockTestSupport"]
         ),
-    ] + guideTools
+    ]
 )

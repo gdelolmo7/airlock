@@ -43,10 +43,22 @@ public struct ClaudeCodeIntegration: AgentIntegration {
     }
 
     /// Each of the two events has its own schema; anything else writes nothing.
-    public func directiveOutput(for directive: HookDirective, eventName: String?) -> Data? {
+    public func directiveOutput(for directive: HookDirective, eventName: String?, payload: Data) -> Data? {
         switch eventName {
-        case "PreToolUse": return preToolUseOutput(for: directive)
-        case "PermissionRequest": return permissionRequestOutput(for: directive)
+        case "PreToolUse":
+            if let answers = directive.answers {
+                return answeredOutput(answers, payload: payload)
+                    ?? preToolUseOutput(for: HookDirective(action: .deny, reason: directive.reason))
+            }
+            return preToolUseOutput(for: directive)
+        case "PermissionRequest":
+            // A question never gates here (it is a card at PreToolUse in every
+            // mode), and this event has no documented answer for one: if one
+            // ever arrives, it gets the deny an answer always was.
+            if directive.answers != nil {
+                return permissionRequestOutput(for: HookDirective(action: .deny, reason: directive.reason))
+            }
+            return permissionRequestOutput(for: directive)
         default: return nil
         }
     }
@@ -77,6 +89,33 @@ public struct ClaudeCodeIntegration: AgentIntegration {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": permissionDecision,
                 "permissionDecisionReason": directive.reason ?? defaultReason(permissionDecision),
+            ],
+        ])
+    }
+
+    /// An answer to `AskUserQuestion`, given as the user's own (verified
+    /// against the Claude Code hooks docs, and live on 2.1.306): an allow whose
+    /// `updatedInput` is the question's input with `answers` added, keyed by
+    /// question text. Claude then skips its picker, prints "User answered
+    /// Claude's questions", and hands the model the answers as the tool's
+    /// result. The deny this replaced reached the model too, but Claude
+    /// printed it as a hook error every time.
+    ///
+    /// `updatedInput` replaces the whole input, so it is the input Claude sent,
+    /// untouched but for `answers`. Nil when that input cannot be read, and the
+    /// caller sends the deny instead: an allow without the answers would only
+    /// put the question back on screen in the terminal.
+    private func answeredOutput(_ answers: [String: String], payload: Data) -> Data? {
+        guard !answers.isEmpty,
+              let root = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any],
+              var input = root["tool_input"] as? [String: Any],
+              input["questions"] is [Any] else { return nil }
+        input["answers"] = answers
+        return encoded([
+            "hookSpecificOutput": [
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "updatedInput": input,
             ],
         ])
     }

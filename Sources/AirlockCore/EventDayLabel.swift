@@ -25,8 +25,8 @@ public enum EventDayLabel {
         // event 3 hours away can be too. Only the calendar knows.
         let days = calendar.dateComponents([.day], from: today, to: eventDay).day ?? 0
         switch days {
-        case 1: return "Tomorrow"
-        case -1: return "Yesterday"
+        case 1: return String(localized: "Tomorrow")
+        case -1: return String(localized: "Yesterday")
         default:
             // A weekday name is unambiguous inside a week and is all the
             // rolling agenda can ever reach. Anything further out only appears

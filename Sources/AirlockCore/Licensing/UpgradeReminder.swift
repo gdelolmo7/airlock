@@ -36,9 +36,9 @@ public enum UpgradeReminder: Equatable, Sendable {
         /// commas inside, since up to three are listed in one sentence.
         var onPlus: String {
             switch self {
-            case .callNotes: "call notes would cover whole calls"
-            case .agents: "every coding agent could ask you here at the same time"
-            case .clipboard: "the clipboard would keep up to \(UpgradeReminder.plusClipboard) copies"
+            case .callNotes: String(localized: "call notes would cover whole calls")
+            case .agents: String(localized: "every coding agent could ask you here at the same time")
+            case .clipboard: String(localized: "the clipboard would keep up to \(UpgradeReminder.plusClipboard) copies")
             }
         }
     }
@@ -55,13 +55,13 @@ public enum UpgradeReminder: Equatable, Sendable {
     public var title: String {
         switch self {
         case .clipboardFull:
-            "Your clipboard is full"
+            String(localized: "Your clipboard is full")
         case let .agentInTerminal(asking, _):
-            "\(asking) asked in its terminal"
+            String(localized: "\(asking) asked in its terminal")
         case let .monthlyRecap(month):
             month.title
         case .firstWeek:
-            "A week with Airlock"
+            String(localized: "A week with Airlock")
         }
     }
 
@@ -69,15 +69,14 @@ public enum UpgradeReminder: Equatable, Sendable {
     public var message: String? {
         switch self {
         case .clipboardFull:
-            "Free keeps your last \(PlanLimits.freeClipboard) copies, so the oldest ones now make "
-                + "room for new ones. Plus keeps up to \(Self.plusClipboard)."
+            String(localized: "Free keeps your last \(PlanLimits.freeClipboard) copies, so the oldest ones now make room for new ones. Plus keeps up to \(Self.plusClipboard).")
         case let .agentInTerminal(asking, answering):
-            (answering.map { "While \($0) was on the notch, " } ?? "Free answers one agent at a time, so ")
-                + "\(asking)'s question went to its terminal. On Plus, every agent can ask you here."
+            answering.map { String(localized: "While \($0) was on the notch, \(asking)'s question went to its terminal. On Plus, every agent can ask you here.") }
+                ?? String(localized: "Free answers one agent at a time, so \(asking)'s question went to its terminal. On Plus, every agent can ask you here.")
         case .monthlyRecap:
             nil
         case let .firstWeek(uses):
-            "On Plus, " + Self.list(Use.allCases.filter(uses.contains).map(\.onPlus)) + "."
+            String(localized: "On Plus, \(Self.list(Use.allCases.filter(uses.contains).map(\.onPlus))).")
         }
     }
 
@@ -85,16 +84,16 @@ public enum UpgradeReminder: Equatable, Sendable {
     static func list(_ parts: [String]) -> String {
         guard let last = parts.last else { return "" }
         let rest = parts.dropLast()
-        return rest.isEmpty ? last : rest.joined(separator: ", ") + " and " + last
+        return rest.isEmpty ? last : String(localized: "\(rest.joined(separator: ", ")) and \(last)")
     }
 
     /// Under the recap's lines.
-    public static let recapClosing = "Plus would have kept all of it."
+    public static let recapClosing = String(localized: "Plus would have kept all of it.")
 
     /// Beside the buttons, where "Not now" means something: the clipboard's
     /// and the week's cards never come back anyway.
     public var notNowHint: String? {
-        kind == .clipboard || kind == .week ? nil : "“Not now” hides this for \(UpgradeReminders.notNowDays) days"
+        kind == .clipboard || kind == .week ? nil : String(localized: "“Not now” hides this for \(UpgradeReminders.notNowDays) days")
     }
 
     // MARK: - The quiet lines
@@ -103,15 +102,13 @@ public enum UpgradeReminder: Equatable, Sendable {
     /// sit outside the limit, and the count beside this line includes them,
     /// so the line says so rather than leave "101 items" looking like a miscount.
     public static var clipboardLine: String {
-        "Free keeps your last \(PlanLimits.freeClipboard), not counting pinned items. "
-            + "Plus keeps up to \(plusClipboard)."
+        String(localized: "Free keeps your last \(PlanLimits.freeClipboard), not counting pinned items. Plus keeps up to \(plusClipboard).")
     }
 
     /// On an agent's row while it asks in its terminal because another had
     /// the notch. "This one" rather than the project's name: the row already
     /// says which, and a name like "website" read as "so website is asking".
-    public static let agentLine = "Free answers one agent at a time, so this one is asking in its terminal. "
-        + "Plus answers every agent here."
+    public static let agentLine = String(localized: "Free answers one agent at a time, so this one is asking in its terminal. Plus answers every agent here.")
 
     /// The most a clipboard keeps on Plus: the top of the person's own setting.
     static var plusClipboard: String { PlanCatalog.thousands(ClipboardHistory.capacityRange.upperBound) }
@@ -143,14 +140,14 @@ public struct FreeMonth: Codable, Equatable, Sendable {
     /// recap: "0 calls stopped" is an argument for staying on Free.
     public var isWorthShowing: Bool { callsStopped + copiesLetGo + agentsInTerminal > 0 }
 
-    /// "Your October on Free". The month in English whatever the Mac's
-    /// region, like the sentence around it.
+    /// "Your October on Free". The month in the Mac's language, like the
+    /// sentence around it.
     public var title: String { title(timeZone: .current) }
 
-    public func title(timeZone: TimeZone) -> String {
-        var style = Date.FormatStyle(locale: Locale(identifier: "en_GB"), timeZone: timeZone)
+    public func title(timeZone: TimeZone, locale: Locale = .current) -> String {
+        var style = Date.FormatStyle(locale: locale, timeZone: timeZone)
         style = style.month(.wide)
-        return "Your \(month.formatted(style)) on Free"
+        return String(localized: "Your \(month.formatted(style)) on Free")
     }
 
     /// The recap's rows, skipping any that never happened.
@@ -158,15 +155,19 @@ public struct FreeMonth: Codable, Equatable, Sendable {
         var lines: [(Int, String)] = []
         let minutes = Int(PlanLimits.freeNotesListen / 60)
         if callsStopped > 0 {
-            lines.append((callsStopped, "\(callsStopped == 1 ? "call" : "calls") had notes stop at \(minutes) minutes"))
+            lines.append((callsStopped, callsStopped == 1
+                          ? String(localized: "call had notes stop at \(minutes) minutes")
+                          : String(localized: "calls had notes stop at \(minutes) minutes")))
         }
         if copiesLetGo > 0 {
-            lines.append((copiesLetGo,
-                          "older \(copiesLetGo == 1 ? "copy" : "copies") let go from the clipboard"))
+            lines.append((copiesLetGo, copiesLetGo == 1
+                          ? String(localized: "older copy let go from the clipboard")
+                          : String(localized: "older copies let go from the clipboard")))
         }
         if agentsInTerminal > 0 {
-            lines.append((agentsInTerminal,
-                          "agent \(agentsInTerminal == 1 ? "question" : "questions") went to the terminal"))
+            lines.append((agentsInTerminal, agentsInTerminal == 1
+                          ? String(localized: "agent question went to the terminal")
+                          : String(localized: "agent questions went to the terminal")))
         }
         return lines
     }
@@ -179,9 +180,15 @@ public struct FreeMonth: Codable, Equatable, Sendable {
 /// agent is asking, never with a sound, never instead of the widgets. "Not
 /// now" quiets that kind for `notNowDays`.
 ///
+/// **One shown stays until it is answered**: it comes back at every open,
+/// on any day, until "Not now" or "See Plus". It is still the same one, so
+/// the day's limit does not hold it back; a glance, or the notch closing as
+/// the pointer moves away, does not use it up.
+///
 /// Pure, like `CloudNotesAllowance.noticeDue`: the app says what happened as
-/// it happens, asks `due` when the panel opens, and says `shown` once it is
-/// on screen. Every date comes in, so the tests own the clock.
+/// it happens, asks `due` when the panel opens, says `shown` once it is on
+/// screen, and `notNow` or `answered` when a button is pressed. Every date
+/// comes in, so the tests own the clock.
 public struct UpgradeReminders: Codable, Equatable, Sendable {
     /// How long "Not now" quiets a kind.
     public static let notNowDays = 14
@@ -207,6 +214,8 @@ public struct UpgradeReminders: Codable, Equatable, Sendable {
     /// Nil in preferences from before it, so a copy already on Free starts
     /// its week the first time it opens after updating.
     public private(set) var firstOpenOnFree: Date?
+    /// The kind shown and not yet answered with "Not now" or "See Plus".
+    public private(set) var unanswered: UpgradeReminder.Kind?
 
     public struct InTerminal: Codable, Equatable, Sendable {
         public let asking: String
@@ -264,6 +273,9 @@ public struct UpgradeReminders: Codable, Equatable, Sendable {
     public func due(onFree: Bool, callOn: Bool, agentAsking: Bool, uses: Set<UpgradeReminder.Use> = [],
                     now: Date, calendar: Calendar = .current) -> UpgradeReminder? {
         guard onFree, !callOn, !agentAsking else { return nil }
+        if let kind = unanswered, let again = again(kind, uses: uses, now: now, calendar: calendar) {
+            return again
+        }
         if let lastShown, calendar.isDate(lastShown, inSameDayAs: now) { return nil }
 
         if clipboardFilled != nil, shownAt[UpgradeReminder.Kind.clipboard.rawValue] == nil,
@@ -295,6 +307,23 @@ public struct UpgradeReminders: Codable, Equatable, Sendable {
         return nil
     }
 
+    /// The unanswered card as it reads now: the latest agent, last month's
+    /// figures, what is in use today. Nil when there is nothing true left
+    /// to say with it, and then the usual rules pick.
+    private func again(_ kind: UpgradeReminder.Kind, uses: Set<UpgradeReminder.Use>,
+                       now: Date, calendar: Calendar) -> UpgradeReminder? {
+        switch kind {
+        case .clipboard:
+            .clipboardFull
+        case .agents:
+            lastInTerminal.map { UpgradeReminder.agentInTerminal(asking: $0.asking, answering: $0.answering) }
+        case .recap:
+            recapMonth(now: now, calendar: calendar).flatMap { $0.isWorthShowing ? .monthlyRecap($0) : nil }
+        case .week:
+            uses.isEmpty ? nil : .firstWeek(uses: uses)
+        }
+    }
+
     /// The month just before `now`'s, if it was counted.
     func recapMonth(now: Date, calendar: Calendar) -> FreeMonth? {
         guard let before = calendar.date(byAdding: .month, value: -1, to: now) else { return nil }
@@ -302,10 +331,22 @@ public struct UpgradeReminders: Codable, Equatable, Sendable {
             .first { calendar.isDate($0.month, equalTo: before, toGranularity: .month) }
     }
 
-    /// It is on screen: nothing else today, and this kind starts its count.
+    /// It is on screen: nothing else today, this kind starts its count, and
+    /// it comes back at every open until it is answered.
     public mutating func shown(_ reminder: UpgradeReminder, now: Date) {
         lastShown = now
         shownAt[reminder.kind.rawValue] = now
+        unanswered = reminder.kind
+    }
+
+    /// "See Plus": answered. Its kind's own rule says when it may come again.
+    public mutating func answered() {
+        unanswered = nil
+    }
+
+    /// The Mac is on Plus or Pro now: a card waiting for an answer goes.
+    public mutating func leftFree() {
+        unanswered = nil
     }
 
     /// Another card about the plan showed ("You're on Free now"): it is the
@@ -314,9 +355,10 @@ public struct UpgradeReminders: Codable, Equatable, Sendable {
         lastShown = now
     }
 
-    /// "Not now": this kind is quiet for `notNowDays`.
+    /// "Not now": answered, and this kind is quiet for `notNowDays`.
     public mutating func notNow(_ kind: UpgradeReminder.Kind, now: Date, calendar: Calendar = .current) {
         quietUntil[kind.rawValue] = calendar.date(byAdding: .day, value: Self.notNowDays, to: now)
+        if unanswered == kind { unanswered = nil }
     }
 
     public func isQuiet(_ kind: UpgradeReminder.Kind, now: Date) -> Bool {

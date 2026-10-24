@@ -1,29 +1,11 @@
 import Foundation
 
-/// What the user meant by holding a key — decided by *which* key, never guessed.
-///
-/// The first design inferred this from focus: nothing editable in front meant
-/// "you are asking". It failed destructively on the first real test. Chrome
-/// reports a Gmail inbox's focused element as `AXTextArea`, so a dictation was
-/// typed into a window where every letter is a command — `?` opened the shortcut
-/// overlay, and `e`, `#` and `!` archive, delete and report spam.
-///
-/// The lesson is not that the predicate needed tightening. It is that detection
-/// should never have carried intent: a heuristic will be wrong somewhere, and
-/// when intent rides on it, every misread becomes an action the user did not ask
-/// for. A separate key costs one setting and cannot be wrong.
-public enum DictationIntent: String, Equatable, Sendable {
-    /// Put these words in my document.
-    case dictate
-    /// Answer this.
-    case ask
-}
-
 /// Where a dictation's text goes once transcribed.
 ///
-/// Only reached for `.dictate` — asking has no destination question. Focus
-/// detection survives here in a much smaller role: not deciding what the user
-/// wants, only whether the place in front of them can actually take text. Its
+/// Focus detection never decides what the user wants, only whether the place
+/// in front of them can actually take text. A Gmail inbox reports its focused
+/// element as `AXTextArea`, where every typed letter is a command, so no
+/// heuristic here may ever turn into an action of its own. Its
 /// worst case is now a transcript on the clipboard instead of in a document,
 /// which is visible, recoverable, and does nothing on its own.
 public enum DictationRoute: String, Equatable, Sendable {

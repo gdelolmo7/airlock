@@ -46,6 +46,10 @@ struct TrayPanelDropTarget: DropDelegate {
     func dropEntered(info: DropInfo) {
         uiState.isDropTargeted = !uiState.isDraggingOut
         uiState.dropRejection = kind(of: info).flatMap { $0.isSupported ? nil : $0.explanation }
+        // Providers cannot say what they hold without loading it, so the format
+        // row reads the drag pasteboard, the same one the catcher reads.
+        uiState.pictureOffer = uiState.isDraggingOut || uiState.dropRejection != nil
+            ? .none : PictureConverter.offer(on: NSPasteboard(name: .drag))
         if !uiState.isDraggingOut {
             Moments.shared.announce(uiState.dropRejection == nil ? .fileOver : .dropRefused, "over the panel")
         }
@@ -54,6 +58,8 @@ struct TrayPanelDropTarget: DropDelegate {
     func dropExited(info: DropInfo) {
         uiState.isDropTargeted = false
         uiState.dropRejection = nil
+        uiState.pictureOffer = .none
+        uiState.overPictureTarget = nil
     }
 
     /// What the cursor promises, and it has to be what actually happens.
@@ -73,6 +79,10 @@ struct TrayPanelDropTarget: DropDelegate {
     /// classifies again with the providers definitely in hand, and refuses
     /// there if it must.
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        let chip = pictureTarget()
+        if chip != uiState.overPictureTarget { uiState.overPictureTarget = chip }
+        // A format chip copies, whatever the shelf would have done.
+        if chip != nil { return DropProposal(operation: .copy) }
         guard let kind = kind(of: info) else { return DropProposal(operation: .copy) }
         guard kind.isSupported else { return DropProposal(operation: .forbidden) }
         guard kind == .files else { return DropProposal(operation: .copy) }
@@ -82,11 +92,27 @@ struct TrayPanelDropTarget: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         uiState.selectedTab = .tray
-        let accepted = tray.accept(providers: info.itemProviders(for: Self.contentTypes),
+        let accepted: Bool
+        if let target = pictureTarget() {
+            accepted = tray.convert(pasteboard: NSPasteboard(name: .drag), to: target)
+        } else {
+            accepted = tray.accept(providers: info.itemProviders(for: Self.contentTypes),
                                    gesture: TrayModel.gestureFromPanelDrop())
+        }
         Moments.shared.announce(accepted ? .fileDropped : .dropRefused, "on drop")
         onSettled()
         return accepted
+    }
+
+    /// The chip under the pointer. `DropInfo.location` is in this view's own
+    /// space; the row publishes its frame in the panel's, so the pointer is
+    /// taken from the screen and placed in the panel the same way.
+    private func pictureTarget() -> PictureTarget? {
+        guard let screen = NotchScreen.target else { return nil }
+        let panel = NotchDropCatcher.panelFrame(on: screen)
+        let mouse = NSEvent.mouseLocation
+        return uiState.pictureTarget(atPanelPoint: CGPoint(x: mouse.x - panel.minX,
+                                                            y: panel.maxY - mouse.y))
     }
 
     /// Nil means "not answerable yet", which is a different thing from

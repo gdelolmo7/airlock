@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import AirlockCore
 
@@ -18,6 +19,12 @@ enum GalleryMeetings {
             },
             GalleryState("K2", area, "Window: the transcript", ground: .window, width: size.width) {
                 window(CallNotesLibrary(previewing: calls, tab: .transcript))
+            },
+            // On Free, under the first "Them": the invite had Ana and Tom, so
+            // Plus would have told them apart.
+            GalleryState("K2a", area, "Window: the transcript on Free, Ana and Tom both \"Them\"",
+                         ground: .window, width: size.width) {
+                window(CallNotesLibrary(previewing: calls, tab: .transcript, offers: CallNotesOffers()))
             },
             GalleryState("K3", area, "Window: notes still being written", ground: .window, width: size.width) {
                 window(CallNotesLibrary(previewing: [unsummarised] + calls, tab: .notes))
@@ -159,6 +166,21 @@ enum GalleryMeetings {
                          ground: .window, width: size.width) {
                 wholePage(budget(on: .free, .mac(at: budgetEnd, why: .plan, plan: PlanSnapshot(plan: .free, isPaid: false)),
                               stopped: true))
+            },
+            GalleryState("K80a", area, "Window: Free, heard past 30 minutes, the last 12 kept for Plus",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .free, .mac(at: budgetEnd, why: .plan, plan: PlanSnapshot(plan: .free, isPaid: false)),
+                              stopped: true, locked: .kept))
+            },
+            GalleryState("K80b", area, "Window: Free, the transcript ends with 12 more minutes waiting",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .free, .mac(at: budgetEnd, why: .plan, plan: PlanSnapshot(plan: .free, isPaid: false)),
+                              stopped: true, locked: .kept, tab: .transcript, onlyFrom: 25 * 60))
+            },
+            GalleryState("K80c", area, "Window: Free, a week on, the kept minutes removed",
+                         ground: .window, width: size.width) {
+                wholePage(budget(on: .free, .mac(at: budgetEnd, why: .plan, plan: PlanSnapshot(plan: .free, isPaid: false)),
+                              stopped: true, locked: .removed))
             },
             GalleryState("K81", area, "Window: Plus, written online", ground: .window, width: size.width) {
                 wholePage(budget(on: .plus, .online(model: "google/gemini-3.8-flash", at: budgetEnd,
@@ -553,20 +575,44 @@ enum GalleryMeetings {
     /// none when not `written`, and the offers the window would make.
     private static func budget(on plan: AirlockPlan, _ writer: MeetingNotesWriter, stopped: Bool = false,
                                written: Bool = true, noModel: ModelAvailability? = nil, redone: String? = nil,
-                               online: CallNotesOffers.Online = .init(exists: true, settingOn: true, blocked: false))
+                               online: CallNotesOffers.Online = .init(exists: true, settingOn: true, blocked: false),
+                               locked: Locked? = nil, tab: CallNotesLibrary.Tab = .notes,
+                               onlyFrom: TimeInterval? = nil)
         -> CallNotesLibrary {
         var record = stopped ? NotesComparisonSample.freeRecord : NotesComparisonSample.record
+        // A picture of the transcript's end: the lines before are left out.
+        if let onlyFrom {
+            var end = MeetingRecord(bundleID: record.bundleID, appName: record.appName, site: record.site,
+                                    startedAt: record.startedAt, endedAt: record.endedAt, languages: record.languages,
+                                    segments: record.segments.filter { $0.start >= onlyFrom })
+            end.event = record.event
+            end.stoppedAtLimit = record.stoppedAtLimit
+            record = end
+        }
         record.startedAt = budgetStart
         record.endedAt = budgetEnd
         record.event?.start = budgetStart
+        if let locked {
+            // Sealed to a throwaway key: drawn, never opened.
+            let until = CallLock.keptUntil(startedAt: budgetStart)
+            var part = LockedPart(from: PlanLimits.freeNotesListen, keptUntil: until, machine: nil,
+                                  key: try? CallLock.Sealer(publicKey: Curve25519.KeyAgreement.PrivateKey().publicKey,
+                                                            machine: nil, keptUntil: until,
+                                                            from: PlanLimits.freeNotesListen).part.key)
+            if locked == .removed { part.removeIfDue(at: until) }
+            record.locked = part
+        }
         record.notesWriter = writer
         let page = MeetingFiles.notesPage(for: record, notes: written ? budgetNotes(whole: !stopped) : nil,
                                           writer: writer, noModel: noModel)
         let call = CallNotesLibrary.Call(folder: URL(fileURLWithPath: "/var/empty/budget"), record: record, page: page)
         let offers = CallNotesOffers.of(record, page: page, plan: PlanSnapshot(plan: plan, isPaid: plan != .free),
                                         online: online)
-        return CallNotesLibrary(previewing: [call] + calls, tab: .notes, offers: offers, redone: redone)
+        return CallNotesLibrary(previewing: [call] + calls, tab: tab, offers: offers, redone: redone)
     }
+
+    /// A Free call's part past its limit, still kept or a week on.
+    private enum Locked { case kept, removed }
 
     /// Notes of the budget review: its first 30 minutes, or all of it.
     private static func budgetNotes(whole: Bool) -> MeetingNotes {

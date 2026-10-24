@@ -26,10 +26,10 @@ struct WaitingIndicator: View {
     /// "Still" in front would not read right. Nil means `WaitPace.still`.
     var laterWords: String?
     /// What the stuck stage says above its buttons.
-    var stuckWords = "This is taking longer than usual."
-    var retryLabel = "Try again"
+    var stuckWords = String(localized: "This is taking longer than usual.")
+    var retryLabel = String(localized: "Try again")
     var retry: (() -> Void)?
-    var cancelLabel = "Cancel"
+    var cancelLabel = String(localized: "Cancel")
     var cancel: (() -> Void)?
     /// Dots only, for a slot with no room for a sentence (a tile, a header).
     /// The words still reach VoiceOver.

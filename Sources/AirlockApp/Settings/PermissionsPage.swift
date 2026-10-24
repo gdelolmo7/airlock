@@ -20,10 +20,12 @@ struct PermissionFacts: Equatable {
     /// watch is still dead: the old approval from an earlier version.
     var inputMonitoring: DiagnosticsReport.PermissionState
     var accessibility: DiagnosticsReport.PermissionState
-    /// Nil while the guide is off — nothing else looks at the screen, and a
-    /// row for a permission no feature uses reads as something Airlock wants
-    /// anyway.
-    var screenRecording: DiagnosticsReport.PermissionState?
+    /// The screen half of "Screen & System Audio Recording", which macOS
+    /// lets an app read without asking.
+    var screenRecording = false
+    /// The audio half, which it doesn't: what the last call found
+    /// (`OtherSideHistory`). Nil before any call has tried.
+    var otherSide: OtherSideHistory?
     /// What the last Calendar request found, when it found something worth
     /// saying (macOS didn't show its question, say).
     var calendarNote: String?
@@ -32,12 +34,10 @@ struct PermissionFacts: Equatable {
     /// everything". Restricted rows are left out: nothing anyone here does
     /// can allow them, and they say so on their own row.
     var missing: [String] {
-        var names: [(String, DiagnosticsReport.PermissionState)] = [
-            ("Microphone", microphone), ("Calendar", calendar),
-            ("Input Monitoring", inputMonitoring),
+        let names: [(String, DiagnosticsReport.PermissionState)] = [
+            (String(localized: "Microphone"), microphone), (String(localized: "Calendar"), calendar),
+            (String(localized: "Input Monitoring"), inputMonitoring), (String(localized: "Accessibility"), accessibility),
         ]
-        if let screenRecording { names.append(("Screen Recording", screenRecording)) }
-        names.append(("Accessibility", accessibility))
         return names.filter { $0.1 != .allowed && $0.1 != .restricted }.map(\.0)
     }
 
@@ -56,8 +56,8 @@ struct PermissionFacts: Equatable {
             microphone: SupportDiagnostics.microphonePermission(),
             inputMonitoring: inputMonitoring(dictation),
             accessibility: TypeService.isTrusted ? .allowed : .notAllowed,
-            screenRecording: GuideSwitch.isOn
-                ? (CGPreflightScreenCaptureAccess() ? .allowed : .notAllowed) : nil,
+            screenRecording: CGPreflightScreenCaptureAccess(),
+            otherSide: OtherSideHistory.read(),
             calendarNote: calendar.accessNote)
     }
 
@@ -82,8 +82,8 @@ struct PermissionActions {
     var askForEverything: @MainActor () -> Void = {}
     var allowCalendar: @MainActor () -> Void = {}
     var allowMicrophone: @MainActor () -> Void = {}
+    var allowAccessibility: @MainActor () -> Void = {}
     var allowInputMonitoring: @MainActor () -> Void = {}
-    var allowScreenRecording: @MainActor () -> Void = {}
 }
 
 /// "Ask for everything", before, during and after. After is not latched as
@@ -117,26 +117,24 @@ enum PermissionSweepState: Equatable {
 struct PermissionsPage: View {
     let facts: PermissionFacts
     var sweep: PermissionSweepState = .notRun
-    /// Whether macOS's one-time dialog has been asked for from here. The
-    /// System Settings route appears only after it, because macOS shows the
-    /// dialog once per app and offering both at once teaches people to skip
-    /// the one that works.
+    /// Whether Allow has been pressed here, for Accessibility and Input
+    /// Monitoring. It opens the list in System Settings (`PermissionSwitch`),
+    /// and after it the row says what to do in that list rather than why the
+    /// permission matters.
+    var askedForAccessibility = false
     var askedForInputMonitoring = false
-    var askedForScreenRecording = false
     var actions = PermissionActions()
     @State var moreOptions = false
 
     var body: some View {
-        LookPage("Permissions", subtitle: "What macOS lets Airlock do. Nothing here is required.",
+        LookPage(String(localized: "Permissions"), subtitle: String(localized: "What macOS lets Airlock do. Nothing here is required."),
                  moreOptions: $moreOptions) {
             sweepRow
             calendarRows
             microphoneRows
             inputMonitoringRows
             accessibilityRows
-            if let screenRecording = facts.screenRecording {
-                screenRecordingRows(screenRecording)
-            }
+            screenAudioRow
             automationRow
         } more: {
             LookGroupLabel("About permissions")
@@ -144,33 +142,19 @@ struct PermissionsPage: View {
             // asks for four permissions on launch is asking before it has
             // earned any of them, and a refusal then costs features the person
             // had not met yet.
-            LookNote("Airlock never asks for a permission on launch. Each one is asked for the first time the "
-                     + "feature that needs it is used, so saying no only ever costs you that one feature.")
-            LookNote("macOS gives these to an app, not to a person, so each one has to be allowed once. Every "
-                     + "feature that needs one simply stays off until you turn it on.")
-            LookNote("Ask for everything asks for each in turn, one at a time. Accessibility and Input Monitoring "
-                     + "can only be switched on by you, in System Settings — it takes you there.")
+            LookNote("Airlock never asks for a permission on launch. Each one is asked for the first time the feature that needs it is used, so saying no only ever costs you that one feature.")
+            LookNote("macOS gives these to an app, not to a person, so each one has to be allowed once. Every feature that needs one simply stays off until you turn it on.")
+            LookNote("Ask for everything asks for each in turn, one at a time. Accessibility and Input Monitoring can only be switched on by you, in System Settings — it takes you there.")
 
             LookGroupLabel("What each one is for")
-            LookNote("Calendar shows your next meetings in the notch, with one-click join links. Read-only, and "
-                     + "only the calendars you pick.")
-            LookNote("Microphone: hold your dictation key and speak. Audio is turned into text on this Mac and "
-                     + "never leaves it.")
+            LookNote("Calendar shows your next meetings in the notch, with one-click join links. Read-only, and only the calendars you pick.")
+            LookNote("Microphone: hold your dictation key and speak. Audio is turned into text on this Mac and never leaves it.")
             // Its own row, because it is its own permission. The Accessibility
             // row used to claim both jobs, and a user whose hold key did
             // nothing was sent to a pane where Airlock was already allowed.
-            LookNote("Input Monitoring lets Airlock notice the dictation key you hold. It reads that a key went "
-                     + "down and nothing else — nothing you type.")
-            LookNote("Accessibility types your dictation into whatever app you are in, and reads where the cursor "
-                     + "is so it knows there is somewhere to type. It also lets the notch tell when an app is full "
-                     + "screen, so it can step aside.")
-            if facts.screenRecording != nil {
-                LookNote("Screen Recording lets the guide see your screen when you ask it for help, so it can point "
-                         + "at the next button. It looks only while it is guiding you.")
-            }
-            LookNote("Automation: jumping back to your terminal, and playing or pausing Spotify or Music, need "
-                     + "macOS's permission to control that app. macOS asks the first time each one happens — say "
-                     + "OK and it works from then on. Airlock can't see the answer until then, so there is no tick.")
+            LookNote("Input Monitoring lets Airlock notice the dictation key you hold. It reads that a key went down and nothing else — nothing you type.")
+            LookNote("Accessibility types your dictation into whatever app you are in, and reads where the cursor is so it knows there is somewhere to type. It also lets the notch tell when an app is full screen, so it can step aside.")
+            LookNote("Automation: jumping back to your terminal, and playing or pausing Spotify or Music, need macOS's permission to control that app. macOS asks the first time each one happens — say OK and it works from then on. Airlock can't see the answer until then, so there is no tick.")
         }
     }
 
@@ -189,7 +173,7 @@ struct PermissionsPage: View {
     private var sweepRow: some View {
         LookRow("Ask for everything Airlock uses", subtitle: sweepSubtitle) {
             if allSet {
-                LookStatus(ok: true, text: "All allowed")
+                LookStatus(ok: true, text: String(localized: "All allowed"))
             } else {
                 LookButton(sweep == .asking ? "Asking…" : "Ask", prominent: true) {
                     actions.askForEverything()
@@ -202,11 +186,11 @@ struct PermissionsPage: View {
     private var allSet: Bool { sweep != .asking && facts.missing.isEmpty }
 
     private var sweepSubtitle: String {
-        if allSet { return "Nothing left to ask for" }
-        guard sweep == .ran else { return "One at a time, each in turn" }
+        if allSet { return String(localized: "Nothing left to ask for") }
+        guard sweep == .ran else { return String(localized: "One at a time, each in turn") }
         // Named, because "some permissions are still missing" is the kind of
         // message that sends somebody back through every row to find out which.
-        return "Still to allow by hand: \(facts.missing.formatted(.list(type: .and)))."
+        return String(localized: "Still to allow by hand: \(facts.missing.formatted(.list(type: .and))).")
     }
 
     // The first row on the page with a Fix, top to bottom. It carries the
@@ -217,7 +201,6 @@ struct PermissionsPage: View {
         if facts.microphone == .notAllowed { return .microphone }
         if facts.inputMonitoring != .allowed, facts.inputMonitoring != .notWorking { return .inputMonitoring }
         if facts.accessibility != .allowed { return .accessibility }
-        if let screen = facts.screenRecording, screen != .allowed { return .screenRecording }
         return nil
     }
 
@@ -225,10 +208,10 @@ struct PermissionsPage: View {
 
     @ViewBuilder private var calendarRows: some View {
         if facts.calendar == .restricted {
-            RestrictedRow(what: "Calendar", cost: "so your meetings stay out of the notch")
+            RestrictedRow(what: String(localized: "Calendar"), cost: String(localized: "so your meetings stay out of the notch"))
                 .settingsAnchor(.permissionCalendar)
         } else {
-            PermissionStatusRow(name: "Calendar", purpose: "Your next meetings, with join links",
+            PermissionStatusRow(name: String(localized: "Calendar"), purpose: String(localized: "Your next meetings, with join links"),
                                 state: facts.calendar, canTellTurnedOff: true) {
                 if ![.allowed, .notAllowed].contains(facts.calendar) {
                     LookButton("Allow", prominent: true) { actions.allowCalendar() }
@@ -239,9 +222,9 @@ struct PermissionsPage: View {
             case .allowed:
                 // Allowed is where the next question starts — which calendars
                 // — and that answer is on another page.
-                PaneReference("Which calendars show is up to you", to: SettingsAnchor.calendars, label: "Pick calendars")
+                PaneReference(String(localized: "Which calendars show is up to you"), to: SettingsAnchor.calendars, label: String(localized: "Pick calendars"))
             case .notAllowed:
-                TurnedOffCard(kind: .calendar, cost: "so your meetings don't show in the notch")
+                TurnedOffCard(kind: .calendar, cost: String(localized: "so your meetings don't show in the notch"))
                 PermissionFixRow(kind: .calendar, brief: firstFix != .calendar)
             default:
                 if let note = facts.calendarNote {
@@ -255,11 +238,11 @@ struct PermissionsPage: View {
 
     @ViewBuilder private var microphoneRows: some View {
         if facts.microphone == .restricted {
-            RestrictedRow(what: "Microphone",
-                          cost: "so hold-to-talk is off and nothing here can turn it on")
+            RestrictedRow(what: String(localized: "Microphone"),
+                          cost: String(localized: "so hold-to-talk is off and nothing here can turn it on"))
                 .settingsAnchor(.permissionMicrophone)
         } else {
-            PermissionStatusRow(name: "Microphone", purpose: "Hold-to-talk dictation, turned into text on this Mac",
+            PermissionStatusRow(name: String(localized: "Microphone"), purpose: String(localized: "Your side of calls, and dictation"),
                                 state: facts.microphone, canTellTurnedOff: true) {
                 if ![.allowed, .notAllowed].contains(facts.microphone) {
                     LookButton("Allow", prominent: true) { actions.allowMicrophone() }
@@ -267,7 +250,7 @@ struct PermissionsPage: View {
             }
             .settingsAnchor(.permissionMicrophone)
             if facts.microphone == .notAllowed {
-                TurnedOffCard(kind: .microphone, cost: "so holding your dictation key records nothing")
+                TurnedOffCard(kind: .microphone, cost: String(localized: "so holding your dictation key records nothing"))
                 PermissionFixRow(kind: .microphone, brief: firstFix != .microphone)
             }
         }
@@ -276,7 +259,7 @@ struct PermissionsPage: View {
     // MARK: Input Monitoring
 
     @ViewBuilder private var inputMonitoringRows: some View {
-        PermissionStatusRow(name: "Input Monitoring", purpose: "Notices the dictation key you hold, nothing you type",
+        PermissionStatusRow(name: String(localized: "Input Monitoring"), purpose: String(localized: "Notices the dictation key you hold, nothing you type"),
                             state: facts.inputMonitoring, canTellTurnedOff: false) {
             if facts.inputMonitoring != .allowed && facts.inputMonitoring != .notWorking {
                 LookButton("Allow", prominent: true) { actions.allowInputMonitoring() }
@@ -292,62 +275,95 @@ struct PermissionsPage: View {
             // fix it; clearing the old approval does.
             PermissionFixRow(kind: .inputMonitoring, knownOldApproval: true)
         default:
-            LookNote("Until it is allowed, holding your dictation key does nothing at all — nothing records, "
-                     + "and nothing tells you why.")
             if askedForInputMonitoring {
-                LookRow("Nothing came up?", subtitle: "macOS asks only once per app. Switch Airlock on there, or add it with +") {
-                    LookButton(PermissionPage.button) { PermissionPage.permission(.inputMonitoring).open() }
-                }
+                LookNote(Self.switchItOn)
+            } else {
+                LookNote("Until it is allowed, holding your dictation key does nothing at all — nothing records, and nothing tells you why. Allow opens the list in System Settings.")
             }
             PermissionFixRow(kind: .inputMonitoring, brief: firstFix != .inputMonitoring)
         }
     }
 
+    /// Under a row whose Allow has opened its list. Every word of it is
+    /// about the list, because that is where the person now is.
+    static let switchItOn = String(localized: "In the list that opened, switch Airlock on — this page ticks it within a second. Not in the list? Add it with +.")
+
     // MARK: Accessibility
 
     @ViewBuilder private var accessibilityRows: some View {
-        PermissionStatusRow(name: "Accessibility", purpose: "Types your dictation, and steps aside for full screen",
+        PermissionStatusRow(name: String(localized: "Accessibility"), purpose: String(localized: "Types your dictation, and steps aside for full screen"),
                             state: facts.accessibility, canTellTurnedOff: false) {
             if facts.accessibility != .allowed {
-                // macOS only offers this one in System Settings, so a button
-                // that claimed to allow it would lie.
-                LookButton(PermissionPage.button, prominent: true) {
-                    PermissionPage.permission(.accessibility).open()
-                }
+                // Allow as on the row above: it asks, which puts Airlock in
+                // the list, then opens the list, which is the only place
+                // macOS turns this one on.
+                LookButton("Allow", prominent: true) { actions.allowAccessibility() }
             }
         }
         .settingsAnchor(.permissionAccessibility)
         if facts.accessibility != .allowed {
-            // What refusing COSTS, which is the half a permission row usually
-            // leaves out. This one degrades rather than breaks.
-            LookNote("Without it, dictation still listens — it just puts your words on the clipboard instead of "
-                     + "typing them. And the notch stays on top of full-screen apps. Switch Airlock on in the list, "
-                     + "or add it with + — this page notices within a second.")
+            if askedForAccessibility {
+                LookNote(Self.switchItOn)
+            } else {
+                // What refusing COSTS, which is the half a permission row
+                // usually leaves out. This one degrades rather than breaks.
+                LookNote("Without it, dictation still listens — it just puts your words on the clipboard instead of typing them. And the notch stays on top of full-screen apps. Allow opens the list in System Settings.")
+            }
             PermissionFixRow(kind: .accessibility, brief: firstFix != .accessibility)
         }
     }
 
-    // MARK: Screen Recording
+    // MARK: Screen & System Audio Recording
 
-    @ViewBuilder private func screenRecordingRows(_ state: DiagnosticsReport.PermissionState) -> some View {
-        PermissionStatusRow(name: "Screen Recording", purpose: "Lets the guide see what to point at",
-                            state: state, canTellTurnedOff: false) {
-            if state != .allowed {
-                HStack(spacing: 6) {
-                    if askedForScreenRecording {
-                        // macOS shows its question once per app; after that
-                        // the list is the only way.
-                        LookButton(PermissionPage.button) { PermissionPage.permission(.screenRecording).open() }
-                    }
-                    LookButton("Allow", prominent: true) { actions.allowScreenRecording() }
+    // One switch in System Settings that covers two things macOS answers
+    // differently. The screen half can be read; the audio half cannot be
+    // read at all, only seen working or not on a call. So the row has a
+    // line for each and never a single tick that would be half a guess.
+    private var screenAudioRow: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Screen & System Audio Recording")
+                    .font(Theme.chrome(12))
+                    .foregroundStyle(Theme.textPrimary)
+                Text("Hears the other side of calls, and makes Screenshot and Record work")
+                    .font(Theme.chrome(11))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    otherSideLine
+                    screenLine
                 }
+                .font(Theme.chrome(11))
+                .padding(.top, 4)
             }
+            Spacer(minLength: 8)
+            LookButton(PermissionPage.button) { PermissionPage.permission(.screenRecording).open() }
         }
-        .settingsAnchor(.permissionScreenRecording)
-        if state != .allowed {
-            LookNote("Without it, the guide cannot start: it has nothing to point at. macOS applies it after "
-                     + "Airlock reopens, and offers Quit & Reopen itself when you switch it on.")
-            PermissionFixRow(kind: .screenRecording, brief: firstFix != .screenRecording)
+        .lookRowBox()
+        .settingsAnchor(.permissionScreenAudio)
+    }
+
+    @ViewBuilder private var otherSideLine: some View {
+        switch facts.otherSide {
+        case .worked:
+            Label("Other side of calls: worked on your last call", systemImage: "checkmark")
+                .foregroundStyle(Theme.done)
+        case .refused:
+            Label("Other side of calls: refused on your last call", systemImage: "xmark")
+                .foregroundStyle(Theme.needs)
+        case nil:
+            Label("Other side of calls: not tried yet", systemImage: "circle.dashed")
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    @ViewBuilder private var screenLine: some View {
+        if facts.screenRecording {
+            Label("Screenshot & Record: allowed", systemImage: "checkmark")
+                .foregroundStyle(Theme.done)
+        } else {
+            Label("Screenshot & Record: not allowed yet", systemImage: "circle.dashed")
+                .foregroundStyle(Theme.textSecondary)
         }
     }
 
@@ -357,7 +373,7 @@ struct PermissionsPage: View {
     // asking, and asking to find out would raise the very question this row
     // is describing.
     private var automationRow: some View {
-        LookRow("Automation", subtitle: "Jumping to your terminal; Spotify and Music") {
+        LookRow("Automation", subtitle: String(localized: "Jumping to your terminal; Spotify and Music")) {
             HStack(spacing: 10) {
                 Label("Asked the first time", systemImage: "clock")
                     .font(Theme.chrome(11.5))
@@ -394,11 +410,11 @@ private struct PermissionStatusRow<Action: View>: View {
 
     private var title: String {
         switch state {
-        case .allowed: return "Allowed"
-        case .notWorking: return "On, but not working"
-        case .notAllowed: return canTellTurnedOff ? "Turned off" : "Not allowed"
-        case .notAsked, .asksOnFirstUse: return "Not allowed yet"
-        case .restricted: return "Not allowed"
+        case .allowed: return String(localized: "Allowed")
+        case .notWorking: return String(localized: "On, but not working")
+        case .notAllowed: return canTellTurnedOff ? String(localized: "Turned off") : String(localized: "Not allowed")
+        case .notAsked, .asksOnFirstUse: return String(localized: "Not allowed yet")
+        case .restricted: return String(localized: "Not allowed")
         }
     }
 
@@ -429,7 +445,7 @@ private struct TurnedOffCard: View {
     let cost: String
 
     var body: some View {
-        ProblemCard(sentence: "Airlock is switched off under \(kind.systemName) in System Settings, \(cost).",
+        ProblemCard(sentence: String(localized: "Airlock is switched off under \(kind.systemName) in System Settings, \(cost)."),
                     button: PermissionPage.button,
                     action: { PermissionPage.permission(kind).open() })
     }
@@ -447,8 +463,7 @@ struct RestrictedRow: View {
     let cost: String
 
     var body: some View {
-        LookRow(what, subtitle: "A profile on this Mac blocks \(what.lowercased()) access, \(cost). Nothing here "
-                + "can change it — ask whoever manages the Mac.") {
+        LookRow(what, subtitle: String(localized: "A profile on this Mac blocks \(what.lowercased()) access, \(cost). Nothing here can change it — ask whoever manages the Mac.")) {
             Label("Your organisation decides", systemImage: "building.2.fill")
                 .font(Theme.chrome(11.5))
                 .foregroundStyle(Theme.textSecondary)
@@ -465,8 +480,8 @@ struct PermissionsPane: View {
     /// Trust is read live rather than stored: it changes in System Settings,
     /// outside this process, with no notification worth observing.
     @State private var refreshTick = 0
+    @State private var askedForAccessibility = false
     @State private var askedForInputMonitoring = false
-    @State private var askedForScreenRecording = false
     @State private var sweep: PermissionSweepState = .notRun
 
     var body: some View {
@@ -476,8 +491,8 @@ struct PermissionsPane: View {
         PermissionsPage(
             facts: PermissionFacts.read(dictation: dictation, calendar: calendar),
             sweep: sweep,
+            askedForAccessibility: askedForAccessibility,
             askedForInputMonitoring: askedForInputMonitoring,
-            askedForScreenRecording: askedForScreenRecording,
             actions: PermissionActions(
                 askForEverything: {
                     sweep = .asking
@@ -489,14 +504,13 @@ struct PermissionsPane: View {
                 },
                 allowCalendar: { Task { await calendar.requestAccess(); refreshTick += 1 } },
                 allowMicrophone: { Task { await dictation.requestMicrophoneAccess(); refreshTick += 1 } },
+                allowAccessibility: {
+                    askedForAccessibility = true
+                    PermissionSwitch.allowAccessibility()
+                },
                 allowInputMonitoring: {
                     askedForInputMonitoring = true
-                    dictation.requestInputMonitoring()
-                },
-                allowScreenRecording: {
-                    askedForScreenRecording = true
-                    _ = CGRequestScreenCaptureAccess()
-                    refreshTick += 1
+                    PermissionSwitch.allowInputMonitoring(dictation)
                 }))
         // Notices a switch flipped in System Settings while this page is
         // beside it, not only once Airlock is clicked again.

@@ -28,15 +28,16 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case widgets
     case tray
     case clipboard
-    /// Dictation and the assistant, in one pane. The raw value stays
-    /// `dictation` — it is what is already on disk.
+    /// Dictation and call notes. The raw value stays `dictation` — it is
+    /// what is already on disk.
     case voice = "dictation"
     case agents
     case policy
     case permissions
     case license
     case about
-    /// The guide's pages (card 3.05), in the sidebar only while it is on.
+    /// The screen guide's two pages, which are gone. Kept as cases because a
+    /// stored "reopen where I was" may still name them; they resolve to General.
     case guide
     case privacy
 
@@ -51,19 +52,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         .agents, .permissions, .license,
     ]
 
-    /// The sidebar as shown. With the guide on it gains Guide and Privacy
-    /// (designs 11a–b), and Agents reads "Developer" (11c): the Developer mode
-    /// switch heads it, and the hooks and rules below it show only while the
-    /// switch is on. With the guide off, nothing changes.
-    static func sidebar(guideOn: Bool = guideIsOn) -> [SettingsPane] {
-        guideOn
-            ? [.general, .guide, .privacy, .appearance, .voice, .clipboard,
-               .agents, .permissions, .license]
-            : sidebarCases
-    }
-
-    static var guideIsOn: Bool { GuideSwitch.isOn }
-
     /// Where a pane actually goes. Identity for the seven; the folded cases
     /// land where their contents moved.
     var resolved: SettingsPane {
@@ -72,30 +60,30 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         // a fold that lands on another fold is a blank pane.
         case .tray, .widgets: return .appearance
         case .policy: return .agents
-        case .about: return .general
+        case .about, .guide, .privacy: return .general
         default: return self
         }
     }
 
     var title: String {
         switch self {
-        case .general: return "General"
+        case .general: return String(localized: "General")
         // "Appearance" described a paint job and "Panel" described the thing we
         // built; this one is named after the thing the reader is looking at.
-        case .appearance: return "The notch"
-        case .widgets: return "Widgets"
-        case .tray: return "Shelf"
-        case .clipboard: return "Clipboard"
-        case .voice: return "Voice"
-        case .agents: return Self.guideIsOn ? "Developer" : "Agents"
-        case .guide: return "Guide"
-        case .privacy: return "Privacy"
+        case .appearance: return String(localized: "The notch")
+        case .widgets: return String(localized: "Widgets")
+        case .tray: return String(localized: "Shelf")
+        case .clipboard: return String(localized: "Clipboard")
+        case .voice: return String(localized: "Voice")
+        case .agents: return String(localized: "Agents")
+        case .guide: return String(localized: "Guide")
+        case .privacy: return String(localized: "Privacy")
         // The file calls them rules and so does every button that writes one.
         // "Policy" was the implementation's word for it.
-        case .policy: return "Rules"
-        case .permissions: return "Permissions"
-        case .license: return "Plans"
-        case .about: return "About"
+        case .policy: return String(localized: "Rules")
+        case .permissions: return String(localized: "Permissions")
+        case .license: return String(localized: "Plans")
+        case .about: return String(localized: "About")
         }
     }
 
@@ -103,7 +91,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// phrase: "The notch" reads as a sentence fragment in a column of words.
     var tabTitle: String {
         switch self {
-        case .appearance: return "Notch"
+        case .appearance: return String(localized: "Notch")
         default: return title
         }
     }
@@ -143,19 +131,19 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     /// carry all the meaning on their own.
     var blurb: String {
         switch self {
-        case .general: return "Startup, updates and diagnostics"
-        case .appearance: return "What it shows, and how it looks"
-        case .widgets: return "What the panel shows, and where"
-        case .tray: return "Shelf and workspace folder"
-        case .clipboard: return "History, privacy and hotkey"
-        case .voice: return "Hold to talk, and hold to ask"
-        case .agents: return Self.guideIsOn ? "Coding agents in the notch" : "Connecting, answering and rules"
-        case .guide: return "Voice, layout and keys"
-        case .privacy: return "What the guide looks at"
-        case .policy: return "What runs without asking"
-        case .permissions: return "What macOS has allowed"
-        case .license: return "Free, Plus and Pro"
-        case .about: return "Version and links"
+        case .general: return String(localized: "Startup, updates and diagnostics")
+        case .appearance: return String(localized: "What it shows, and how it looks")
+        case .widgets: return String(localized: "What the panel shows, and where")
+        case .tray: return String(localized: "Shelf and workspace folder")
+        case .clipboard: return String(localized: "History, privacy and hotkey")
+        case .voice: return String(localized: "Dictation and call notes")
+        case .agents: return String(localized: "Connecting, answering and rules")
+        case .guide: return String(localized: "Voice, layout and keys")
+        case .privacy: return String(localized: "What the guide looks at")
+        case .policy: return String(localized: "What runs without asking")
+        case .permissions: return String(localized: "What macOS has allowed")
+        case .license: return String(localized: "Free, Plus and Pro")
+        case .about: return String(localized: "Version and links")
         }
     }
 }

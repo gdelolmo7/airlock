@@ -1,8 +1,8 @@
 import Synchronization
 
 /// Whether this process may write the owner's diagnostic logs: `dictation.log`,
-/// `controls.log`, `wave.log`, `appvolume.log`, `hover.log`,
-/// `brokenpipe.log` and `guide-looks.jsonl`, in
+/// `controls.log`, `wave.log`, `appvolume.log`, `hover.log`
+/// and `brokenpipe.log`, in
 /// `~/Library/Application Support/Airlock/`.
 ///
 /// Only the app itself may. The test bundle links all of this module, and its

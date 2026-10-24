@@ -11,7 +11,7 @@ struct RepositoryWidget: NotchWidget {
     let repository: RepositoryWidgetModel
 
     var id: String { "repository" }
-    var displayName: String { "Repository" }
+    var displayName: String { String(localized: "Repository") }
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { true }
     var tab: NotchTab { .agents }
@@ -44,7 +44,7 @@ struct AgentsWidget: NotchWidget {
     let agents: AgentsWidgetModel
 
     var id: String { "agents" }
-    var displayName: String { "AI agents" }
+    var displayName: String { String(localized: "AI agents") }
     var tier: WidgetTier { .interrupt }
     var isToggleable: Bool { true }
     var tab: NotchTab { .agents }
@@ -68,14 +68,10 @@ struct AgentsWidget: NotchWidget {
     /// island's session glyphs and the Claude usage figures keep following
     /// that, so a Mac with no agents gets a tab explaining itself rather than
     /// figures for a feature nobody asked for.
-    ///
-    /// With the guide on, the switch is Developer mode (card 3.02) and the
-    /// first-run welcome asks the question this tab used to stand in for, so
-    /// a Mac with no hooks keeps the tab off until somebody says yes.
     var isUnconfigured: Bool { Self.isUnconfigured(agents) }
 
     static func isUnconfigured(_ agents: AgentsWidgetModel) -> Bool {
-        agents.basis == .noHooksInstalled && !GuideSwitch.isOn
+        agents.basis == .noHooksInstalled
     }
 
     /// Whether the Agents tab is in the top bar while nothing is waiting:
@@ -104,7 +100,7 @@ struct SystemControlsWidget: NotchWidget {
     let controls: SystemControlsModel
 
     var id: String { "systemControls" }
-    var displayName: String { "System controls" }
+    var displayName: String { String(localized: "System controls") }
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { true }
     var column: WidgetColumn { .leading }
@@ -145,7 +141,7 @@ struct KeyMapWidget: NotchWidget {
     /// of the tab and the owner asked what it was. On Home the music and
     /// control cards are always there to yield to.
     var tab: NotchTab { .home }
-    var displayName: String { "Shortcut map" }
+    var displayName: String { String(localized: "Shortcut map") }
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { true }
     var column: WidgetColumn { .leading }
@@ -174,7 +170,7 @@ struct MediaWidget: NotchWidget {
     /// sharing a column with the console, which squeezed it into a card too
     /// narrow to be any of those things.
     var column: WidgetColumn { .full }
-    var displayName: String { "Media (Spotify & Apple Music)" }
+    var displayName: String { String(localized: "Media (Spotify & Apple Music)") }
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { true }
     var isEnabled: Bool {
@@ -218,7 +214,7 @@ struct SoundWidget: NotchWidget {
     /// moves existing installs here.
     var tab: NotchTab { .home }
     var column: WidgetColumn { .trailing }
-    var displayName: String { "Sound (output & per-app volume)" }
+    var displayName: String { String(localized: "Sound (output & per-app volume)") }
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { true }
     var isEnabled: Bool {
@@ -253,7 +249,7 @@ struct CalendarWidget: NotchWidget {
     var tab: NotchTab { .dashboard }
     /// Leading, on its own — see `SoundWidget.column`.
     var column: WidgetColumn { .leading }
-    var displayName: String { "Calendar" }
+    var displayName: String { String(localized: "Calendar") }
     var tier: WidgetTier { .glance }
     var isToggleable: Bool { true }
     var isEnabled: Bool {
@@ -286,7 +282,7 @@ struct CallsWidget: NotchWidget {
     var tab: NotchTab { .calls }
     /// The tab is the list's alone, so it has the panel's whole width.
     var column: WidgetColumn { .full }
-    var displayName: String { "Calls" }
+    var displayName: String { String(localized: "Calls") }
     /// Never opens the notch: past calls are looked up, they never need you.
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { false }
@@ -308,7 +304,7 @@ struct BatteryWidget: NotchWidget {
     let battery: BatteryWidgetModel
 
     var id: String { "battery" }
-    var displayName: String { "Battery" }
+    var displayName: String { String(localized: "Battery") }
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { true }
     /// Right-hand gutter of the top bar, beside the camera housing — rendered
@@ -333,7 +329,7 @@ struct SystemStatsWidget: NotchWidget {
     var tab: NotchTab { .dashboard }
     /// Under Sound — see `SoundWidget.column`.
     var column: WidgetColumn { .trailing }
-    var displayName: String { "System (CPU, GPU & Memory)" }
+    var displayName: String { String(localized: "System (CPU, GPU & Memory)") }
     var tier: WidgetTier { .ambient }
     var isToggleable: Bool { true }
     var isEnabled: Bool {
@@ -355,7 +351,7 @@ struct TrayWidget: NotchWidget {
     let tray: TrayModel
 
     var id: String { "tray" }
-    var displayName: String { "Shelf" }
+    var displayName: String { String(localized: "Shelf") }
     var tier: WidgetTier { .ambient }
     /// The tab would be empty without it, so it isn't optional.
     var isToggleable: Bool { false }
@@ -376,7 +372,7 @@ struct ClipboardWidget: NotchWidget {
     let clipboard: ClipboardWidgetModel
 
     var id: String { "clipboard" }
-    var displayName: String { "Clipboard history" }
+    var displayName: String { String(localized: "Clipboard history") }
     var tier: WidgetTier { .ambient }
     /// Toggleable, unlike the tray: a clipboard manager records everything you
     /// copy, and someone who does not want that must be able to say so — the

@@ -338,6 +338,22 @@ private extension CGAffineTransform {
     }
 }
 
+/// The part of a filling cloud's frame that is full: a band rising from the
+/// bottom. Animatable, so a jump to full on a finish springs rather than snaps.
+struct BloubFillLevel: Shape {
+    var level: CGFloat
+
+    var animatableData: CGFloat {
+        get { level }
+        set { level = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let height = rect.height * min(max(level, 0), 1)
+        return Path(CGRect(x: rect.minX, y: rect.maxY - height, width: rect.width, height: height))
+    }
+}
+
 /// The character. Body plus eyes, both coloured from `Theme`.
 ///
 /// `animated` is off by default and that is a power decision, not an oversight:
@@ -356,8 +372,16 @@ struct BloubView: View {
     /// what is happening, and the blink says whether it is moving. Three channels
     /// where the lamp had two. `nil` keeps the appearance-adaptive body.
     var tint: Color?
+    /// How full the body is, 0 to 1, for a cloud that fills while work goes.
+    /// Below the level the body is its colour; above it, a faint ghost of it.
+    /// `nil` is a whole body, as everywhere else.
+    var fill: CGFloat?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The ghost's strength: enough that the empty part still reads as the
+    /// cloud, and its dark eyes still show on it over black.
+    static let ghost: Double = 0.42
 
     /// Measured off the source keyframes rather than invented: the lid closes to
     /// 23% of open, the close and the open take ~80ms each, and the cycle repeats
@@ -374,7 +398,13 @@ struct BloubView: View {
 
     var body: some View {
         ZStack {
-            BloubBody().fill(tint ?? Theme.bloubBody)
+            if let fill {
+                BloubBody().fill((tint ?? Theme.bloubBody).opacity(Self.ghost))
+                BloubBody().fill(tint ?? Theme.bloubBody)
+                    .mask(BloubFillLevel(level: fill))
+            } else {
+                BloubBody().fill(tint ?? Theme.bloubBody)
+            }
             BloubEyes(expression: expression, lid: lid).fill(Theme.bloubEyes)
             if expression.sweats {
                 BloubSweat().fill(Theme.bloubSweat)

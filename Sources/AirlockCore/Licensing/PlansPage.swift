@@ -46,7 +46,9 @@ public struct PlansPage: Equatable, Sendable {
         /// "You're on **Free**: clipboard keeps 100, …", the top line for
         /// somebody not paying. Markdown, for the plan's name.
         public var sentence: String {
-            "You're on \(title == plan.label ? "" : "a ")**\(title)**: \(summary)"
+            title == plan.label
+                ? String(localized: "You're on **\(title)**: \(summary)")
+                : String(localized: "You're on a **\(title)**: \(summary)")
         }
     }
 
@@ -115,17 +117,17 @@ public struct PlansPage: Equatable, Sendable {
 
         public var title: String {
             switch self {
-            case .get(let plan): "Get \(plan.label)"
-            case .change(let plan): "Change to \(plan.label)"
-            case .cancel: "Cancel subscription"
-            case .removeKey: "Switch to Free"
+            case .get(let plan): String(localized: "Get \(plan.label)")
+            case .change(let plan): String(localized: "Change to \(plan.label)")
+            case .cancel: String(localized: "Cancel subscription")
+            case .removeKey: String(localized: "Switch to Free")
             }
         }
 
         /// Under the line, when it needs saying.
         public var note: String? {
             switch self {
-            case .change: "Opens your subscription page. You never pay twice."
+            case .change: String(localized: "Opens your subscription page. You never pay twice.")
             case .get, .cancel, .removeKey: nil
             }
         }
@@ -177,7 +179,7 @@ public struct PlansPage: Equatable, Sendable {
         let paying = license != nil
         let on = paying ? entitlement.plan : .free
         if paying {
-            hero = Hero(plan: on, isYours: true, title: "You're on \(on.label)",
+            hero = Hero(plan: on, isYours: true, title: String(localized: "You're on \(on.label)"),
                         lead: PlanCatalog.lead(on) ?? "", features: PlanCatalog.features(on),
                         alsoYours: on == .pro ? PlanCatalog.features(.plus).map(\.line) : [],
                         offer: nil)
@@ -203,16 +205,17 @@ public struct PlansPage: Equatable, Sendable {
                         sentence: on == .plus ? Self.proOverPlus : Self.proOverFree,
                         amount: PlanCatalog.amount(.pro, period), per: PlanCatalog.per(period),
                         note: PlanCatalog.shortNote(.pro, period), button: button)
-            plansHeading = on == .plus ? "Want even better notes?" : "Plans"
+            plansHeading = on == .plus ? String(localized: "Want even better notes?") : String(localized: "Plans")
         }
 
         if let license, !current.needsAttention {
             let steps = Self.stepsDown(from: on, license, now: now, locale: locale, timeZone: timeZone)
             stepsDown = steps
-            stepsDownHeading = license.ref != nil ? "Change or cancel" : "Other plans"
+            stepsDownHeading = license.ref != nil ? String(localized: "Change or cancel") : String(localized: "Other plans")
             stepsDownNote = license.ref == nil ? nil
-                : (steps.count > 1 ? "Both open" : "Opens") + " your subscription page in your browser. "
-                    + "Nothing you made is ever deleted."
+                : steps.count > 1
+                    ? String(localized: "Both open your subscription page in your browser. Nothing you made is ever deleted.")
+                    : String(localized: "Opens your subscription page in your browser. Nothing you made is ever deleted.")
         } else {
             stepsDown = []
             stepsDownHeading = nil
@@ -231,27 +234,24 @@ public struct PlansPage: Equatable, Sendable {
         var steps: [StepDown] = []
         if on == .pro {
             steps.append(StepDown(plan: .plus,
-                                  sentence: "Everything you have, except the best model and the extra "
-                                      + "online notes. \(PlanCatalog.price(.plus, license.period)).",
+                                  sentence: String(localized: "Everything you have, except the best model and the extra online notes. \(PlanCatalog.price(.plus, license.period))."),
                                   button: .change(to: .plus)))
         }
         // In grace the renewal day has passed and the next one isn't known
         // yet: no date in the past.
         let withYear = license.renewsAt.timeIntervalSince(now) > 300 * 86_400
-        let until = license.renewsAt > now
-            ? "until \(date(license.renewsAt, withYear: withYear, locale: locale, timeZone: timeZone))"
-            : "to the end of what you paid for"
-        steps.append(StepDown(plan: .free, sentence: "You keep \(on.label) \(until), then you're on Free.",
-                              button: .cancel))
+        let sentence = license.renewsAt > now
+            ? String(localized: "You keep \(on.label) until \(date(license.renewsAt, withYear: withYear, locale: locale, timeZone: timeZone)), then you're on Free.")
+            : String(localized: "You keep \(on.label) to the end of what you paid for, then you're on Free.")
+        steps.append(StepDown(plan: .free, sentence: sentence, button: .cancel))
         return steps
     }
 
-    static let removeKeySentence = "Takes your key off this Mac. Nothing you made is deleted, "
-        + "and you can paste the key back any time."
+    static let removeKeySentence = String(localized: "Takes your key off this Mac. Nothing you made is deleted, and you can paste the key back any time.")
 
-    static let plusHeadline = "The whole call, written down"
-    static let proOverFree = "Everything in Plus, with notes by the best model we've tested and twice as many online notes."
-    static let proOverPlus = "Everything you have now, with notes by the best model we've tested and twice as many online notes."
+    static let plusHeadline = String(localized: "The whole call, written down")
+    static let proOverFree = String(localized: "Everything in Plus, with notes by the best model we've tested and twice as many online notes.")
+    static let proOverPlus = String(localized: "Everything you have now, with notes by the best model we've tested and twice as many online notes.")
 
     // MARK: - Your plan
 
@@ -262,26 +262,28 @@ public struct PlansPage: Equatable, Sendable {
             return Current(plan: .free, title: AirlockPlan.free.label, summary: freeSummary,
                            price: nil, note: nil, manages: false, needsAttention: false)
         case .trialing(let days):
-            let left = days == 1 ? "1 day" : "\(days) days"
-            return Current(plan: .plus, title: "Plus trial", summary: "\(left) left, then Free. No card needed.",
+            let summary = days == 1
+                ? String(localized: "1 day left, then Free. No card needed.")
+                : String(localized: "\(days) days left, then Free. No card needed.")
+            return Current(plan: .plus, title: String(localized: "Plus trial"), summary: summary,
                            price: nil, note: nil, manages: false, needsAttention: false)
         case .licensed(let license), .grace(let license):
             let plan = AirlockPlan(license.plan)
             guard license.ref != nil else {
                 // Issued by hand: no price, never renews, nothing to manage.
                 let until = date(license.checkBy, withYear: true, locale: locale, timeZone: timeZone)
-                return Current(plan: plan, title: license.plan.label, summary: "Your key lasts until \(until)",
+                return Current(plan: plan, title: license.plan.label, summary: String(localized: "Your key lasts until \(until)"),
                                price: nil, note: nil, manages: false, needsAttention: false)
             }
             return Current(plan: plan, title: license.plan.label,
                            summary: renewal(license, now: now, locale: locale, timeZone: timeZone),
                            price: PlanCatalog.price(plan, license.period),
-                           note: plan == .pro ? "Change plan or card, or cancel, in your browser" : PlanCatalog.monthlyNotes,
+                           note: plan == .pro ? String(localized: "Change plan or card, or cancel, in your browser") : PlanCatalog.monthlyNotes,
                            manages: true, needsAttention: false)
         case .overdue(let license):
             let summary = license.ref != nil
-                ? "The last payment didn't go through. Airlock keeps working while you update it."
-                : "This key has run out. Airlock keeps working; write to hello@useairlock.app for a new one."
+                ? String(localized: "The last payment didn't go through. Airlock keeps working while you update it.")
+                : String(localized: "This key has run out. Airlock keeps working; write to hello@useairlock.app for a new one.")
             return Current(plan: AirlockPlan(license.plan), title: license.plan.label, summary: summary,
                            price: nil, note: nil, manages: license.ref != nil, needsAttention: true)
         }
@@ -290,17 +292,16 @@ public struct PlansPage: Equatable, Sendable {
     /// What Free keeps, from the table that enforces it.
     static var freeSummary: String {
         let minutes = Int(PlanLimits.freeNotesListen / 60)
-        return "clipboard keeps \(PlanLimits.freeClipboard), one coding agent at a time, "
-            + "notes for the first \(minutes) minutes of a call."
+        return String(localized: "clipboard keeps \(PlanLimits.freeClipboard), one coding agent at a time, notes for the first \(minutes) minutes of a call, the drop box without WebP or background removal.")
     }
 
     /// "renews on 15 November".
     private static func renewal(_ license: License, now: Date, locale: Locale, timeZone: TimeZone) -> String {
         // In grace the day has passed and the renewal is being fetched; a
         // date in the past beside "renews" reads like a mistake.
-        guard license.renewsAt > now else { return "renewing now" }
+        guard license.renewsAt > now else { return String(localized: "renewing now") }
         let withYear = license.renewsAt.timeIntervalSince(now) > 300 * 86_400
-        return "renews on \(date(license.renewsAt, withYear: withYear, locale: locale, timeZone: timeZone))"
+        return String(localized: "renews on \(date(license.renewsAt, withYear: withYear, locale: locale, timeZone: timeZone))")
     }
 
     private static func date(_ date: Date, withYear: Bool, locale: Locale, timeZone: TimeZone) -> String {
@@ -325,9 +326,9 @@ public enum PlanCheck: Equatable, Sendable {
 
     public var sentence: String {
         switch self {
-        case .current(let plan): "Checked just now: you're on \(plan.label)."
-        case .ended: "The shop says this subscription isn't active any more. Nothing you made is gone."
-        case .unreachable: "Couldn't reach the licence server. Nothing has changed; try again later."
+        case .current(let plan): String(localized: "Checked just now: you're on \(plan.label).")
+        case .ended: String(localized: "The shop says this subscription isn't active any more. Nothing you made is gone.")
+        case .unreachable: String(localized: "Couldn't reach the licence server. Nothing has changed; try again later.")
         }
     }
 }

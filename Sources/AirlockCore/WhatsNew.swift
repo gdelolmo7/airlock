@@ -54,64 +54,72 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
-        Notes(version: "1.0.26", title: "Call notes by topic", items: [
-            Item("list.bullet.rectangle", "On Plus and Pro, call notes go topic by topic, with to-dos by person and words to check."),
-            Item("tray.and.arrow.down", "Files dragged onto the island now land in the tray on a monitor too."),
-            Item("doc.on.clipboard", "What you copy from Airlock itself, like a call's notes, now shows in clipboard history."),
-            Item("questionmark.circle", "Settings › Plans is simpler, and Settings pages link to help on the website."),
-        ]),
-        Notes(version: "1.0.25", title: "Who said what on calls", items: [
-            Item("person.2", "On Plus and Pro, call notes tell the voices apart: Person 1, Person 2… Name them after."),
+        Notes(version: "1.1.0", title: String(localized: "In Spanish, with a drop box"), items: [
+            Item("globe", String(localized: "Airlock speaks Spanish now. It follows your Mac's language, or choose one in Settings › General.")),
+            Item("tray.and.arrow.down", String(localized: "Drop a file on the notch to keep it, AirDrop it or change its format. Plus also removes backgrounds.")),
+            Item("leaf", String(localized: "Hold to ask and the ⌥Space bar are gone, to keep Airlock simple. Dictation setup is one path now.")),
             // The privacy page promises a new outbound request is in the notes
             // of the version that adds it.
-            Item("arrow.down.circle", "For that, Airlock downloads a voice model once, about 100 MB. Nothing about you is sent."),
-            Item("lock.shield", "Voices are told apart on your Mac, and no voice is remembered after the call."),
-            Item("square.stack.3d.up", "On Free, the other side stays \u{201C}Them\u{201D}. Settings › Voice shows what Plus adds."),
+            Item("lock.shield", String(localized: "On Free, a call past 30 minutes is kept on your Mac for 7 days. Plus opens it, sending only a key.")),
         ]),
-        Notes(version: "1.0.24", title: "Discord calls, and plainer words", items: [
-            Item("headphones", "Discord calls are noticed now, so Airlock offers to take notes as it does for other calls."),
-            Item("macwindow", "The call notes window no longer goes black partway through a long call."),
-            Item("clock", "Call notes show the time of day for each part, and the live card counts the minutes."),
-            Item("text.bubble", "Plainer words in the notch and Settings, and every stop says what to do next."),
+        Notes(version: "1.0.26", title: String(localized: "Call notes by topic"), items: [
+            Item("list.bullet.rectangle", String(localized: "On Plus and Pro, call notes go topic by topic, with to-dos by person and words to check.")),
+            Item("tray.and.arrow.down", String(localized: "Files dragged onto the island now land in the tray on a monitor too.")),
+            Item("doc.on.clipboard", String(localized: "What you copy from Airlock itself, like a call's notes, now shows in clipboard history.")),
+            Item("questionmark.circle", String(localized: "Settings › Plans is simpler, and Settings pages link to help on the website.")),
         ]),
-        Notes(version: "1.0.23", title: "Free, Plus and Pro", items: [
-            Item("square.stack.3d.up", "Airlock now comes as Free, Plus or Pro. Settings › Plans shows yours and what each adds."),
-            Item("checkmark.seal", "Subscribed before plans came? You're on Plus and keep everything you had."),
+        Notes(version: "1.0.25", title: String(localized: "Who said what on calls"), items: [
+            Item("person.2", String(localized: "On Plus and Pro, call notes tell the voices apart: Person 1, Person 2… Name them after.")),
             // The privacy page promises a new outbound request is in the notes
             // of the version that adds it.
-            Item("chart.bar", "Share which features you use to help improve Airlock. Off unless you say yes, never what you type."),
-            Item("macwindow", "Calls and Settings share one window that reopens where you left it, plus dictation and Zoom fixes."),
+            Item("arrow.down.circle", String(localized: "For that, Airlock downloads a voice model once, about 100 MB. Nothing about you is sent.")),
+            Item("lock.shield", String(localized: "Voices are told apart on your Mac, and no voice is remembered after the call.")),
+            Item("square.stack.3d.up", String(localized: "On Free, the other side stays \u{201C}Them\u{201D}. Settings › Voice shows what Plus adds.")),
         ]),
-        Notes(version: "1.0.22", title: "Call notes, more like an app", items: [
-            Item("dock.rectangle", "Call notes and Settings now show in the Dock, in ⌘Tab and in Stage Manager."),
-            Item("person.crop.circle.badge.plus", "Name the other person during the call. Notes say \"the other person\", not Them."),
-            Item("bell.badge", "A Mac notification tells you when a call's notes are ready."),
-            Item("wrench.and.screwdriver", "Airlock no longer quits by itself after a call. Quitting mid-notes asks first."),
+        Notes(version: "1.0.24", title: String(localized: "Discord calls, and plainer words"), items: [
+            Item("headphones", String(localized: "Discord calls are noticed now, so Airlock offers to take notes as it does for other calls.")),
+            Item("macwindow", String(localized: "The call notes window no longer goes black partway through a long call.")),
+            Item("clock", String(localized: "Call notes show the time of day for each part, and the live card counts the minutes.")),
+            Item("text.bubble", String(localized: "Plainer words in the notch and Settings, and every stop says what to do next.")),
         ]),
-        Notes(version: "1.0.21", title: "Call notes that keep up", items: [
-            Item("sparkles", "Subscribers' call notes are now written online by default, no question asked."),
-            Item("gearshape", "Rather keep them on your Mac? Turn off Write notes online in Settings › Voice."),
-            Item("captions.bubble", "Words show up as they're said, and the side window tells people apart during the call."),
-            Item("tag", "A call with no calendar name gets a title from what it was about."),
+        Notes(version: "1.0.23", title: String(localized: "Free, Plus and Pro"), items: [
+            Item("square.stack.3d.up", String(localized: "Airlock now comes as Free, Plus or Pro. Settings › Plans shows yours and what each adds.")),
+            Item("checkmark.seal", String(localized: "Subscribed before plans came? You're on Plus and keep everything you had.")),
+            // The privacy page promises a new outbound request is in the notes
+            // of the version that adds it.
+            Item("chart.bar", String(localized: "Share which features you use to help improve Airlock. Off unless you say yes, never what you type.")),
+            Item("macwindow", String(localized: "Calls and Settings share one window that reopens where you left it, plus dictation and Zoom fixes.")),
+        ]),
+        Notes(version: "1.0.22", title: String(localized: "Call notes, more like an app"), items: [
+            Item("dock.rectangle", String(localized: "Call notes and Settings now show in the Dock, in ⌘Tab and in Stage Manager.")),
+            Item("person.crop.circle.badge.plus", String(localized: "Name the other person during the call. Notes say \"the other person\", not Them.")),
+            Item("bell.badge", String(localized: "A Mac notification tells you when a call's notes are ready.")),
+            Item("wrench.and.screwdriver", String(localized: "Airlock no longer quits by itself after a call. Quitting mid-notes asks first.")),
+        ]),
+        Notes(version: "1.0.21", title: String(localized: "Call notes that keep up"), items: [
+            Item("sparkles", String(localized: "Subscribers' call notes are now written online by default, no question asked.")),
+            Item("gearshape", String(localized: "Rather keep them on your Mac? Turn off Write notes online in Settings › Voice.")),
+            Item("captions.bubble", String(localized: "Words show up as they're said, and the side window tells people apart during the call.")),
+            Item("tag", String(localized: "A call with no calendar name gets a title from what it was about.")),
         ]),
         // 1.0.20 also said it asked first, under the next notes. Nothing asks
         // since, and anyone who skips 1.0.20 reads these lines later, so that
         // one is gone.
-        Notes(version: "1.0.20", title: "Better call notes, online", items: [
-            Item("sparkles", "Subscribers can have call notes written online, with better summaries and to-dos."),
-            Item("lock.shield", "Nobody keeps your call. Offline, or if you'd rather not, your Mac writes the notes."),
-            Item("gearshape", "Change your mind any time on the Voice page in Settings."),
+        Notes(version: "1.0.20", title: String(localized: "Better call notes, online"), items: [
+            Item("sparkles", String(localized: "Subscribers can have call notes written online, with better summaries and to-dos.")),
+            Item("lock.shield", String(localized: "Nobody keeps your call. Offline, or if you'd rather not, your Mac writes the notes.")),
+            Item("gearshape", String(localized: "Change your mind any time on the Voice page in Settings.")),
         ]),
-        Notes(version: "1.0.19", title: "Notes from your calls", items: [
-            Item("phone.bubble", "When a call starts, the notch offers to take notes. A summary and to-dos come when it ends."),
-            Item("captions.bubble", "Watch the words appear as they're said, in a small window beside the call."),
-            Item("gearshape", "Settings look like the notch now. Call notes can be turned off on the Voice page."),
-            Item("ladybug", "If Airlock ever crashes, it can send us a report, but only if you say yes."),
+        Notes(version: "1.0.19", title: String(localized: "Notes from your calls"), items: [
+            Item("phone.bubble", String(localized: "When a call starts, the notch offers to take notes. A summary and to-dos come when it ends.")),
+            Item("captions.bubble", String(localized: "Watch the words appear as they're said, in a small window beside the call.")),
+            Item("gearshape", String(localized: "Settings look like the notch now. Call notes can be turned off on the Voice page.")),
+            Item("ladybug", String(localized: "If Airlock ever crashes, it can send us a report, but only if you say yes.")),
         ]),
-        Notes(version: "1.0.18", title: "Cleaner calls, and this note", items: [
-            Item("phone", "During a call, the notch shows a crisp logo of the app you're calling."),
-            Item("video", "A Google Meet call in your browser shows Meet's logo, even after you switch tabs."),
-            Item("sparkles", "After each update, this card tells you what changed. Once."),
+        Notes(version: "1.0.18", title: String(localized: "Cleaner calls, and this note"), items: [
+            Item("phone", String(localized: "During a call, the notch shows a crisp logo of the app you're calling.")),
+            Item("video", String(localized: "A Google Meet call in your browser shows Meet's logo, even after you switch tabs.")),
+            Item("sparkles", String(localized: "After each update, this card tells you what changed. Once.")),
         ]),
     ]
 
@@ -131,8 +139,9 @@ public enum WhatsNew {
     public struct Card: Equatable, Sendable {
         /// The running version: the one written down as seen when it goes.
         public let version: String
-        /// The small line above the title: "new in 1.0.18", or "new since
-        /// 1.0.17" when several versions are folded together.
+        /// The small line above the title: "new in 1.0.18", or "1.0.19 · new
+        /// since 1.0.17" when several versions are folded together, so the
+        /// card still names the version the person now has.
         public let label: String
         public let title: String
         /// Newest version's lines first.
@@ -153,7 +162,7 @@ public enum WhatsNew {
     public static let maxItems = 4
 
     /// The title of a card that folds several versions together.
-    public static let foldedTitle = "New since your last update"
+    public static let foldedTitle = String(localized: "New since your last update")
 
     /// What to do at launch.
     public enum Decision: Equatable, Sendable {
@@ -206,10 +215,10 @@ public enum WhatsNew {
         guard let newest = unseen.first, !lines.isEmpty else { return nil }
         let shown = Array(lines.prefix(maxItems))
         if unseen.count == 1 {
-            return Card(version: version, label: "new in \(newest.version)", title: newest.title,
+            return Card(version: version, label: String(localized: "new in \(newest.version)"), title: newest.title,
                         items: shown, moreCount: lines.count - shown.count)
         }
-        let label = lastSeen.map { "new since \($0)" } ?? "new in \(newest.version)"
+        let label = lastSeen.map { String(localized: "\(newest.version) \u{00B7} new since \($0)") } ?? String(localized: "new in \(newest.version)")
         return Card(version: version, label: label, title: foldedTitle,
                     items: shown, moreCount: lines.count - shown.count)
     }
@@ -217,8 +226,14 @@ public enum WhatsNew {
     /// One version's card on its own, for looking at it on purpose.
     public static func card(for notes: Notes) -> Card {
         let shown = Array(notes.items.prefix(maxItems))
-        return Card(version: notes.version, label: "new in \(notes.version)", title: notes.title,
+        return Card(version: notes.version, label: String(localized: "new in \(notes.version)"), title: notes.title,
                     items: shown, moreCount: notes.items.count - shown.count)
+    }
+
+    /// The website's list of every version, opened at this one. Where the
+    /// card's "more changes" goes: the card stays short, the page has the rest.
+    public static func changelogURL(for version: String) -> URL {
+        URL(string: "https://useairlock.app/changelog#v\(version)")!
     }
 
     private static func isNewer(_ a: String, than b: String) -> Bool {

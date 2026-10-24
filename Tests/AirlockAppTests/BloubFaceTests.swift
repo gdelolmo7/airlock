@@ -25,7 +25,6 @@ final class BloubFaceTests: XCTestCase {
         let states: [Face.Ambient] = [
             .none,
             .init(isListening: true),
-            .init(isThinking: true),
             .init(batteryCritical: true),
             .init(meetingSoon: true),
             .init(isOffline: true),
@@ -55,7 +54,6 @@ final class BloubFaceTests: XCTestCase {
     /// its own colour rather than borrowing the one that means "an agent runs".
     func testAirlockWorkingIsNotTheSameColourAsAnAgentWorking() {
         XCTAssertEqual(resolve(.idle, .init(isListening: true)).tint, .assistant)
-        XCTAssertEqual(resolve(.idle, .init(isThinking: true)).tint, .assistant)
         XCTAssertEqual(resolve(.agentLamp(attention: false, working: true)).tint, .working)
     }
 
@@ -196,7 +194,7 @@ final class BloubFaceTests: XCTestCase {
     /// Ordered by what wants a decision now: a Mac about to die outranks a
     /// meeting, which outranks a network that is merely absent.
     func testUrgencyOrdering() {
-        let all = Face.Ambient(isListening: false, isThinking: false,
+        let all = Face.Ambient(isListening: false,
                                batteryCritical: true, meetingSoon: true, isOffline: true)
         XCTAssertEqual(resolve(.idle, all).tint, .error)
         var noBattery = all; noBattery.batteryCritical = false

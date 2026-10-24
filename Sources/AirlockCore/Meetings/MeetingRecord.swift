@@ -375,6 +375,15 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
     /// notes page says they cover only its start. Nil for notes that
     /// listened as long as they were meant to.
     public var stoppedAtLimit: TimeInterval?
+    /// What a Free call said past the notes limit, sealed (`LockedPart`).
+    /// `segments` hold only what came before it, so the notes, the
+    /// transcript file and search see the first part alone. Nil on every
+    /// call that wasn't locked, and once a paid plan opened it.
+    public var locked: LockedPart?
+    /// How many minutes a paid plan opened (`unlock`): the notes of the
+    /// first 30 were written without them, which the offer to write them
+    /// again says. Nil on every call that was never locked.
+    public var openedMinutes: Int?
 
     public init(bundleID: String, appName: String, site: MeetingLink.Provider? = nil,
                 startedAt: Date, endedAt: Date? = nil, languages: [String] = [],
@@ -383,7 +392,8 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
                 listenings: [MeetingListening] = [], shadow: [MeetingShadowLine] = [],
                 droppedAt: Date? = nil, names: [MeetingVoiceName] = [],
                 recording: MeetingRecording? = nil, notesWriter: MeetingNotesWriter? = nil,
-                topic: String? = nil, startedOn: PlanSnapshot? = nil, stoppedAtLimit: TimeInterval? = nil) {
+                topic: String? = nil, startedOn: PlanSnapshot? = nil, stoppedAtLimit: TimeInterval? = nil,
+                locked: LockedPart? = nil) {
         self.bundleID = bundleID
         self.appName = appName
         self.site = site
@@ -403,12 +413,13 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
         self.topic = MeetingNotes.title(topic)
         self.startedOn = startedOn
         self.stoppedAtLimit = stoppedAtLimit
+        self.locked = locked
         self.names = []
         for name in names { self.name(name.voice, as: name.isYou ? nil : name.name, isYou: name.isYou) }
     }
 
     /// A `meeting.json` written before events, jots, marks, pauses,
-    /// listenings, the shadow, names, recordings, topics and plans existed has none of
+    /// listenings, the shadow, names, recordings, topics, plans and locks existed has none of
     /// their keys. It still opens, with all of them empty: those files are
     /// calls somebody had, and an update must not lose them.
     public init(from decoder: any Decoder) throws {
@@ -433,7 +444,9 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
             notesWriter: try container.decodeIfPresent(MeetingNotesWriter.self, forKey: .notesWriter),
             topic: try container.decodeIfPresent(String.self, forKey: .topic),
             startedOn: try container.decodeIfPresent(PlanSnapshot.self, forKey: .startedOn),
-            stoppedAtLimit: try container.decodeIfPresent(TimeInterval.self, forKey: .stoppedAtLimit))
+            stoppedAtLimit: try container.decodeIfPresent(TimeInterval.self, forKey: .stoppedAtLimit),
+            locked: try container.decodeIfPresent(LockedPart.self, forKey: .locked))
+        openedMinutes = try container.decodeIfPresent(Int.self, forKey: .openedMinutes)
     }
 
     /// The name people know the call by: the meeting service when the call is
@@ -442,9 +455,13 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
 
     /// Inserted in time order. The two tracks finish their sentences at
     /// different moments, so arrival order is not speaking order.
+    ///
+    /// Never past a lock: a line from there is sealed (`add(_:sealing:)`),
+    /// and one that reaches here is dropped rather than kept in plain text.
     public mutating func add(_ segment: MeetingSegment) {
         let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        if let locked, segment.start >= locked.from { return }
         var clean = segment
         clean.text = text
         let index = segments.lastIndex { $0.start <= clean.start }.map { $0 + 1 } ?? 0
@@ -524,6 +541,21 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
     }
 
     public static func personLabel(_ person: Int) -> String { "Person \(person)" }
+
+    /// A speaker label as the screen shows it. The labels themselves stay
+    /// English: they are saved, compared, and handed to the notes writer.
+    public static func shownLabel(_ label: String) -> String {
+        switch label {
+        case MeetingSpeaker.me.label: return String(localized: "You")
+        case MeetingSpeaker.them.label: return String(localized: "Them")
+        case someone: return String(localized: "Someone")
+        default:
+            if label.hasPrefix("Person "), let person = Int(label.dropFirst(7)) {
+                return String(localized: "Person \(person)")
+            }
+            return label
+        }
+    }
 
     /// Whoever said a line in a meeting in person, when the voices were not
     /// told apart: never "You", which may be wrong.
@@ -672,11 +704,13 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
         listenings.insert(MeetingListening(speaker: speaker, from: from, language: language), at: index)
     }
 
-    /// A line from the other listening, in time order. Blank is ignored.
+    /// A line from the other listening, in time order. Blank is ignored,
+    /// and so is a line past a lock: the shadow is plain text.
     public mutating func addShadow(_ line: MeetingShadowLine) {
         var line = line
         line.segment.text = line.segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.segment.text.isEmpty else { return }
+        if let locked, line.segment.start >= locked.from { return }
         let index = shadow.lastIndex { $0.segment.start <= line.segment.start }.map { $0 + 1 } ?? 0
         shadow.insert(line, at: index)
     }
@@ -699,5 +733,54 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
         }
         for line in lines where line.speaker == speaker && line.start >= seam { add(line) }
         listen(speaker, from: seam, in: language)
+    }
+}
+
+// MARK: - The locked part
+
+extension MeetingRecord {
+    /// How many minutes of the call are locked, or were before the week
+    /// ran out: from the lock to the end, rounded, one at least. Nil for a
+    /// call that wasn't locked, or is still going.
+    public var lockedMinutes: Int? {
+        guard let locked, let endedAt else { return nil }
+        let seconds = endedAt.timeIntervalSince(startedAt) - locked.from
+        return max(1, Int((seconds / 60).rounded()))
+    }
+
+    /// A line heard while the call is locked: sealed when it starts past
+    /// the lock, kept plain when it was begun before it.
+    public mutating func add(_ segment: MeetingSegment, sealing sealer: CallLock.Sealer) {
+        guard let from = locked?.from, segment.start >= from else { return add(segment) }
+        var clean = segment
+        clean.text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.text.isEmpty, let line = try? sealer.seal(clean) else { return }
+        locked?.add(line)
+    }
+
+    /// `switchLanguage` on a locked call: the new lines before the lock go
+    /// in plain, the rest sealed, and the side's locked lines from the seam
+    /// on are replaced. Nothing locked becomes the shadow.
+    public mutating func switchLanguage(of speaker: MeetingSpeaker, at seam: TimeInterval,
+                                        to language: String, lines: [MeetingSegment],
+                                        keptAs replaced: String? = nil, sealing sealer: CallLock.Sealer) {
+        guard let from = locked?.from else {
+            return switchLanguage(of: speaker, at: seam, to: language, lines: lines, keptAs: replaced)
+        }
+        switchLanguage(of: speaker, at: seam, to: language, lines: lines.filter { $0.start < from },
+                       keptAs: replaced)
+        locked?.removeLines(of: speaker, from: seam)
+        for line in lines where line.speaker == speaker && line.start >= max(seam, from) {
+            add(line, sealing: sealer)
+        }
+    }
+
+    /// The call whole again: the lock goes, the opened lines join the
+    /// others, and so does the note that the notes stopped at the limit.
+    public mutating func unlock(_ lines: [MeetingSegment]) {
+        openedMinutes = lockedMinutes
+        locked = nil
+        stoppedAtLimit = nil
+        for line in lines { add(line) }
     }
 }

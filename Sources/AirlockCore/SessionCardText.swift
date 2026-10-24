@@ -15,6 +15,18 @@ extension SessionStatus {
     /// under the pill is what tells the two apart, with where to answer.
     public var word: String {
         switch self {
+        case .starting: return String(localized: "Starting")
+        case .running: return String(localized: "Working")
+        case .needsAttention, .waitingQuestion: return String(localized: "Needs you")
+        case .idle: return String(localized: "Your turn")
+        case .done: return String(localized: "Finished")
+        case .error: return String(localized: "Error")
+        }
+    }
+
+    /// `word` as the agent's own lines would say it, which stay English.
+    var englishWord: String {
+        switch self {
         case .starting: return "Starting"
         case .running: return "Working"
         case .needsAttention, .waitingQuestion: return "Needs you"
@@ -118,7 +130,18 @@ public enum SessionCardText {
         if line == handedBack, session.questionReceipt?.reason == .ignored { return nil }
         // So does the terminal-ask card.
         if terminalAsk(of: session) != nil, line == session.pendingQuestion { return nil }
-        return line
+        return shown(line)
+    }
+
+    /// A stored line as the card says it. The two lines Airlock writes and
+    /// later compares stay English in the session; their words are put in
+    /// the person's language only here.
+    static func shown(_ line: String) -> String {
+        switch line {
+        case handedBack: return String(localized: "Asking in its terminal instead")
+        case SessionState.workingLine: return String(localized: "Working…")
+        default: return line
+        }
     }
 
     /// An agent asking in its own terminal, which the notch cannot answer.
@@ -131,7 +154,7 @@ public enum SessionCardText {
 
     /// Why there are no buttons: Codex's hooks report and cannot wait, so its
     /// approvals happen in its terminal and only there.
-    public static let answerThere = "Airlock can't answer this one for it. Answer it in the terminal."
+    public static let answerThere = String(localized: "Airlock can't answer this one for it. Answer it in the terminal.")
 
     /// The card for a session waiting on its own terminal's prompt.
     ///
@@ -144,8 +167,10 @@ public enum SessionCardText {
         let prefix = ClaudeStyleHookDecoder.terminalAskPrefix
         let subject = asked.hasPrefix(prefix) ? String(asked.dropFirst(prefix.count)) : asked
         let place = TerminalName.pretty(session.terminal?.app ?? session.jumpTarget?.terminalApp)
-        return TerminalAsk(heading: "\(session.agent.displayName) is asking in \(place ?? "its terminal")",
-                           subject: subject)
+        let agent = session.agent.displayName
+        let heading = place.map { String(localized: "\(agent) is asking in \($0)") }
+            ?? String(localized: "\(agent) is asking in its terminal")
+        return TerminalAsk(heading: heading, subject: subject)
     }
 
     /// "Working…" beside a "Working" pill, "Running" beside it once the
@@ -156,7 +181,7 @@ public enum SessionCardText {
         let sameState: Set<String>
         switch status {
         case .running: sameState = ["working", "running"]
-        default: sameState = [status.word.lowercased()]
+        default: sameState = [status.englishWord.lowercased(), status.word.lowercased()]
         }
         return sameState.contains(bare)
     }
@@ -190,11 +215,11 @@ public enum AgoPhrase {
     public static func since(_ date: Date, now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         let minutes = Int(seconds / 60)
-        if minutes < 1 { return "just now" }
-        if minutes < 60 { return "\(minutes) min ago" }
+        if minutes < 1 { return String(localized: "just now") }
+        if minutes < 60 { return String(localized: "\(minutes) min ago") }
         let hours = minutes / 60
-        if hours < 24 { return "\(hours) h ago" }
+        if hours < 24 { return String(localized: "\(hours) h ago") }
         let days = hours / 24
-        return days == 1 ? "1 day ago" : "\(days) days ago"
+        return days == 1 ? String(localized: "1 day ago") : String(localized: "\(days) days ago")
     }
 }

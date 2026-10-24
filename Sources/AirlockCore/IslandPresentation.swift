@@ -42,8 +42,6 @@ public enum IslandPresentation: Comparable, Sendable, CaseIterable {
         public static let hotkey = Holds(rawValue: 1 << 2)
         /// A dictation key is down.
         public static let dictating = Holds(rawValue: 1 << 3)
-        /// An answer is on screen, outliving the gesture that asked for it.
-        public static let answering = Holds(rawValue: 1 << 4)
         /// The media timeline is being dragged. A scrub that overshoots the
         /// panel's edge still reports the pointer as gone, and the 450ms
         /// hover-out grace would then collapse the panel out from under a
@@ -62,12 +60,6 @@ public enum IslandPresentation: Comparable, Sendable, CaseIterable {
         /// raises system dialogs of macOS's own, and a panel that collapsed
         /// behind one would strand the wizard.
         public static let onboarding = Holds(rawValue: 1 << 6)
-        /// The guide's own surface is up: the first look's "Looking at your
-        /// screen…" panel, the card under the notch (layout B), or the sentence
-        /// a guide that ended on its own leaves behind. Like onboarding, no
-        /// gesture props it up, and it must survive focus going to the app
-        /// being guided — that is where the user is supposed to be looking.
-        public static let guiding = Holds(rawValue: 1 << 7)
         /// A card the app opens by itself at launch is up: a new version's
         /// "what's new" card (`WhatsNew`), or the one question about crash
         /// reports after a run that ended unexpectedly. No gesture props it
@@ -75,6 +67,11 @@ public enum IslandPresentation: Comparable, Sendable, CaseIterable {
         /// stay until it is read — its own button or an explicit collapse
         /// releases it.
         public static let notes = Holds(rawValue: 1 << 8)
+        /// A file the shelf keeps is being dragged close to the top, and the
+        /// island is the box it can be dropped in (`DropPocket`). The user's
+        /// own drag props it up, as a scrub does: it goes when the file moves
+        /// away or is put down.
+        public static let dropping = Holds(rawValue: 1 << 9)
     }
 
     /// `hasContent` means there is something worth showing compact — a session,

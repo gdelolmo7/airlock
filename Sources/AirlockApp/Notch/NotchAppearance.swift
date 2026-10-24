@@ -200,16 +200,16 @@ final class NotchAppearanceModel {
         let budget = budget
         guard !budget.fits(demand) else { return nil }
         let needed = budget.widthNeeded(for: demand)
-        let problem = "The status cluster needs about \(Int(demand.rounded()))pt but only "
-            + "\(Int(budget.clearGutter.rounded()))pt of gutter is clear of the camera, so it will spill "
-            + "behind the housing. "
+        let wants = Int(demand.rounded())
+        let clear = Int(budget.clearGutter.rounded())
         // Advising a width the slider does not reach is advice nobody can take,
         // and this screen's ceiling is well under the 760 the range asks for.
         guard needed <= widthRange.upperBound else {
-            return problem + "This screen can only draw \(Int(widthRange.upperBound.rounded()))pt, "
-                + "so turn something off below."
+            let most = Int(widthRange.upperBound.rounded())
+            return String(localized: "The status cluster needs about \(wants)pt but only \(clear)pt of gutter is clear of the camera, so it will spill behind the housing. This screen can only draw \(most)pt, so turn something off below.")
         }
-        return problem + "Widen to \(Int(needed.rounded()))pt, or turn something off below."
+        let widen = Int(needed.rounded())
+        return String(localized: "The status cluster needs about \(wants)pt but only \(clear)pt of gutter is clear of the camera, so it will spill behind the housing. Widen to \(widen)pt, or turn something off below.")
     }
 }
 
@@ -230,9 +230,9 @@ enum NotchSurface: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .black: return "Black"
-        case .darkGlass: return "Dark glass"
-        case .lightGlass: return "Light glass"
+        case .black: return String(localized: "Black")
+        case .darkGlass: return String(localized: "Dark glass")
+        case .lightGlass: return String(localized: "Light glass")
         }
     }
 

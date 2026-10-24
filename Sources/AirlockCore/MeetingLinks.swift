@@ -68,15 +68,16 @@ public struct MeetingLink: Equatable, Hashable, Sendable {
 
     /// What the Join button says.
     public var buttonTitle: String {
-        provider.shortName.map { "Join \($0)" } ?? "Join"
+        provider.shortName.map { String(localized: "Join \($0)") } ?? String(localized: "Join")
     }
 
     /// Tooltip and accessibility hint. An unknown provider is named by its host
     /// rather than dressed up as one we recognise — "Join the call at
     /// vc.acme.com" is the whole truth we have.
     public var joinDescription: String {
-        if let name = provider.displayName { return "Join the \(name) call" }
-        return "Join the call at \(url.host ?? url.absoluteString)"
+        if let name = provider.displayName { return String(localized: "Join the \(name) call") }
+        let host = url.host ?? url.absoluteString
+        return String(localized: "Join the call at \(host)")
     }
 
     /// The call as a noun, for a place with no room for a labelled button. An
@@ -88,8 +89,9 @@ public struct MeetingLink: Equatable, Hashable, Sendable {
     /// `joinDescription`: the host is the whole of what we know, and inventing
     /// a brand for it is the one thing worse than saying nothing.
     public var callSummary: String {
-        if let name = provider.displayName { return "\(name) call" }
-        return "call at \(url.host ?? url.absoluteString)"
+        if let name = provider.displayName { return String(localized: "\(name) call") }
+        let host = url.host ?? url.absoluteString
+        return String(localized: "call at \(host)")
     }
 }
 

@@ -31,28 +31,6 @@ final class GlobalHotkey {
         static let controlOptionCommandV = Binding(keyCode: UInt32(kVK_ANSI_V),
                                                    carbonModifiers: UInt32(cmdKey | optionKey | controlKey))
 
-        /// The command bar's default, and the two chords it is not.
-        ///
-        /// It was `⌘⇧Space` for one build: 1Password claims that on a great
-        /// many Macs, so it registered and then never fired. Before that it was
-        /// `⌥Space`, which fought dictation's own ask gesture.
-        ///
-        /// It is `⌥Space` again because the second problem was fixed properly
-        /// rather than dodged — see `DictationModel.abandonHoldForChord`. A
-        /// chord sharing a modifier with a hold key no longer leaves a hold
-        /// running, so the chord people already reach for is available again.
-        static let optionSpace = Binding(keyCode: UInt32(kVK_Space),
-                                         carbonModifiers: UInt32(optionKey))
-
-        /// Offered in Settings for anyone whose ⌥Space is taken (Alfred, and
-        /// some launchers). Not the default: 1Password owns it widely.
-        static let commandShiftSpace = Binding(keyCode: UInt32(kVK_Space),
-                                               carbonModifiers: UInt32(cmdKey | shiftKey))
-
-        /// The fallback with no Space in it at all, for when both are spoken for.
-        static let commandShiftK = Binding(keyCode: UInt32(kVK_ANSI_K),
-                                           carbonModifiers: UInt32(cmdKey | shiftKey))
-
         /// The gate hotkey's default. Two keys, after the three-key version was
         /// tried and rejected as too awkward to reach for.
         ///
@@ -106,10 +84,10 @@ final class GlobalHotkey {
         /// announced to somebody who cannot see it printed anywhere.
         var spokenName: String {
             var parts: [String] = []
-            if carbonModifiers & UInt32(controlKey) != 0 { parts.append("Control") }
-            if carbonModifiers & UInt32(optionKey) != 0 { parts.append("Option") }
-            if carbonModifiers & UInt32(shiftKey) != 0 { parts.append("Shift") }
-            if carbonModifiers & UInt32(cmdKey) != 0 { parts.append("Command") }
+            if carbonModifiers & UInt32(controlKey) != 0 { parts.append(String(localized: "Control")) }
+            if carbonModifiers & UInt32(optionKey) != 0 { parts.append(String(localized: "Option")) }
+            if carbonModifiers & UInt32(shiftKey) != 0 { parts.append(String(localized: "Shift")) }
+            if carbonModifiers & UInt32(cmdKey) != 0 { parts.append(String(localized: "Command")) }
             parts.append(Self.keyNames[keyCode] ?? "?")
             return parts.joined(separator: "-")
         }
@@ -127,7 +105,7 @@ final class GlobalHotkey {
                 (kVK_ANSI_Y, "Y"), (kVK_ANSI_Z, "Z"),
                 (kVK_ANSI_0, "0"), (kVK_ANSI_1, "1"), (kVK_ANSI_2, "2"), (kVK_ANSI_3, "3"),
                 (kVK_ANSI_4, "4"), (kVK_ANSI_5, "5"), (kVK_ANSI_6, "6"), (kVK_ANSI_7, "7"),
-                (kVK_ANSI_8, "8"), (kVK_ANSI_9, "9"), (kVK_Space, "Space"),
+                (kVK_ANSI_8, "8"), (kVK_ANSI_9, "9"), (kVK_Space, String(localized: "Space")),
             ]
             return Dictionary(uniqueKeysWithValues: letters.map { (UInt32($0.0), $0.1) })
         }()
@@ -181,7 +159,8 @@ final class GlobalHotkey {
 
     /// The status code is for us, so it goes to the log, not the sentence.
     static func failureMessage(_ binding: Binding, status: OSStatus) -> String {
-        "\(binding.displayName) is already used by another app. Pick a different shortcut."
+        String(localized: "\(binding.displayName) is already used by another app. Pick a different shortcut.")
+
     }
 
     func unregister() {

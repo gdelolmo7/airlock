@@ -54,17 +54,18 @@ public enum UpdateStatus: Equatable, Sendable {
     public static func line(_ status: UpdateStatus, canCheck: Bool) -> String? {
         switch status {
         case .didNotStart:
-            return "Updates couldn't start in this copy of Airlock. New versions are at useairlock.app."
+            return String(localized: "Updates couldn't start in this copy of Airlock. New versions are at useairlock.app.")
         case .readyOnQuit(let version):
-            let name = version.isEmpty ? "A new version of Airlock" : "Airlock \(version)"
-            return "\(name) is downloaded and installs when you quit Airlock."
+            return version.isEmpty
+                ? String(localized: "A new version of Airlock is downloaded and installs when you quit Airlock.")
+                : String(localized: "Airlock \(version) is downloaded and installs when you quit Airlock.")
         case .needsMoving:
-            return "Move Airlock to your Applications folder to get updates."
+            return String(localized: "Move Airlock to your Applications folder to get updates.")
         case .quiet, .lastCheckFailed:
             // A check under way outranks how the last one went.
-            if !canCheck { return "Checking for updates…" }
+            if !canCheck { return String(localized: "Checking for updates…") }
             return status == .lastCheckFailed
-                ? "The last check didn't get through. Airlock tries again on its own."
+                ? String(localized: "The last check didn't get through. Airlock tries again on its own.")
                 : nil
         }
     }

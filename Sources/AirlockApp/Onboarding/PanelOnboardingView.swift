@@ -211,11 +211,11 @@ struct PanelOnboardingView: View {
 
     private var title: String {
         switch model.step {
-        case .welcome: "This is Airlock"
-        case .agents: "Connect your agents"
-        case .features: "The keys that reach it"
-        case .permissions: "What macOS will ask"
-        case .finish: "That's setup"
+        case .welcome: String(localized: "This is Airlock")
+        case .agents: String(localized: "Connect your agents")
+        case .features: String(localized: "The keys that reach it")
+        case .permissions: String(localized: "What macOS will ask")
+        case .finish: String(localized: "That's setup")
         }
     }
 
@@ -224,26 +224,24 @@ struct PanelOnboardingView: View {
     private var blurb: String {
         switch model.step {
         case .welcome:
-            "You're looking at it. What each tab above is for:"
+            String(localized: "You're looking at it. What each tab above is for:")
         case .agents:
-            "Connect them and the Agents tab starts filling in. Skip, and the clipboard, files, "
-                + "dictation and call notes all work without them."
+            String(localized: "Connect them and the Agents tab starts filling in. Skip, and the clipboard, files, dictation and call notes all work without them.")
         case .features:
-            "These reach the notch while it's closed."
+            String(localized: "These reach the notch while it's closed.")
         case .permissions:
-            "Each one is optional, and macOS asks, not Airlock."
+            String(localized: "Each one is optional, and macOS asks, not Airlock.")
         case .finish:
-            "Everything here can be changed in Settings, behind the gear above. "
-                + "This guide is in the menu bar if you want it again."
+            String(localized: "Everything here can be changed in Settings, behind the gear above. This guide is in the menu bar if you want it again.")
         }
     }
 
     private var teaser: String? {
         switch model.step {
-        case .welcome: "Next: connecting your agents, so they can stop and ask you something."
-        case .agents: "Next: the keys that reach the notch when it's closed — clipboard, hold to talk, typing a question."
-        case .features: "Next: your calendar, and the question macOS asks the first time you jump to a terminal."
-        case .permissions: "Next: the last step."
+        case .welcome: String(localized: "Next: connecting your agents, so they can stop and ask you something.")
+        case .agents: String(localized: "Next: the keys that reach the notch when it's closed — clipboard and hold to talk.")
+        case .features: String(localized: "Next: your calendar, and the question macOS asks the first time you jump to a terminal.")
+        case .permissions: String(localized: "Next: the last step.")
         case .finish: nil
         }
     }
@@ -277,13 +275,19 @@ struct WelcomePanelStep: View {
     /// it is for.
     static func detail(_ tab: NotchTab) -> String {
         switch tab {
-        case .home: "Music, sound, battery and the Mac's quick switches"
-        case .dashboard: "Your next meetings, and how busy the Mac is"
-        case .tray: "Drop files here to move them somewhere else"
-        case .clipboard: "Everything you copied, searchable"
-        case .calls: "Your last calls, and the notes from each"
-        case .agents: "Approve, deny and answer your coding agents"
+        case .home: String(localized: "Music, sound, battery and the Mac's quick switches")
+        case .dashboard: String(localized: "Your next meetings, and how busy the Mac is")
+        case .tray: String(localized: "Drop files here to move them somewhere else")
+        case .clipboard: String(localized: "Everything you copied, searchable")
+        case .calls: String(localized: "Your last calls, and the notes from each")
+        case .agents: String(localized: "Approve, deny and answer your coding agents")
         }
+    }
+
+    /// Wide enough for the longest tab name, "Portapapeles" in Spanish, so
+    /// no name wraps and the descriptions still start in one column.
+    static var labelWidth: CGFloat {
+        Bundle.main.preferredLocalizations.first == "es" ? 90 : 74
     }
 
     var body: some View {
@@ -306,7 +310,8 @@ struct WelcomePanelStep: View {
                     Text(tab.label)
                         .font(Theme.chrome(12, .medium))
                         .foregroundStyle(Theme.textPrimary)
-                        .frame(width: 74, alignment: .leading)
+                        .lineLimit(1)
+                        .frame(width: Self.labelWidth, alignment: .leading)
                     Text(Self.detail(tab))
                         .font(Theme.chrome(11))
                         .foregroundStyle(Theme.textTertiary)
@@ -412,8 +417,7 @@ private struct AgentsPanelStep: View {
             Text("Agents are off.")
                 .font(Theme.chrome(12, .medium))
                 .foregroundStyle(Theme.textPrimary)
-            Text("The Agents tab, the session icons beside the notch and the usage figures are hidden. "
-                 + "Clipboard, shelf, dictation, calendar and media work as before.")
+            Text("The Agents tab, the session icons beside the notch and the usage figures are hidden. Clipboard, shelf, dictation, calendar and media work as before.")
                 .font(Theme.chrome(11))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -470,15 +474,15 @@ private struct PanelAgentRow: View {
                     .font(Theme.chrome(11))
                     .foregroundStyle(Theme.textTertiary)
             case .notInstalled:
-                chip("Connect") { model.install(row) }
+                chip(String(localized: "Connect")) { model.install(row) }
             case .conflict:
                 // Both answers, same as the window: showing the file is only
                 // half of it. Without a re-read the row goes on saying
                 // "conflict" after the user has already fixed it — until the
                 // next launch, which is the worst moment to find out it worked.
                 HStack(spacing: 5) {
-                    chip("Check again") { model.settings.refresh() }
-                    chip("Show the file") { model.settings.revealConfig(row) }
+                    chip(String(localized: "Check again")) { model.settings.refresh() }
+                    chip(String(localized: "Show the file")) { model.settings.revealConfig(row) }
                 }
             }
         }
@@ -542,8 +546,8 @@ private struct FeaturesPanelStep: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 5) {
-            row(symbol: "mic", name: "Hold to talk", key: model.holdKeyName,
-                detail: model.dictationEnabled ? "On" : "Off — turning it on starts the model download") {
+            row(symbol: "mic", name: String(localized: "Hold to talk"), key: model.holdKeyName,
+                detail: model.dictationEnabled ? String(localized: "On") : String(localized: "Off — turning it on starts the model download")) {
                 Toggle("", isOn: Binding(get: { model.dictationEnabled },
                                          set: { model.setDictationEnabled($0) }))
                     .labelsHidden()
@@ -555,7 +559,7 @@ private struct FeaturesPanelStep: View {
             // the only one somebody sees — and dictation that hears one language
             // fails silently in the other. See `SecondLanguageRow` in
             // OnboardingView for the whole reason.
-            row(symbol: "globe", name: "Second language", key: nil, detail: secondLanguageDetail) {
+            row(symbol: "globe", name: String(localized: "Second language"), key: nil, detail: secondLanguageDetail) {
                 Picker("", selection: $model.secondDictationLanguage) {
                     Text("Off").tag("")
                     if let suggestion = model.suggestedSecondLanguage {
@@ -573,14 +577,10 @@ private struct FeaturesPanelStep: View {
                 .disabled(!model.dictationEnabled)
             }
 
-            if let ask = model.askKeyName {
-                row(symbol: "sparkles", name: "Ask", key: ask, detail: "Ask about what's on your screen")
-            }
-
-            row(symbol: "doc.on.clipboard", name: "Clipboard",
+            row(symbol: "doc.on.clipboard", name: String(localized: "Clipboard"),
                 key: model.clipboardHotkeyEnabled ? model.clipboardHotkeyName : nil,
-                detail: model.clipboardHotkeyEnabled ? "Opens the history from anywhere"
-                                                     : "Hotkey off — the tab still works")
+                detail: model.clipboardHotkeyEnabled ? String(localized: "Opens the history from anywhere")
+                                                     : String(localized: "Hotkey off — the tab still works"))
         }
     }
 
@@ -593,18 +593,19 @@ private struct FeaturesPanelStep: View {
     /// One line, because the row truncates at one — so the state comes first and
     /// the reasoning is left to the window wizard.
     private var secondLanguageDetail: String {
-        guard model.dictationEnabled else { return "Turn dictation on first" }
+        guard model.dictationEnabled else { return String(localized: "Turn dictation on first") }
         guard !model.secondDictationLanguage.isEmpty else {
             if let suggestion = model.suggestedSecondLanguage {
-                return "Off — this Mac also uses \(suggestion.name)"
+                return String(localized: "Off — this Mac also uses \(suggestion.name)")
             }
-            return "Off — hears \(model.dictationPrimaryName) only"
+            return String(localized: "Off — hears \(model.dictationPrimaryName) only")
         }
         let chosen = model.dictationLanguages.first { $0.id == model.secondDictationLanguage }
         // The installed list can be empty (no speech assets yet, or the gallery),
         // and a raw code like `es_ES` is not a language anyone speaks.
         let id = model.secondDictationLanguage
-        return "Also hears \(chosen?.name ?? SpokenLanguages.name(id) ?? id)"
+        let name = chosen?.name ?? SpokenLanguages.name(id) ?? id
+        return String(localized: "Also hears \(name)")
     }
 
     @ViewBuilder
@@ -673,9 +674,21 @@ private struct Keycap: View {
 /// as the consequence of the button rather than as something the app did.
 private struct PermissionsPanelStep: View {
     @Environment(OnboardingModel.self) private var model
+    /// Hold to talk's three switches, walked one at a time. Nil until read.
+    @State private var switches: DictationSwitches?
+    /// The step whose list was opened, so "ticks by itself" shows under that
+    /// step only and not under the next one before its button is pressed.
+    @State private var openedFor: DictationSwitches.Step?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
+            // First, because it is the one with something to do in System
+            // Settings: two of its three are switches no dialog can turn on.
+            // The gallery's stand-in first: it draws without running `.task`.
+            if model.walksDictationSwitches, let switches = model.previewSwitches ?? switches {
+                holdToTalk(switches)
+            }
+
             if let problem = model.calendarCard, problem.isProblem {
                 // Refused (or otherwise stuck): the same card and button the
                 // calendar widget and Settings show, so "Ask macOS" no longer
@@ -683,23 +696,23 @@ private struct PermissionsPanelStep: View {
                 ProblemCard(icon: "calendar", sentence: problem.sentence,
                             button: problem.remedy.button,
                             action: problem.remedy == .nothing ? nil : { model.performCalendarRemedy() })
-                Text(OnboardingAgentText.calendarLater(next: "Next"))
+                Text(OnboardingAgentText.calendarLater(next: String(localized: "Next")))
                     .font(Theme.chrome(10))
                     .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                card(symbol: "calendar", name: "Calendar",
-                     detail: model.calendarGranted ? "Granted — the next meeting shows beside the notch"
-                                                   : "Shows what's next, and nothing leaves the Mac",
+                card(symbol: "calendar", name: String(localized: "Calendar"),
+                     detail: model.calendarGranted ? String(localized: "Granted — the next meeting shows beside the notch")
+                                                   : String(localized: "Shows what's next, and nothing leaves the Mac"),
                      granted: model.calendarGranted,
-                     action: model.calendarGranted ? nil : ("Ask macOS", { model.performCalendarRemedy() }))
+                     action: model.calendarGranted ? nil : (String(localized: "Ask macOS"), { model.performCalendarRemedy() }))
             }
 
             // Not a prompt we can raise — it appears on the first jump, from
             // whichever terminal you jump into. Saying so now is the whole
             // point: it is otherwise a dialog out of nowhere, weeks later. No
             // button: there is nothing to do until then.
-            card(symbol: "terminal", name: "Automation",
+            card(symbol: "terminal", name: String(localized: "Automation"),
                  detail: OnboardingAgentText.automation,
                  granted: false,
                  action: nil)
@@ -713,19 +726,42 @@ private struct PermissionsPanelStep: View {
                  detail: ai.detail, granted: ai.isOn,
                  action: ai.button.map { button in (button.title, { model.performAppleIntelligenceButton() }) })
         }
-        // A Calendar switch flipped in System Settings ticks here without a
-        // click back into the panel.
-        .watchingPermissions { _ in model.calendar.recheckAuthorization() }
+        // A switch flipped in System Settings ticks here without a click back
+        // into the panel. The hold key is re-measured first: a tap built
+        // before Input Monitoring was on stays deaf until it is rebuilt.
+        .watchingPermissions { _ in
+            model.calendar.recheckAuthorization()
+            model.dictation.recheckHoldKey()
+            switches = model.readDictationSwitches()
+        }
         // Apple Intelligence changes nothing `watchingPermissions` reads, and
         // finishing a download is not a switch at all, so it is looked at
         // again on its own, every two seconds while this step shows.
         .task {
+            switches = model.readDictationSwitches()
             model.recheckAppleIntelligence()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 model.recheckAppleIntelligence()
             }
         }
+    }
+
+    /// One card that changes as the switches come on: which step, what to do
+    /// in the list that opens, and one button. Ticked once all three are on.
+    private func holdToTalk(_ switches: DictationSwitches) -> some View {
+        var detail = switches.instruction(key: model.holdKeyName)
+        if let step = switches.current, step == openedFor {
+            detail += " " + DictationSwitches.ticksByItself
+        }
+        return card(symbol: "mic", name: String(localized: "Hold to talk"), tag: switches.stepLabel,
+                    detail: detail, granted: switches.isDone,
+                    action: switches.button.map { title in
+                        (title, {
+                            if switches.opensList { openedFor = switches.current }
+                            model.performDictationStep(switches)
+                        })
+                    })
     }
 
     @ViewBuilder
@@ -738,14 +774,16 @@ private struct PermissionsPanelStep: View {
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(name)
-                        .font(Theme.chrome(12, .medium))
-                        .foregroundStyle(Theme.textPrimary)
-                    if let tag {
-                        Text(tag)
-                            .font(Theme.chrome(10.5, .semibold))
-                            .foregroundStyle(Theme.needs)
+                // The tag goes under the name when both don't fit on one
+                // line: the Spanish pane names are about twice as long.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        cardName(name)
+                        if let tag { cardTag(tag) }
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        cardName(name)
+                        if let tag { cardTag(tag).fixedSize(horizontal: false, vertical: true) }
                     }
                 }
                 Text(detail)
@@ -782,6 +820,18 @@ private struct PermissionsPanelStep: View {
                                   : tag != nil ? Theme.needs.opacity(0.45) : Theme.rowStroke, lineWidth: 1)
         )
     }
+
+    private func cardName(_ name: String) -> some View {
+        Text(name)
+            .font(Theme.chrome(12, .medium))
+            .foregroundStyle(Theme.textPrimary)
+    }
+
+    private func cardTag(_ tag: String) -> some View {
+        Text(tag)
+            .font(Theme.chrome(10.5, .semibold))
+            .foregroundStyle(Theme.needs)
+    }
 }
 
 // MARK: - Finish
@@ -803,7 +853,7 @@ private struct FinishPanelStep: View {
                         Text("Open at login")
                             .font(Theme.chrome(12, .medium))
                             .foregroundStyle(Theme.textPrimary)
-                        Text("An agent can only interrupt you if Airlock is running.")
+                        Text("So clipboard history and call notes work from the moment you log in.")
                             .font(Theme.chrome(10))
                             .foregroundStyle(Theme.textTertiary)
                     }
@@ -892,19 +942,18 @@ enum OnboardingAgentText {
     /// entry" — words for whoever wrote the installer, not for the reader.
     static func detail(_ status: HookInstallStatus) -> String {
         switch status {
-        case .installed: "Shows up in the notch while it works."
-        case .notInstalled: "Not connected yet."
+        case .installed: String(localized: "Shows up in the notch while it works.")
+        case .notInstalled: String(localized: "Not connected yet.")
         case .conflict:
-            "Its settings file already has Airlock lines that Airlock didn't write. "
-                + "Delete them, then check again."
+            String(localized: "Its settings file already has Airlock lines that Airlock didn't write. Delete them, then check again.")
         }
     }
 
     static let automation =
-        "macOS asks the first time you jump to a terminal. Say yes, and the jump works from then on."
+        String(localized: "macOS asks the first time you jump to a terminal. Say yes, and the jump works from then on.")
 
     /// Under a refused Calendar: the step is not a dead end.
     static func calendarLater(next: String) -> String {
-        "Or press \(next) and turn it on later in Settings › \(SettingsPane.permissions.title)."
+        String(localized: "Or press \(next) and turn it on later in Settings › \(SettingsPane.permissions.title).")
     }
 }

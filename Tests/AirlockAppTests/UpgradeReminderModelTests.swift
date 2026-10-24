@@ -35,12 +35,116 @@ final class UpgradeReminderModelTests: XCTestCase {
 
         reminders.islandOpened(now: t0.addingTimeInterval(60))
         XCTAssertEqual(reminders.card, .clipboardFull)
+        reminders.cardAppeared(now: t0.addingTimeInterval(60))
         reminders.islandClosed()
         XCTAssertNil(reminders.card)
+        reminders.islandOpened(now: t0.addingTimeInterval(90))
+        reminders.notNow(now: t0.addingTimeInterval(100))
 
         reminders.agentAskedInTerminal(asking: "website", answering: "storefront", now: t0.addingTimeInterval(120))
         reminders.islandOpened(now: t0.addingTimeInterval(180))
         XCTAssertNil(reminders.card, "one a day, across every kind")
+    }
+
+    // MARK: - Until it is answered
+
+    /// Closing the notch is not an answer: the card is back at every open,
+    /// across a relaunch and on later days, until "Not now".
+    func testTheCardStaysUntilNotNow() {
+        let reminders = model()
+        reminders.copiesLetGo(1, now: t0)
+        reminders.islandOpened(now: t0.addingTimeInterval(60))
+        reminders.cardAppeared(now: t0.addingTimeInterval(60))
+        reminders.islandClosed()
+
+        reminders.islandOpened(now: t0.addingTimeInterval(120))
+        XCTAssertEqual(reminders.card, .clipboardFull, "back at the next open")
+        reminders.cardAppeared(now: t0.addingTimeInterval(120))
+        reminders.islandClosed()
+
+        let relaunched = model()
+        relaunched.islandOpened(now: t0.addingTimeInterval(3 * 86_400))
+        XCTAssertEqual(relaunched.card, .clipboardFull, "and after a relaunch, days later")
+        relaunched.cardAppeared(now: t0.addingTimeInterval(3 * 86_400))
+        relaunched.notNow(now: t0.addingTimeInterval(3 * 86_400 + 10))
+        relaunched.islandClosed()
+
+        relaunched.islandOpened(now: t0.addingTimeInterval(3 * 86_400 + 60))
+        XCTAssertNil(relaunched.card, "answered")
+    }
+
+    func testSeePlusAnswersIt() {
+        let reminders = model()
+        reminders.copiesLetGo(1, now: t0)
+        reminders.islandOpened(now: t0.addingTimeInterval(60))
+        reminders.cardAppeared(now: t0.addingTimeInterval(60))
+        reminders.seePlus()
+        reminders.islandClosed()
+
+        reminders.islandOpened(now: t0.addingTimeInterval(120))
+        XCTAssertNil(reminders.card)
+        let relaunched = model()
+        relaunched.islandOpened(now: t0.addingTimeInterval(2 * 86_400))
+        XCTAssertNil(relaunched.card)
+    }
+
+    /// It steps aside for a call or something filling the panel, and is
+    /// back once that is over.
+    func testABackCardStillStepsAside() {
+        let reminders = model()
+        var callOn = false, taken = false
+        reminders.callOn = { callOn }
+        reminders.panelTaken = { taken }
+        reminders.copiesLetGo(1, now: t0)
+        reminders.islandOpened(now: t0.addingTimeInterval(60))
+        reminders.cardAppeared(now: t0.addingTimeInterval(60))
+        reminders.islandClosed()
+
+        callOn = true
+        reminders.islandOpened(now: t0.addingTimeInterval(120))
+        XCTAssertNil(reminders.card)
+        reminders.islandClosed()
+        callOn = false; taken = true
+        reminders.islandOpened(now: t0.addingTimeInterval(180))
+        XCTAssertNil(reminders.card)
+        reminders.islandClosed()
+        taken = false
+        reminders.islandOpened(now: t0.addingTimeInterval(240))
+        XCTAssertEqual(reminders.card, .clipboardFull)
+    }
+
+    /// The usage counts hear of a card once, not at every open it is back at.
+    func testABackCardIsCountedOnce() {
+        let reminders = model()
+        var shown: [UpgradeReminder.Kind] = []
+        reminders.onShown = { shown.append($0) }
+        reminders.copiesLetGo(1, now: t0)
+        for minute in 1...3 {
+            reminders.islandOpened(now: t0.addingTimeInterval(Double(minute) * 60))
+            reminders.cardAppeared(now: t0.addingTimeInterval(Double(minute) * 60))
+            reminders.islandClosed()
+        }
+        XCTAssertEqual(shown, [.clipboard])
+    }
+
+    /// Moving to Plus or Pro drops it, so it is not waiting on a later
+    /// return to Free.
+    func testAPaidPlanDropsIt() {
+        var onFree = true
+        let reminders = UpgradeReminderModel(defaults: defaults)
+        reminders.onFree = { onFree }
+        reminders.copiesLetGo(1, now: t0)
+        reminders.islandOpened(now: t0.addingTimeInterval(60))
+        reminders.cardAppeared(now: t0.addingTimeInterval(60))
+        reminders.islandClosed()
+
+        onFree = false
+        reminders.islandOpened(now: t0.addingTimeInterval(120))
+        XCTAssertNil(reminders.card)
+        reminders.islandClosed()
+        onFree = true
+        reminders.islandOpened(now: t0.addingTimeInterval(5 * 86_400))
+        XCTAssertNil(reminders.card)
     }
 
     func testWhatHappenedIsKeptForTheNextLaunch() {
@@ -131,6 +235,76 @@ final class UpgradeReminderModelTests: XCTestCase {
         XCTAssertEqual(reminders.card, .clipboardFull)
     }
 
+    // MARK: - Only what is seen counts
+
+    /// "What's new", setup or a one-time question fills the panel: no card
+    /// behind it, and the day's one is still there for the next open.
+    func testNoCardWhileSomethingElseFillsThePanel() {
+        let reminders = model()
+        var taken = true
+        reminders.panelTaken = { taken }
+        reminders.copiesLetGo(1, now: t0)
+
+        reminders.islandOpened(now: t0.addingTimeInterval(60))
+        XCTAssertNil(reminders.card)
+        reminders.islandClosed()
+        taken = false
+        reminders.islandOpened(now: t0.addingTimeInterval(120))
+        XCTAssertEqual(reminders.card, .clipboardFull, "the filled open was not the day's one")
+    }
+
+    /// Dictation or a spoken answer opens the panel with the widgets hidden:
+    /// the card picked then was never drawn, so it is still due.
+    func testACardNeverDrawnIsNotUsedUp() {
+        let reminders = model()
+        var shown: [UpgradeReminder.Kind] = []
+        reminders.onShown = { shown.append($0) }
+        reminders.copiesLetGo(1, now: t0)
+
+        reminders.islandOpened(now: t0.addingTimeInterval(60))
+        reminders.islandClosed()
+        XCTAssertEqual(shown, [])
+        reminders.islandOpened(now: t0.addingTimeInterval(120))
+        XCTAssertEqual(reminders.card, .clipboardFull)
+    }
+
+    /// The card's view can appear more than once in one open (a tab switch
+    /// rebuilds it): it counts once.
+    func testDrawnTwiceCountsOnce() {
+        let reminders = model()
+        var shown: [UpgradeReminder.Kind] = []
+        reminders.onShown = { shown.append($0) }
+        reminders.copiesLetGo(1, now: t0)
+
+        reminders.islandOpened(now: t0.addingTimeInterval(60))
+        reminders.cardAppeared(now: t0.addingTimeInterval(60))
+        reminders.cardAppeared(now: t0.addingTimeInterval(70))
+        XCTAssertEqual(shown, [.clipboard])
+    }
+
+    func testThePreviewsCardCountsNothing() {
+        let reminders = UpgradeReminderModel(previewing: .clipboardFull)
+        var counted = 0
+        reminders.onShown = { _ in counted += 1 }
+        reminders.cardAppeared()
+        XCTAssertEqual(counted, 0)
+    }
+
+    /// The first open on Free starts the week even when something else
+    /// fills the panel that time.
+    func testAFilledFirstOpenStillStartsTheWeek() {
+        let reminders = model()
+        reminders.uses = { [.callNotes] }
+        reminders.panelTaken = { true }
+        reminders.islandOpened(now: t0)
+        reminders.islandClosed()
+
+        let relaunched = model()
+        relaunched.uses = { [.callNotes] }
+        relaunched.islandOpened(now: t0.addingTimeInterval(7 * 86_400 + 3_600))
+        XCTAssertEqual(relaunched.card, .firstWeek(uses: [.callNotes]))
+    }
+
     // MARK: - A week in
 
     /// The first open on Free starts the week, and the card a week later
@@ -180,6 +354,7 @@ final class UpgradeReminderModelTests: XCTestCase {
         reminders.copiesLetGo(1, now: t0)
 
         reminders.islandOpened(now: t0.addingTimeInterval(60))
+        reminders.cardAppeared(now: t0.addingTimeInterval(60))
         reminders.notNow(now: t0.addingTimeInterval(90))
         XCTAssertEqual(shown, [.clipboard])
         XCTAssertEqual(notNow, [.clipboard])

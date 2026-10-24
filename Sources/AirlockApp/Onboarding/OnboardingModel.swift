@@ -28,7 +28,6 @@ final class OnboardingModel {
     let calendar: CalendarWidgetModel
     let dictation: DictationModel
     let clipboard: ClipboardWidgetModel
-    let assistant: AssistantModel
     let agentsWidget: AgentsWidgetModel
 
     /// Expands the notch so the last step can point at the thing itself rather
@@ -46,12 +45,11 @@ final class OnboardingModel {
 
     init(settings: SettingsModel, calendar: CalendarWidgetModel,
          dictation: DictationModel, clipboard: ClipboardWidgetModel,
-         assistant: AssistantModel, agentsWidget: AgentsWidgetModel) {
+         agentsWidget: AgentsWidgetModel) {
         self.settings = settings
         self.calendar = calendar
         self.dictation = dictation
         self.clipboard = clipboard
-        self.assistant = assistant
         self.agentsWidget = agentsWidget
         let stored = Self.hasCompletedSetup ? nil : UserDefaults.standard.string(forKey: Keys.resumeStep)
         let plan = OnboardingPlan(resumingAt: stored)
@@ -70,9 +68,6 @@ final class OnboardingModel {
             // explicit collapse — leaves nothing to pick up again.
             if newValue {
                 UserDefaults.standard.removeObject(forKey: Keys.resumeStep)
-                #if AIRLOCK_GUIDE
-                UserDefaults.standard.removeObject(forKey: WelcomeModel.resumeKey)
-                #endif
             }
         }
     }
@@ -264,14 +259,6 @@ final class OnboardingModel {
     var clipboardHotkeyEnabled: Bool { clipboard.hotkeyEnabled }
 
     var dictationEnabled: Bool { dictation.isEnabled }
-    /// nil when asking is off or has no key — the wizard then says nothing
-    /// about it rather than naming a key that does nothing.
-    var askKeyName: String? {
-        guard assistant.isEnabled, let key = dictation.askKey, key != dictation.holdKey
-        else { return nil }
-        return key.displayName
-    }
-
     /// Turning it on here also starts the speech model downloading, which is the
     /// real reason to offer the switch during setup rather than only in Settings:
     /// the first hold is otherwise the one that waits.
@@ -349,6 +336,45 @@ final class OnboardingModel {
         }
     }
 
+    /// Stands in for this Mac's switches in the state gallery, so a picture
+    /// of the walk shows the same step on every Mac it is taken on.
+    var previewSwitches: DictationSwitches?
+
+    /// Setup walks hold to talk's switches only once it is on: off, none of
+    /// the three is needed.
+    var walksDictationSwitches: Bool { dictationEnabled || previewSwitches != nil }
+
+    /// Where the hold to talk walk is, read the way the Permissions page
+    /// reads it. A preflight: nothing here asks.
+    func readDictationSwitches() -> DictationSwitches {
+        let facts = PermissionFacts.read(dictation: dictation, calendar: calendar)
+        return DictationSwitches(microphone: facts.microphone,
+                                 inputMonitoring: facts.inputMonitoring,
+                                 accessibility: facts.accessibility)
+    }
+
+    /// The walk's one button, for the step on show. The microphone is asked;
+    /// a refused microphone and the two switches end at their list. A
+    /// blocked microphone has no button, so nothing reaches here for it.
+    func performDictationStep(_ switches: DictationSwitches) {
+        switch switches.current {
+        case .microphone where switches.microphone == .blocked: break
+        case .microphone:
+            if switches.microphone == .refused {
+                PermissionPage.permission(.microphone).open()
+            } else {
+                Task { await dictation.requestMicrophoneAccess() }
+            }
+        case .inputMonitoring where switches.keyApprovalIsOld:
+            // Already on, so the ask would answer "granted" and the list
+            // would never open. The fix is by hand, in the list.
+            PermissionPage.permission(.inputMonitoring).open()
+        case .inputMonitoring: PermissionSwitch.allowInputMonitoring(dictation)
+        case .accessibility: PermissionSwitch.allowAccessibility()
+        case nil: break
+        }
+    }
+
     /// The Apple Intelligence row. It writes call notes on this Mac, and on
     /// Free that is the only way they get written, so setup is where to find
     /// out it is off. Stored rather than computed: macOS posts nothing when it
@@ -357,7 +383,7 @@ final class OnboardingModel {
     private(set) var appleIntelligence: AppleIntelligenceSetup = .row(.unknown(""))
 
     func recheckAppleIntelligence() {
-        let row = AppleIntelligenceSetup.row(assistant.availability)
+        let row = AppleIntelligenceSetup.row(dictation.cleanupAvailability)
         if row != appleIntelligence { appleIntelligence = row }
     }
 

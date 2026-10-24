@@ -40,8 +40,8 @@ public struct TrayRelocationResult: Equatable, Sendable {
     public var message: String? {
         guard let first = failures.first else { return nil }
         if failures.count == 1 {
-            return "\(first.name) couldn't be moved to \(destination). \(first.reason)"
+            return String(localized: "\(first.name) couldn't be moved to \(destination). \(first.reason)")
         }
-        return "\(failures.count) items couldn't be moved to \(destination). \(first.reason)"
+        return String(localized: "\(failures.count) items couldn't be moved to \(destination). \(first.reason)")
     }
 }

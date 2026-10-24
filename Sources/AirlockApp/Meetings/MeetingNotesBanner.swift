@@ -81,7 +81,8 @@ struct MeetingNotesBanner: View {
                         .font(Theme.chrome(10.5))
                         .foregroundStyle(Theme.textSecondary)
                 }
-                if meetings.flow.stoppedAtLimit { NotesStoppedAtLimit(meetings: meetings) }
+                if meetings.flow.stoppedAtLimit { NotesOnPlus(.stoppedAtLimit, meetings: meetings) }
+                if meetings.flow.locked { NotesOnPlus(.kept, meetings: meetings) }
             }
             .modifier(BannerBox())
         case .ready(_, let call):
@@ -176,22 +177,30 @@ private struct NotesBeingTaken: View {
             }
             // Paused, nothing is meant to reach the notes, so a side not
             // reaching them is no news.
+            if !meetings.isPaused, let check = meetings.startCheck, check.isShowing {
+                StartCheckStrip(check: check, inPerson: call.isInPerson, meetings: meetings)
+            }
             if !meetings.isPaused { health }
             jotField
             if !headsUpOver { headsUp }
             // Free's last five minutes: said where the notes are, so the
             // stop at the limit is no surprise. Purple like the notes: amber
             // would say something waits on you, and nothing does.
-            if meetings.limitWord == .stopsSoon {
+            if let word = meetings.limitWord, word == .stopsSoon || word == .locksSoon {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Image(systemName: "clock")
                         .font(.system(size: 9.5, weight: .semibold))
                         .accessibilityHidden(true)
-                    Text(MeetingNotesFlow.LimitWord.stopsSoon.line)
+                    Text(word.line)
                         .font(Theme.chrome(10.5))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .foregroundStyle(CallsLook.saidText)
+            }
+            // Past it, still heard: what the notes cover, and the way to
+            // the rest. Grey: news about the notes, nothing to answer.
+            if meetings.limitWord == .stillListening {
+                NotesOnPlus(.stillListening, meetings: meetings)
             }
         }
         .task(id: firstStarted) {
@@ -263,7 +272,9 @@ private struct NotesBeingTaken: View {
                 TimelineView(.periodic(from: firstStarted, by: 1)) { context in
                     // How long, as the side window says it: "4:12" here
                     // would read as a time of day beside its lines.
-                    Text("Taking notes · \(CallsCard.length(from: firstStarted, to: context.date))")
+                    // Past Free's limit the rest is still heard, and sealed.
+                    Text((meetings.flow.locked ? String(localized: "Still listening") : String(localized: "Taking notes"))
+                         + " · " + CallsCard.length(from: firstStarted, to: context.date))
                         .monospacedDigit()
                 }
             }
@@ -396,7 +407,19 @@ private struct NotesBeingTaken: View {
 
     @ViewBuilder
     private var health: some View {
-        if meetings.health.yoursMissing {
+        if meetings.health.yoursMissing, meetings.microphoneRefused {
+            // A refused microphone is the one cause that can be named, and
+            // fixed from here. Not while the start check says it already.
+            if !stripSaysRefusal {
+                HStack(spacing: 6) {
+                    note(call.isInPerson
+                         ? "Nothing is being written down: Airlock isn't allowed to use the microphone."
+                         : "Your side isn't being written down: Airlock isn't allowed to use the microphone.")
+                    Spacer(minLength: 4)
+                    NotesPill("Open Settings", quiet: true) { meetings.openMicrophonePermission() }
+                }
+            }
+        } else if meetings.health.yoursMissing {
             // In the room the microphone is everybody, not one side.
             note(call.isInPerson
                  ? "The microphone isn't reaching Airlock. Nothing is being written down."
@@ -405,21 +428,109 @@ private struct NotesBeingTaken: View {
         // The permission explains a missing other side, so it is said
         // instead of the plain line, not as well.
         if meetings.health.theirsNotAllowed {
-            HStack(spacing: 6) {
-                note("The other side isn't reaching Airlock. It needs System Audio Recording.")
-                Spacer(minLength: 4)
-                NotesPill("Open Settings", quiet: true) { meetings.openAudioPermission() }
+            if !stripSaysRefusal {
+                HStack(spacing: 6) {
+                    note("The other side isn't reaching Airlock. It needs Screen & System Audio Recording.")
+                    Spacer(minLength: 4)
+                    NotesPill("Open Settings", quiet: true) { meetings.openAudioPermission() }
+                }
             }
         } else if meetings.health.theirsMissing {
             note("The other side isn't reaching Airlock. Only your side is being written down.")
         }
     }
 
-    private func note(_ text: String) -> some View {
+    /// The start check is on show with a refusal in it, and says it with
+    /// its own button: the line below would say it twice.
+    private var stripSaysRefusal: Bool {
+        guard let check = meetings.startCheck else { return false }
+        return check.isShowing && check.hasRefusal
+    }
+
+    private func note(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(Theme.chrome(10.5))
             .foregroundStyle(Theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+// MARK: - Start check
+
+/// "Writing down: you ✓ · them ✓" for the first seconds of call notes
+/// (`CallStartCheck`). A refused side turns amber, with the one button that
+/// fixes it and a line saying what is still being written down.
+private struct StartCheckStrip: View {
+    let check: CallStartCheck
+    let inPerson: Bool
+    let meetings: MeetingNotesModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Text("Writing down:")
+                    .foregroundStyle(Theme.textPrimary)
+                mark(inPerson ? "the room" : "you", check.you)
+                if let them = check.them {
+                    Text(verbatim: "·").foregroundStyle(Theme.textTertiary)
+                    mark("them", them)
+                }
+                Spacer(minLength: 4)
+                if check.hasRefusal {
+                    NotesPill("Open System Settings") {
+                        if check.you == .refused {
+                            meetings.openMicrophonePermission()
+                        } else {
+                            meetings.openAudioPermission()
+                        }
+                    }
+                }
+            }
+            .font(Theme.chrome(11, .medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(check.hasRefusal ? Theme.needs.opacity(0.12) : Color.white.opacity(0.07)))
+            if let advice {
+                Text(advice)
+                    .font(Theme.chrome(10.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var advice: LocalizedStringKey? {
+        if check.you == .refused {
+            return inPerson
+                ? "Switch Airlock on under Microphone. Nothing is being written down until then."
+                : "Switch Airlock on under Microphone. Only the other side is being written down."
+        }
+        if check.them == .refused {
+            return "Switch Airlock on under Screen & System Audio Recording. Your side is still being written down."
+        }
+        return nil
+    }
+
+    private func mark(_ who: LocalizedStringKey, _ mark: CallStartCheck.Mark) -> some View {
+        HStack(spacing: 3) {
+            Text(who)
+            switch mark {
+            case .heard: Image(systemName: "checkmark").accessibilityLabel(Text("heard"))
+            case .refused: Image(systemName: "xmark").accessibilityLabel(Text("not allowed"))
+            case .waiting: Image(systemName: "ellipsis").accessibilityLabel(Text("waiting"))
+            }
+        }
+        .foregroundStyle(colour(mark))
+    }
+
+    private func colour(_ mark: CallStartCheck.Mark) -> Color {
+        switch mark {
+        case .heard: Theme.done
+        case .refused: Theme.needs
+        case .waiting: Theme.textSecondary
+        }
     }
 }
 
@@ -459,7 +570,7 @@ private struct NotesReady: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Theme.done)
                 }
-                Text("\(tooLittle ? CallNotesPanel.tooLittleSaid : later ? CallNotesPanel.notesLater : "Notes ready")"
+                Text((tooLittle ? CallNotesPanel.tooLittleSaid : later ? CallNotesPanel.notesLater : String(localized: "Notes ready"))
                      + " · \(title)")
                     .font(Theme.chrome(11, .medium))
                     .foregroundStyle(Theme.textPrimary)
@@ -482,7 +593,13 @@ private struct NotesReady: View {
                     .font(Theme.chrome(10.5))
                     .foregroundStyle(Theme.textSecondary)
             }
-            if meetings.flow.stoppedAtLimit { NotesStoppedAtLimit(meetings: meetings) }
+            if meetings.flow.stoppedAtLimit {
+                NotesOnPlus(.stoppedAtLimit, meetings: meetings)
+            } else if meetings.flow.locked {
+                NotesOnPlus(.kept, meetings: meetings)
+            } else if !tooLittle, meetings.voicesHint {
+                NotesOnPlus(.voices, meetings: meetings)
+            }
             if let waiting = meetings.readyWaiting {
                 Text(waiting)
                     .font(Theme.chrome(10.5))
@@ -570,15 +687,43 @@ private struct NotesReady: View {
     }
 }
 
-/// Under notes that Free stopped at its limit, being written or ready: how
-/// much was kept, what Plus would have done, and the way to it. Quiet grey:
-/// it is news about the notes, not something to answer.
-private struct NotesStoppedAtLimit: View {
+/// Under notes on Free, what Plus would have done, and the way to it.
+/// Quiet grey: it is news about the notes, not something to answer.
+private struct NotesOnPlus: View {
+    enum Said {
+        /// Free's limit stopped the notes, being written or ready: how much
+        /// was kept, and the voices too when they were all "Them".
+        case stoppedAtLimit
+        /// A call the limit didn't stop, whose other side was all "Them".
+        case voices
+        /// Past Free's limit and still heard: the rest is sealed.
+        case stillListening
+        /// Locked notes, written or ready: how much is kept, and until when.
+        case kept
+    }
+
+    let said: Said
     let meetings: MeetingNotesModel
+
+    init(_ said: Said, meetings: MeetingNotesModel) {
+        self.said = said
+        self.meetings = meetings
+    }
+
+    private var line: String {
+        switch said {
+        case .stoppedAtLimit: MeetingNotesFlow.LimitWord.stopped.line(voicesToo: meetings.voicesHint)
+        case .voices: FreeVoicesHint.afterCall
+        case .stillListening: MeetingNotesFlow.LimitWord.stillListening.line
+        case .kept:
+            meetings.readyLocked.map { LockedCallWords.ready(minutes: $0.minutes, until: $0.until) }
+                ?? MeetingNotesFlow.LimitWord.kept.line
+        }
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(MeetingNotesFlow.LimitWord.stopped.line)
+            Text(line)
                 .font(Theme.chrome(10.5))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -594,20 +739,28 @@ private struct NotesStoppedAtLimit: View {
 /// A small rounded button, as the licence line has them. The notch's Calls
 /// tab uses it too, so the two ways into the notes look alike.
 struct NotesPill: View {
-    let title: String
+    let title: Text
     var prominent = false
     var quiet = false
     let action: () -> Void
 
-    init(_ title: String, prominent: Bool = false, quiet: Bool = false, action: @escaping () -> Void) {
-        self.title = title
+    init(_ title: LocalizedStringKey, prominent: Bool = false, quiet: Bool = false, action: @escaping () -> Void) {
+        self.title = Text(title)
+        self.prominent = prominent
+        self.quiet = quiet
+        self.action = action
+    }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ title: S, prominent: Bool = false, quiet: Bool = false, action: @escaping () -> Void) {
+        self.title = Text(title)
         self.prominent = prominent
         self.quiet = quiet
         self.action = action
     }
 
     var body: some View {
-        Text(title)
+        title
             .font(Theme.chrome(11, .semibold))
             .foregroundStyle(quiet ? Theme.textSecondary : Theme.textPrimary)
             .lineLimit(1)
@@ -633,14 +786,14 @@ private struct NotesIconButton: View {
     enum Look { case plain, prominent, window }
 
     let symbol: String
-    let label: String
+    let label: LocalizedStringKey
     var look: Look = .plain
     let action: () -> Void
 
     @State private var hovered = false
     @Environment(\.colorScheme) private var colorScheme
 
-    init(_ symbol: String, label: String, look: Look = .plain, action: @escaping () -> Void) {
+    init(_ symbol: String, label: LocalizedStringKey, look: Look = .plain, action: @escaping () -> Void) {
         self.symbol = symbol
         self.label = label
         self.look = look

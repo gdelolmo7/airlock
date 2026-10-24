@@ -15,38 +15,27 @@ public enum RiskAssessor {
         /// floor is asked before any allow rule is read, so one would never be
         /// honoured.
         public var cardLine: String {
-            "Risky: \(reason). Airlock asks about this every time."
+            String(localized: "Risky: \(reason). Airlock asks about this every time.")
         }
     }
 
     /// (regex, human reason). Case-insensitive.
     private static let patterns: [(String, String)] = [
-        (#"\brm\s+-[a-z]*r"#, "recursive delete"),
-        (#"\bsudo\b"#, "elevated privileges"),
-        (#"git\s+push\s+[^|;&]*--force(?!-with-lease)"#, "force push"),
-        (#"git\s+push\s+(\S+\s+)*-f\b"#, "force push"),
-        (#"git\s+reset\s+--hard"#, "hard reset"),
-        (#"git\s+clean\s+-\w*f"#, "deletes untracked files"),
-        (#"\bdd\s+if="#, "raw disk write"),
-        (#"\bmkfs"#, "filesystem format"),
-        (#"(curl|wget)[^|;]*\|\s*(sudo\s+)?\w*sh\b"#, "pipes web content to a shell"),
-        (#"chmod\s+(-\w+\s+)*777"#, "world-writable permissions"),
-        (#"drop\s+(table|database)"#, "destructive SQL"),
-        (#"(deploy[^;|&]*prod|prod[^;|&]*deploy)"#, "production deploy"),
+        (#"\brm\s+-[a-z]*r"#, String(localized: "recursive delete")),
+        (#"\bsudo\b"#, String(localized: "elevated privileges")),
+        (#"git\s+push\s+[^|;&]*--force(?!-with-lease)"#, String(localized: "force push")),
+        (#"git\s+push\s+(\S+\s+)*-f\b"#, String(localized: "force push")),
+        (#"git\s+reset\s+--hard"#, String(localized: "hard reset")),
+        (#"git\s+clean\s+-\w*f"#, String(localized: "deletes untracked files")),
+        (#"\bdd\s+if="#, String(localized: "raw disk write")),
+        (#"\bmkfs"#, String(localized: "filesystem format")),
+        (#"(curl|wget)[^|;]*\|\s*(sudo\s+)?\w*sh\b"#, String(localized: "pipes web content to a shell")),
+        (#"chmod\s+(-\w+\s+)*777"#, String(localized: "world-writable permissions")),
+        (#"drop\s+(table|database)"#, String(localized: "destructive SQL")),
+        (#"(deploy[^;|&]*prod|prod[^;|&]*deploy)"#, String(localized: "production deploy")),
     ]
 
     public static func assess(_ request: PermissionRequest) -> Risk? {
-        // Spoken actions have their own floor, declared by the action itself.
-        //
-        // Two domains, still one definition of "risky" — which is the point of
-        // routing them through here rather than adding a second assessor. The
-        // patterns below are shell regexes and would match a spoken subject only
-        // by accident: `Voice.Clipboard(Terminal)` is a source app, and a clip
-        // whose text happens to contain "sudo" is not an elevated command.
-        if VoiceActionCatalog.isVoiceTool(request.toolName) {
-            return VoiceActionCatalog.riskFloorReason(toolName: request.toolName)
-                .map { Risk(reason: $0) }
-        }
         guard let subject = request.target ?? request.command else { return nil }
         for (pattern, reason) in patterns {
             if subject.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {

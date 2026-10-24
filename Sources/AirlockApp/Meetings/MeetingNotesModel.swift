@@ -92,6 +92,9 @@ final class MeetingNotesModel {
     private(set) var flow = MeetingNotesFlow()
     /// Whether each side is reaching the notes, for the panel's lines.
     private(set) var health = CallChannelHealth()
+    /// The short "writing down: you, them" check at the top of the call
+    /// card while notes start. Nil until the first look of a call.
+    private(set) var startCheck: CallStartCheck?
     /// The calendar event the call now belongs to, looked up once when the
     /// call started (`CallEventMatch`). Nil without one, or without calendar
     /// access: the notes are then named after the app, as before.
@@ -114,12 +117,27 @@ final class MeetingNotesModel {
     /// page says it, when that isn't this month's notes being used up
     /// (`readyAllowance` says that one, with the day).
     private(set) var readyWaiting: String?
+    /// Under "Notes ready" for a Free call locked past its limit: how many
+    /// minutes are kept, and until when (`LockedCallWords.ready`).
+    private(set) var readyLocked: ReadyLocked?
+
+    struct ReadyLocked: Equatable {
+        let minutes: Int
+        let until: Date
+    }
     /// To-dos in those notes, for the line to mention.
     var readyTodoCount: Int { readyNotes?.todos.count ?? 0 }
     /// When the finished call began, so its lines say times of day as the
     /// notes window does. The record stays the last call's until a new one
     /// begins.
     var readyStartedAt: Date? { record?.startedAt }
+    /// On Free, whether the finished call's other side was two or more
+    /// people heard as one "Them", so the card says Plus would have told
+    /// them apart (`FreeVoicesHint`). The plan now: a call that started on
+    /// a trial still says it once the trial has gone.
+    var voicesHint: Bool {
+        record.map { FreeVoicesHint.shows(for: $0, plan: CloudNotesService.shared.plan()) } ?? false
+    }
 
     /// The call pill's mark. Stored rather than read off the flow, because
     /// it also hangs on the clock (the ask's ten seconds) and on the call
@@ -230,6 +248,10 @@ final class MeetingNotesModel {
     /// the record.
     @ObservationIgnored private var heldLines: [MeetingSpeaker: [MeetingSegment]] = [:]
     @ObservationIgnored private var sidesLoggedAt: Date?
+    /// Seals what is heard past Free's limit (`CallLock`), from the lock
+    /// until the call is over and can no longer carry on. It holds the
+    /// call's key, which is nowhere else on the Mac.
+    @ObservationIgnored private var sealer: CallLock.Sealer?
     @ObservationIgnored private var mute: CallMuteWatcher?
     /// Made the first time it is asked for.
     @ObservationIgnored private var madeCallsPage: CallsPage?
@@ -340,9 +362,10 @@ final class MeetingNotesModel {
     /// call in `flow`, as if it had been looked up when the call started.
     init(previewing flow: MeetingNotesFlow, record: MeetingRecord? = nil,
          notes: MeetingNotes? = nil, event: MeetingEvent? = nil, reading: RecordingImporter.Reading? = nil,
-         allowanceUntil: Date? = nil,
-         hearing: [CallLive.Hearing] = []) {
+         allowanceUntil: Date? = nil, locks: Bool = false,
+         hearing: [CallLive.Hearing] = [], startCheck: CallStartCheck? = nil) {
         self.flow = flow
+        self.startCheck = startCheck
         self.record = record
         readyNotes = notes
         readyAllowance = allowanceUntil
@@ -353,7 +376,10 @@ final class MeetingNotesModel {
             callEvent = event
         }
         pillMark = flow.pillMark(now: Date(), muted: false)
-        let word = flow.limitWord(running: RunningTime.now(), plan: .free)
+        let word = flow.limitWord(running: RunningTime.now(), plan: .free, locks: locks)
+        if let record, let part = record.locked, let minutes = record.lockedMinutes {
+            readyLocked = ReadyLocked(minutes: minutes, until: part.keptUntil)
+        }
         limitWord = word
         limitWordAt = word.map { _ in Date() }
         recentCalls = RecentCalls(previewing: [])
@@ -566,6 +592,22 @@ final class MeetingNotesModel {
         return await Task.detached(priority: .utility) {
             WelcomeCard.redoCall(store.calls(), page: { store.notesPage(in: $0) }, plan: plan, online: online)
         }.value
+    }
+
+    /// Whether the notes still hold `folder`'s call in memory: being heard,
+    /// written up, or waiting a moment in case it carries on. What is on disk
+    /// for it may be rewritten from memory, so `CallUnlockService` leaves it.
+    func isHolding(_ folder: URL) -> Bool {
+        let path = folder.standardizedFileURL.path
+        if self.folder?.standardizedFileURL.path == path { return true }
+        return summaries.keys.contains { $0.standardizedFileURL.path == path }
+    }
+
+    /// A call changed on disk from elsewhere (`CallUnlockService`): the
+    /// Calls tab and an open calls window read it again.
+    func callsChangedOnDisk() {
+        madeCallsPage?.refreshIfOpen()
+        recentCalls.refresh()
     }
 
     /// "Redo" on the welcome card: the same request as the notes window's.
@@ -841,6 +883,18 @@ final class MeetingNotesModel {
         onNavigateAway?()
     }
 
+    /// Whether macOS was told no for the microphone. Asked only once your
+    /// side has gone quiet, so the line can say why instead of just that.
+    var microphoneRefused: Bool { AVAudioApplication.shared.recordPermission == .denied }
+
+    /// Where macOS keeps the Microphone permission.
+    func openMicrophonePermission() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        else { return }
+        NSWorkspace.shared.open(url)
+        onNavigateAway?()
+    }
+
     /// When notes have been running, for the panel's timer.
     var recordingSince: Date? {
         if case let .recording(_, since) = flow.phase { return since }
@@ -855,7 +909,8 @@ final class MeetingNotesModel {
         var next = flow
         let running = RunningTime.now()
         let plan = CloudNotesService.shared.plan()
-        let effects = next.apply(event, enabled: isEnabled, autoStart: autoStart, running: running, plan: plan)
+        let effects = next.apply(event, enabled: isEnabled, autoStart: autoStart, running: running, plan: plan,
+                                 locks: Self.locks)
         let before = flow
         if next != flow { flow = next }
         if next.listening != before.listening { keepCount(next.listening) }
@@ -881,9 +936,14 @@ final class MeetingNotesModel {
             case let .startNotes(call, continuing):
                 recordIsLive = false
                 enqueue { await self.begin(call, continuing: continuing) }
+            case .lockNotes:
+                log("notes: locked, the plan's listening time is used up; still listening")
+                lockIfDue()
+                onNotesStopped()
             case .finishNotes:
-                // Stopped by the plan's limit: the page says how much it covers.
-                let cut = next.stoppedAtLimit ? next.listening?.limit(now: plan) : nil
+                // Stopped or locked by the plan's limit: the page says how
+                // much it covers.
+                let cut = next.stoppedAtLimit || next.locked ? next.listening?.limit(now: plan) : nil
                 enqueue { await self.finish(stoppedAtLimit: cut) }
             case .dropNotes:
                 enqueue { await self.finish(keeping: false) }
@@ -900,6 +960,8 @@ final class MeetingNotesModel {
         // here. Ending notes keep their pause up to this moment, so the
         // recognisers' last sentences from the pause are still left out.
         if next.pausedSince == nil { closePause(at: Date()) }
+        // Put away, the call can't carry on: its key goes.
+        if before.locked, !next.locked, !next.phase.isRecording { sealer = nil }
         if before.phase != next.phase {
             // Said beside the call too, whether it stopped mid-call or once
             // it was over.
@@ -908,6 +970,7 @@ final class MeetingNotesModel {
                 if readyNotes != nil { readyNotes = nil }
                 if readyAllowance != nil { readyAllowance = nil }
                 if readyWaiting != nil { readyWaiting = nil }
+                if readyLocked != nil { readyLocked = nil }
             }
             if !next.phase.isRecording, isMuted { isMuted = false }
             scheduleLinger()
@@ -941,7 +1004,8 @@ final class MeetingNotesModel {
     private func refreshPillMark() {
         let mark = flow.pillMark(now: Date(), muted: isMuted)
         if mark != pillMark { pillMark = mark }
-        let word = flow.limitWord(running: RunningTime.now(), plan: CloudNotesService.shared.plan())
+        let word = flow.limitWord(running: RunningTime.now(), plan: CloudNotesService.shared.plan(),
+                                  locks: Self.locks)
         if word != limitWord {
             limitWord = word
             limitWordAt = word == nil ? nil : Date()
@@ -1144,11 +1208,32 @@ final class MeetingNotesModel {
             self.health = health
         }
         if muted != isMuted { isMuted = muted }
+        checkStart(call, yours: yours, theirs: theirs, health: health, now: now)
 
         let lastSpeech = [yourSpeech, theirSpeech, lastWords].compactMap { $0 }.max()
         let onMic = flow.isWaitingForCallBack ? Self.isOnMicrophone(call.bundleID) : nil
         send(.tick(.init(now: now, callOnMic: onMic, lastSpeech: lastSpeech,
                          theirLastSpeech: theirSpeech)))
+    }
+
+    /// Feeds the start check, and keeps how the other side went for the
+    /// next call and for Settings › Permissions (`OtherSideHistory`).
+    private func checkStart(_ call: OngoingCall, yours: MeetingInput.Reading, theirs: MeetingInput.Reading,
+                            health: CallChannelHealth, now: Date) {
+        let history = OtherSideHistory.read()
+        if !call.isInPerson {
+            let seen: OtherSideHistory? = theirs.heardAnything ? .worked
+                : health.theirsNotAllowed ? .refused : nil
+            if let seen, seen != history {
+                log("other side: \(seen.rawValue)")
+                seen.save()
+            }
+        }
+        var check = startCheck ?? CallStartCheck(inPerson: call.isInPerson)
+        check.update(micHeard: yours.heardAnything, micRefused: microphoneRefused,
+                     theirsHeard: theirs.heardAnything, theirsNotAllowed: health.theirsNotAllowed,
+                     lastCallRefused: history == .refused, now: now)
+        if check != startCheck { startCheck = check }
     }
 
     /// Whether any of the call app's processes is taking sound from a
@@ -1246,6 +1331,7 @@ final class MeetingNotesModel {
             let record = MeetingRecord(bundleID: call.bundleID, appName: call.appName,
                                        site: call.site, startedAt: now, event: event,
                                        startedOn: CloudNotesService.shared.plan())
+            sealer = nil
             jotCount = 0
             do {
                 folder = try store.makeFolder(for: record)
@@ -1261,6 +1347,8 @@ final class MeetingNotesModel {
         recordIsLive = true
         live.follow(record, in: folder)
         followPauseInRecord()
+        // Locked while this waited its turn.
+        lockIfDue()
         saveNow()
         // On disk now: a notes window left open lists the call as it starts.
         madeCallsPage?.refreshIfOpen()
@@ -1302,7 +1390,7 @@ final class MeetingNotesModel {
         // Their side, once a sleeping Bluetooth headset is awake.
         theirs = MeetingInput()
         theirsSince = nil
-        tapWatch = CallTapWatch()
+        tapWatch = CallTapWatch(silentBetweenWords: CallTapWatch.silentBetweenWords(call.bundleID))
         callTapStartedAt = nil
         theirFormat = format
         wordsHeard = [:]
@@ -1404,7 +1492,7 @@ final class MeetingNotesModel {
                        report.strength, report.estimates, report.realigned)
         line += String(format: "; speakers played %.0fs of %.0fs, mic quieter by %.1f dB (filter %.1f)",
                        report.speakersSeconds, report.micSeconds, report.totalDB, report.filterDB)
-        line += "; unmatched \(report.unmatchedBlocks)"
+        line += "; unmatched \(report.unmatchedBlocks); filter wiped \(report.wipes), passed \(report.passedThrough)"
         if let speakers {
             line += String(format: "; tap %llu buffers, peak %.3f", speakers.callbackCount, speakers.peakLevel)
         }
@@ -1424,7 +1512,8 @@ final class MeetingNotesModel {
         let speaking = speakers?.lastSpeech.map { now.timeIntervalSince($0) < Self.speakingWithin } ?? false
         let action = tapWatch.look(now: now, callTapSince: callTapStartedAt,
                                    callTapLastSound: theirs.reading.lastSound, speakersSpeaking: speaking,
-                                   callAppPlaying: { Self.isPlaying(callApp: call.bundleID) })
+                                   callAppPlaying: { Self.isPlaying(callApp: call.bundleID) },
+                                   othersPlaying: { Self.othersPlaying(besides: call.bundleID) })
         switch action {
         case .none:
             return
@@ -1463,6 +1552,17 @@ final class MeetingNotesModel {
     private static func isPlaying(callApp bundleID: String) -> Bool {
         CallMonitor.audioProcesses(ofCallApp: bundleID)
             .contains { AudioProcesses.bool($0, kAudioProcessPropertyIsRunningOutput) }
+    }
+
+    /// Whether a process outside the call app (and outside Airlock) is
+    /// playing sound now: then a voice on the speakers may be its own.
+    private static func othersPlaying(besides bundleID: String) -> Bool {
+        let callApp = Set(CallMonitor.audioProcesses(ofCallApp: bundleID))
+        let me = ProcessInfo.processInfo.processIdentifier
+        return AudioProcesses.objects().contains { object in
+            !callApp.contains(object) && AudioProcesses.pid(object) != me
+                && AudioProcesses.bool(object, kAudioProcessPropertyIsRunningOutput)
+        }
     }
 
     /// The processes playing sound now, the call app's marked: what tells a
@@ -1653,7 +1753,12 @@ final class MeetingNotesModel {
             guard var record else { return }
             // Said during a pause: left out, as when the line first came.
             let kept = lines.filter { !said(during: $0, in: record) }
-            record.switchLanguage(of: speaker, at: seam, to: language, lines: kept, keptAs: keptAs)
+            if let sealer {
+                record.switchLanguage(of: speaker, at: seam, to: language, lines: kept, keptAs: keptAs,
+                                      sealing: sealer)
+            } else {
+                record.switchLanguage(of: speaker, at: seam, to: language, lines: kept, keptAs: keptAs)
+            }
             self.record = record
             saveSoon()
         case .shadow(let line):
@@ -1666,14 +1771,20 @@ final class MeetingNotesModel {
     /// What a side is saying before it is a line, for the transcript to
     /// show as it comes, and the lines it holds back while its language is
     /// decided, to show where they were said. Nothing said while paused is
-    /// shown, as nothing said then is written down.
+    /// shown, as nothing said then is written down, and nothing past a lock,
+    /// as nothing from there can be read.
     private func hearing(_ held: [MeetingSegment], _ text: String, from speaker: MeetingSpeaker) {
-        let shown = record.map { record in held.filter { !said(during: $0, in: record) } } ?? []
+        let lockedFrom = record?.locked?.from
+        let shown = record.map { record in
+            held.filter { line in
+                !said(during: line, in: record) && line.start < lockedFrom ?? .infinity
+            }
+        } ?? []
         if shown != heldLines[speaker, default: []] {
             heldLines[speaker] = shown.isEmpty ? nil : shown
             live.hold(shown, from: speaker)
         }
-        live.hear(isPaused ? "" : text, from: speaker)
+        live.hear(isPaused || lockedFrom != nil ? "" : text, from: speaker)
     }
 
     /// Said during a pause, by its middle.
@@ -1686,7 +1797,7 @@ final class MeetingNotesModel {
         if let record, said(during: segment, in: record) {
             return
         }
-        record?.add(segment)
+        if let sealer { record?.add(segment, sealing: sealer) } else { record?.add(segment) }
         wordsHeard[segment.speaker, default: 0] += segment.text.split(whereSeparator: \.isWhitespace).count
         if let record {
             let spoken = record.startedAt.addingTimeInterval(segment.end)
@@ -1696,6 +1807,33 @@ final class MeetingNotesModel {
             self.record?.site = site
         }
         saveSoon()
+    }
+
+    /// The server's key a Free call's locked part is sealed to, put in at
+    /// packaging. Without it Free's notes stop at the limit, as before.
+    private static let callLockKey = CallLock.publicKey(
+        Bundle.main.object(forInfoDictionaryKey: "ALCallLockPublicKey") as? String)
+    private static var locks: Bool { callLockKey != nil }
+
+    /// Once the flow has locked the notes and they write to their record:
+    /// from now on what is heard is sealed, and only the server can open the
+    /// key. A call that carries on keeps the lock it had.
+    private func lockIfDue() {
+        guard flow.locked, recordIsLive, var record, record.locked == nil, let key = Self.callLockKey else { return }
+        let from = Date().timeIntervalSince(record.startedAt)
+        do {
+            let sealer = try CallLock.Sealer(publicKey: key, machine: MachineIdentity.current,
+                                             keptUntil: CallLock.keptUntil(startedAt: record.startedAt), from: from)
+            self.sealer = sealer
+            record.locked = sealer.part
+            self.record = record
+            saveNow()
+        } catch {
+            // Nothing past the limit can be kept unsealed: the notes stop
+            // there, as they would without the key.
+            log("notes: lock FAILED (\(error.localizedDescription)), stopping")
+            Task { @MainActor [weak self] in self?.send(.stop) }
+        }
     }
 
     /// Saves a second after the last change: a burst of lines or notes is
@@ -1753,6 +1891,7 @@ final class MeetingNotesModel {
         micDevice = nil
         micFormat = nil
         if health != CallChannelHealth() { health = CallChannelHealth() }
+        startCheck = nil
         releaseAwake()
         // Streams next: each recogniser's last sentence waits on its stream
         // ending (`SpeechSession.finish`), and each side's stream ends once
@@ -1844,6 +1983,7 @@ final class MeetingNotesModel {
             pendingSave = nil
             self.folder = nil
             record = nil
+            sealer = nil
         }
         remove(folder)
     }
@@ -1927,6 +2067,9 @@ final class MeetingNotesModel {
                     }
                     if case let .ready(name, _) = self.flow.phase, name == folder.lastPathComponent {
                         self.readyNotes = written
+                        self.readyLocked = record.locked.flatMap { part in
+                            record.lockedMinutes.map { ReadyLocked(minutes: $0, until: part.keptUntil) }
+                        }
                         self.readyWaiting = page.writer.flatMap { writer in
                             writer.noNotesYet == nil || writer.noNotesYet == .allowanceUsed
                                 ? nil : MeetingFiles.waitingLine(for: writer)

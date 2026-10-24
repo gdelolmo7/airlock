@@ -25,9 +25,10 @@ final class SpeechSession {
         var errorDescription: String? {
             switch self {
             case .noSupportedLocale(let locale):
-                return "Dictation doesn't support \(locale) yet."
+                return String(localized: "Dictation doesn't support \(locale) yet.")
             case .noModel(let locale):
-                return "The speech model for \(locale) isn't installed."
+                return String(localized: "The speech model for \(locale) isn't installed.")
+
             }
         }
     }
@@ -140,9 +141,8 @@ final class SpeechSession {
     /// transcribers, which is what keeps this at ~1.3× the cost of one rather
     /// than a second recording or a second pass.
     ///
-    /// `vocabulary` is names the recogniser should expect — installed apps,
-    /// site aliases, Shortcut names, and the product names people say at a
-    /// notch that drives coding agents. Without it "Claude" is transcribed as
+    /// `vocabulary` is names the recogniser should expect — the product names
+    /// people say at a notch that drives coding agents. Without it "Claude" is transcribed as
     /// whatever English sounds alike ("cloud", "clot", "clawed" — all
     /// observed), and every match downstream is against a word nobody said.
     /// One context serves every transcriber in the race, so the biasing holds

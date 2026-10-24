@@ -573,12 +573,9 @@ public enum CloudNotesSetting {
     /// OpenAI's GPT for Pro, run by Microsoft Azure (the server's only route
     /// to it that keeps nothing, `worker/src/openrouter.js`).
     public static func subtitle(for plan: License.Plan?) -> String {
-        let goesTo = plan == .pro
-            ? "OpenAI's GPT, run by Microsoft Azure, to write better notes. Neither Airlock, OpenAI nor "
-                + "Microsoft keeps it"
-            : "Google's Gemini to write better notes. Neither Airlock nor Google keeps it"
-        return "When a meeting ends, its transcript goes through Airlock's server to \(goesTo), and it "
-            + "isn't used to train AI. Off, or without internet, notes are written on this Mac."
+        plan == .pro
+            ? String(localized: "When a meeting ends, its transcript goes through Airlock's server to OpenAI's GPT, run by Microsoft Azure, to write better notes. Neither Airlock, OpenAI nor Microsoft keeps it, and it isn't used to train AI. Off, or without internet, notes are written on this Mac.")
+            : String(localized: "When a meeting ends, its transcript goes through Airlock's server to Google's Gemini to write better notes. Neither Airlock nor Google keeps it, and it isn't used to train AI. Off, or without internet, notes are written on this Mac.")
     }
 
     /// On unless switched off: an untouched switch is on.

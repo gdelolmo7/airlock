@@ -66,9 +66,9 @@ final class RecordingImporter {
     func choose() {
         guard !isBusy, !previewing else { return }
         let panel = NSOpenPanel()
-        panel.title = "Add a Recording"
-        panel.message = "Pick a recording to get notes from. The file stays where it is, and nothing leaves your Mac."
-        panel.prompt = "Get Notes"
+        panel.title = String(localized: "Add a Recording")
+        panel.message = String(localized: "Pick a recording to get notes from. The file stays where it is, and nothing leaves your Mac.")
+        panel.prompt = String(localized: "Get Notes")
         panel.allowedContentTypes = Self.contentTypes
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -132,7 +132,7 @@ final class RecordingImporter {
 
     private static func tell(_ reason: String) {
         let alert = NSAlert()
-        alert.messageText = "Couldn\u{2019}t get notes from this recording"
+        alert.messageText = String(localized: "Couldn\u{2019}t get notes from this recording")
         alert.informativeText = reason
         alert.alertStyle = .warning
         NSApp.activate(ignoringOtherApps: true)

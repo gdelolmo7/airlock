@@ -92,7 +92,7 @@ final class NotchUIState {
     /// Without it the full-size panel mounts the Home tab for the moment
     /// between "Got it" and the collapse starting — reported 2026-10-07 as
     /// "for a microsecond it expands and I can see the regular home". The
-    /// same fix as `holdAnswerThroughCollapse`, cleared at the same places.
+    /// same fix as `holdDictationThroughCollapse`, cleared at the same places.
     var whatsNewLeaving: WhatsNew.Card?
     /// The one question after a run that ended unexpectedly: may crash
     /// reports be sent (`CrashReporter`). Takes the panel the way the
@@ -109,10 +109,15 @@ final class NotchUIState {
     var usageQuestion = false
     /// The question just answered, kept drawn while the panel shrinks away.
     var usageQuestionLeaving = false
-    /// The running guide's compact state, copied from `GuideController` on
-    /// every change it reports. Here rather than read from the controller so
-    /// the island's one input keeps coming from one place.
-    var guideCompact: GuidePresentation.Compact?
+    /// Setup, a new version's card, the crash-reports question or the
+    /// usage-counts question owns the panel: the widget stack stands aside. Here so the panel's views and Free's
+    /// reminders read the one rule.
+    var panelIsTaken: Bool {
+        onboarding != nil || onboardingLeaving != nil
+            || whatsNew != nil || whatsNewLeaving != nil
+            || crashQuestion || crashQuestionLeaving
+            || usageQuestion || usageQuestionLeaving
+    }
     /// A drag is hovering the panel. Driven by the AppKit catcher, because the
     /// SwiftUI drop handler it bypasses is where `isTargeted` would have come
     /// from.
@@ -137,6 +142,53 @@ final class NotchUIState {
     /// drop target for its own contents — only the AirDrop box is a destination
     /// during that gesture.
     var isDraggingOut = false
+    /// Something the shelf keeps is being dragged somewhere on screen, not yet
+    /// over the island. The compact island's "drop here" sign, and the
+    /// catcher's wide strip along the top — see `FileInHand`.
+    var fileInHand = false
+    /// What the expanded island draws while it is the drop box, or nil for the
+    /// panel — see `DropPocket`. The box's phase as last drawn, not as it is:
+    /// it stays through the island closing, so the black shrinks round the box
+    /// instead of round a panel that swapped in for the last few frames.
+    var dropPocket: DropPocket.Phase?
+    /// The formats and actions the box offers, decided when it opens. Its
+    /// own, not the panel's `pictureOffer`: it sizes the box, and it stays as
+    /// it was while the island closes round it.
+    var pocketOffer = DropOffer.none
+    /// Whether this plan has the chips tagged with one, read when the box
+    /// opens (`PlanLimits.dropBoxExtras`). False draws them with the tag.
+    var pocketExtras = true
+    /// The place on the box under the file: it lights up.
+    var overPocketTarget: DropPocketTarget?
+    /// What the last drop on the box did, said while it is `landed`.
+    var pocketNote: DropPocketNote?
+    /// Drop box work that outlasted the box, for the compact island's small
+    /// cloud: working until it ends, then done for a moment. Nil otherwise.
+    var dropWork: DropWorkGlance?
+    /// The box's content frame, in the panel's top-left space. Published like
+    /// `railFrame`, for the same reason: the catcher takes the drop and routes
+    /// it by where on the box it landed.
+    var pocketFrame: CGRect?
+    /// The formats a dragged picture can be copied into, decided once when the
+    /// drag reaches the island (`PictureConverter.offer`). Empty for anything
+    /// that is not all pictures, which is what keeps the row off the panel.
+    var pictureOffer = PictureOffer.none
+    /// The format row's frame, in the panel's top-left space. Published the
+    /// way `railFrame` is and for the same reason: the catcher takes every drop
+    /// and routes it by where it landed. Nil whenever the row is not drawn.
+    var pictureRowFrame: CGRect?
+    /// The chip the drag is over: it lights up, and the row says what a drop
+    /// there makes.
+    var overPictureTarget: PictureTarget?
+
+    /// Which chip a point in the panel is on. None while the drag is refused or
+    /// going out, or before the row has been laid out: a chip nobody can see
+    /// takes no drops.
+    func pictureTarget(atPanelPoint point: CGPoint) -> PictureTarget? {
+        guard !isDraggingOut, dropRejection == nil, let row = pictureRowFrame else { return nil }
+        return pictureOffer.target(at: point, row: row)
+    }
+
     /// Whether the panel currently holds the keyboard.
     ///
     /// Views bind key equivalents unconditionally — SwiftUI has nowhere else to
@@ -144,31 +196,12 @@ final class NotchUIState {
     /// fires. Anything that *prints* its shortcut has to read this first, or it
     /// advertises a key that does nothing.
     var keyboardHeld = false
-    /// The answer just dismissed and the panel is on its way closed. While
-    /// this is true the expanded stack keeps rendering the ANSWER — whose text
-    /// `AssistantModel.dismiss` now deliberately leaves in place — instead of
-    /// swapping to the selected tab's widgets.
-    ///
-    /// Without it there is a measured ~70ms gap (answer removed at 273.00,
-    /// conversion begun at 273.07, in the trace that found it) where the
-    /// fully expanded panel mounts the home tab, plus the whole shrink after:
-    /// reported as "for a brief second I see the home page" on every spoken
-    /// answer. The widgets were never on screen during the answer, so
-    /// mounting them for the closing animation is a flash of content nobody
-    /// asked for; the answer fading out with the panel is what reads as the
-    /// panel closing.
-    ///
-    /// Set by the answer's dismissal, cleared when the conversion it caused
-    /// finishes — or immediately, when no conversion follows, because then
-    /// the panel is staying open and the tab genuinely should mount.
-    var holdAnswerThroughCollapse = false
-    /// The same for dictation: a hold, a notice or one of its cards just
+    /// A hold, a notice or one of dictation's cards just
     /// ended and the panel is on its way closed. `DictationOverlayView` keeps
     /// drawing what it last showed instead of the panel mounting the Home tab
     /// for the shrink — reported 2026-10-05 as the notice card "expanding full
-    /// size for a micro second, then hiding". Raised and cleared exactly where
-    /// `holdAnswerThroughCollapse` is, and dropped the moment dictation starts
-    /// again or an answer takes the panel.
+    /// size for a micro second, then hiding". Cleared when the conversion it
+    /// caused finishes, and dropped the moment dictation starts again.
     var holdDictationThroughCollapse = false
     /// The kit is animating between presentations. While this is true the
     /// compact slots land content swaps UNANIMATED — see the `.animation` on
@@ -230,7 +263,6 @@ final class NotchController {
     private let tray: TrayModel
     private let clipboard: ClipboardWidgetModel
     private let dictation: DictationModel
-    private let assistant: AssistantModel
     private let appearance: NotchAppearanceModel
     private let agents: AgentsWidgetModel
     /// Kept alive here: its listeners hold it weakly.
@@ -250,9 +282,6 @@ final class NotchController {
     private let appVolume: AppVolumeModel
     private let repository: RepositoryWidgetModel
     private let license: LicenseModel
-    #if AIRLOCK_GUIDE
-    private let guide = GuideController.shared
-    #endif
     /// Held, not just handed to the view: `apply()` asks it which tabs still
     /// exist, so a tab switched off underneath the panel can be escaped from.
     private let registry: WidgetRegistry
@@ -262,6 +291,9 @@ final class NotchController {
     /// window exists, so the gear can't be wired at construction.
     var onOpenSettings: (() -> Void)?
     private let uiState = NotchUIState()
+    /// Setup, a new version's card or a one-time question fills the panel,
+    /// for Free's reminders (`NotchUIState.panelIsTaken`).
+    var panelIsTaken: Bool { uiState.panelIsTaken }
     private var notch: DynamicNotch<AnyView, AnyView, AnyView>?
 
     /// Whether closing the current "what's new" card writes its version down
@@ -290,21 +322,11 @@ final class NotchController {
     /// shrinking — so the 450ms grace fires and the panel collapses out from
     /// under a gesture that is still in progress.
     private var scrubExpand = false
-    /// An answer on screen. Unlike `dictationExpand` this is NOT tied to a key
-    /// being held — it outlives the gesture, because an unread answer must not
-    /// vanish when you let go.
-    private var assistantExpand = false
     /// Whether the pointer has actually been on the notch since the hotkey
     /// opened it. Without this the very first hover-*out* event closes the
     /// panel, including a spurious one at open time — which is exactly the
     /// split-second flash: open, then gone.
     private var hoveredSinceHotkey = false
-
-    /// Whether the pointer has actually been on the panel since an answer
-    /// appeared. The same edge-triggering `hoveredSinceHotkey` needs, for the
-    /// same recorded reason: an out event can arrive without a matching in, and
-    /// acting on that alone dismissed the answer the instant it was shown.
-    private var hoveredSinceAnswer = false
 
     /// When the island last had a reason to be up where it cannot rest — a
     /// monitor whose menu bar is hidden. Drives the linger — see
@@ -325,6 +347,30 @@ final class NotchController {
     /// over other apps, local for it over our own windows. Neither needs a
     /// permission: only KEY events are guarded that way.
     private var topEdgeMonitors: [Any] = []
+    /// Whether something the shelf keeps is being dragged anywhere on screen —
+    /// see `watchForFileInHand`.
+    private var fileInHand = FileInHand()
+    /// Mouse-button monitors feeding `fileInHand`. Always installed: a drag can
+    /// begin at any moment, on any display, and its beginning is the moment
+    /// worth knowing about.
+    private var fileInHandMonitors: [Any] = []
+    /// The clock `FileInHand.tick` needs while something is held, and the
+    /// pointer `DropPocket` follows.
+    private var fileInHandWatch: Task<Void, Never>?
+    /// The line under the notch while a file is in hand — see `updateDragHint`.
+    private let dragHintWindow = DragHintWindow()
+    /// Whether the island is the drop box — see `followPointer`.
+    private var dropPocket = DropPocket()
+    /// Takes down what a drop on the box did, after `DropPocket.landedFor`.
+    private var pocketExpiry: Task<Void, Never>?
+    /// Drops on the box so far, so work that ends late can tell whether the
+    /// box still shows its drop or a newer one.
+    private var pocketDrops = 0
+    /// Chips' work still going, from any drop. While the box is up it says
+    /// so itself; once it has gone, the compact island's cloud does.
+    private var dropWorkRunning = 0
+    /// Takes the island's happy cloud down after `dropWorkDoneDuration`.
+    private var dropWorkDoneTask: Task<Void, Never>?
     /// Last slot description written to the trace, so only changes are logged.
     private var lastLoggedSlots: String?
     private var lingerTask: Task<Void, Never>?
@@ -394,7 +440,7 @@ final class NotchController {
     private var armedRail: (frame: CGRect, hasDestinations: Bool)?
     private var dragOutWatch: Task<Void, Never>?
 
-    init(model: AppModel, media: MediaWidgetModel, calendar: CalendarWidgetModel, battery: BatteryWidgetModel, system: SystemStatsWidgetModel, tray: TrayModel, clipboard: ClipboardWidgetModel, dictation: DictationModel, assistant: AssistantModel, appearance: NotchAppearanceModel, agents: AgentsWidgetModel, audioOutput: AudioOutputModel, sound: SoundWidgetModel, appVolume: AppVolumeModel, systemControls: SystemControlsModel, repository: RepositoryWidgetModel, license: LicenseModel, registry: WidgetRegistry) {
+    init(model: AppModel, media: MediaWidgetModel, calendar: CalendarWidgetModel, battery: BatteryWidgetModel, system: SystemStatsWidgetModel, tray: TrayModel, clipboard: ClipboardWidgetModel, dictation: DictationModel, appearance: NotchAppearanceModel, agents: AgentsWidgetModel, audioOutput: AudioOutputModel, sound: SoundWidgetModel, appVolume: AppVolumeModel, systemControls: SystemControlsModel, repository: RepositoryWidgetModel, license: LicenseModel, registry: WidgetRegistry) {
         self.model = model
         self.media = media
         self.calendar = calendar
@@ -403,7 +449,6 @@ final class NotchController {
         self.tray = tray
         self.clipboard = clipboard
         self.dictation = dictation
-        self.assistant = assistant
         self.appearance = appearance
         self.agents = agents
         self.audioOutput = audioOutput
@@ -473,7 +518,6 @@ final class NotchController {
         }
         let clipboardModel = clipboard
         let dictationModel = dictation
-        let assistantModel = assistant
         let agentsModel = agents
         let outputModel = audioOutput
         let soundModel = sound
@@ -481,9 +525,6 @@ final class NotchController {
         let appVolumeModel = appVolume
         let repositoryModel = repository
         let licenseModel = license
-        #if AIRLOCK_GUIDE
-        let guideModel = guide
-        #endif
         // ONE list, three trees.
         //
         // `soundModel` used to be in both compact lists and neither expanded
@@ -503,16 +544,12 @@ final class NotchController {
                 .environment(battery).environment(system).environment(tray)
                 .environment(appearance).environment(uiState)
                 .environment(clipboardModel).environment(dictationModel)
-                .environment(assistantModel).environment(agentsModel)
+                .environment(agentsModel)
                 .environment(outputModel).environment(soundModel)
                 .environment(appVolumeModel).environment(systemControlsModel)
                 .environment(repositoryModel)
                 .environment(licenseModel)
-            #if AIRLOCK_GUIDE
-            return AnyView(every.environment(guideModel))
-            #else
             return AnyView(every)
-            #endif
         }
         everyModel = { withEveryModel($0) }
 
@@ -542,10 +579,10 @@ final class NotchController {
             hoverBehavior: [.keepVisible, .increaseShadow],
             style: .auto,
             expanded: {
-                withEveryModel(NotchExpandedView(onCollapse: collapse,
-                                                 onDragSettled: dragSettled,
-                                                 onOpenSettings: openSettings,
-                                                 registry: registry))
+                withEveryModel(NotchExpandedContent(onCollapse: collapse,
+                                                    onDragSettled: dragSettled,
+                                                    onOpenSettings: openSettings,
+                                                    registry: registry))
                     // Scheme is set INSIDE the view now: it follows the chosen
                     // surface, and this closure is built once so it could not.
             },
@@ -687,35 +724,23 @@ final class NotchController {
         // `focusPendingGate`.
         agents.onGateHotkey = { [weak self] in self?.focusPendingGate() }
 
-        // Typing at the notch: the same resolver speech uses, reached without a
-        // microphone. Opt-in, because turning it on claims a global chord.
-        assistant.onCommandBarHotkey = { [weak self] in self?.toggleCommandBar() }
-        assistant.onCommandBarEscaped = { [weak self] in self?.collapseExplicitly() }
-
         // Dictation has no surface of its own — you hold a key in another app
         // entirely — so the panel IS its indicator. Opening on a gesture the
         // user just made is not the unsolicited kind of expansion the island
         // contract forbids.
-        #if AIRLOCK_GUIDE
-        guide.onChange = { [weak self] in self?.guideChanged() }
-        guide.onStart = { [weak self] in self?.yieldToGuide() }
-        #endif
         dictation.onListeningChanged = { [weak self] listening in
             self?.showDictation(listening)
-        }
-
-        // An answer keeps the panel open on its own terms, long after the key
-        // that produced it came up.
-        assistant.onPresentingChanged = { [weak self] presenting in
-            self?.showAssistant(presenting)
         }
 
         // A drag arriving over the cutout opens the tray, even from hidden —
         // otherwise the shelf is unreachable at the one moment you want it.
         dropCatcher = NotchDropCatcher(
-            onEnter: { [weak self] kind in self?.revealTrayForDrag(kind) },
+            onEnter: { [weak self] kind in self?.dragArrived(kind) },
             onDrop: { [weak self] pasteboard, point, gesture in
                 guard let self else { return false }
+                if self.dropPocket.isCatching {
+                    return self.droppedOnPocket(pasteboard, at: point, gesture: gesture)
+                }
                 self.logDropRouting(point)
                 // AirDrop takes no gesture: sending a file to another device
                 // never touches where it came from, whatever the drag offered.
@@ -725,7 +750,13 @@ final class NotchController {
                 case .downloads: accepted = self.tray.moveToDownloads(pasteboard: pasteboard)
                 case .trash:     accepted = self.tray.trashFromShelf(pasteboard: pasteboard)
                 case nil:
-                    accepted = self.tray.accept(pasteboard: pasteboard, gesture: gesture)
+                    // A chip in the format row makes a copy and leaves the
+                    // picture where it was; anywhere else is the shelf.
+                    if let target = self.pictureTarget(at: point) {
+                        accepted = self.tray.convert(pasteboard: pasteboard, to: target)
+                    } else {
+                        accepted = self.tray.accept(pasteboard: pasteboard, gesture: gesture)
+                    }
                     Moments.shared.announce(accepted ? .fileDropped : .dropRefused, "on drop")
                 }
                 self.uiState.selectedTab = .tray
@@ -735,21 +766,42 @@ final class NotchController {
                 // panel sat pinned until the 15s watchdog. `performDragOperation`
                 // always runs, so this is the signal that actually exists.
                 self.settleAfterDrag()
+                // The same reasoning for the strip: a drop on us is the end of
+                // the drag, and the button coming up may never reach a monitor.
+                if self.fileInHand.released() { self.fileInHandChanged() }
                 return accepted
             },
             onDragMoved: { [weak self] point in
-                guard let self else { return }
+                guard let self else { return false }
+                // The box has its own places, and the panel's are not drawn
+                // while it is up.
+                if self.dropPocket.isCatching {
+                    let target = self.pocketTarget(at: point)
+                    if target != self.uiState.overPocketTarget {
+                        self.uiState.overPocketTarget = target
+                    }
+                    // A chip makes something new and leaves the file where
+                    // it was: the pointer says copy, not move.
+                    if case .choice = target { return true }
+                    return false
+                }
                 let over = self.railDestination(at: point)
                 if over != self.uiState.overRailDestination {
                     self.uiState.overRailDestination = over
                 }
+                let chip = self.pictureTarget(at: point)
+                if chip != self.uiState.overPictureTarget {
+                    self.uiState.overPictureTarget = chip
+                }
+                return chip != nil
             },
-            onSettle: { [weak self] in self?.settleAfterDrag() },
+            onSettle: { [weak self] in self?.dragLeft() },
             onHover: { [weak self] hovering in
                 self?.hoverChanged(.catcher, hovering: hovering)
             }
         )
         dropCatcher?.install()
+        watchForFileInHand()
         observeDisplayChanges()
         observeReduceMotion()
         listenToMoments()
@@ -1009,6 +1061,212 @@ final class NotchController {
         syncKeyboardHeld()
     }
 
+    /// A drag arrived on the catcher. On the drop box it lights the box, which
+    /// has every place a drop from outside can go; anywhere else it opens the
+    /// tray, as it always has.
+    ///
+    /// A refused drag never lights the box. It cannot be one the box opened
+    /// for — `FileInHand` only opens it for things the shelf keeps — but the
+    /// pasteboard can say something else by the time it arrives, and then the
+    /// tray's readable refusal is the right answer.
+    private func dragArrived(_ kind: TrayDropKind) {
+        if kind.isSupported, dropPocket.entered() {
+            Moments.shared.announce(.fileOver, "over the drop box")
+            pocketChanged()
+            return
+        }
+        dropCatcher?.cover()
+        revealTrayForDrag(kind)
+        // A box still up — or still saying "kept" — gives way to the panel.
+        if dropPocket.handToTray() || dropPocket.expire() { pocketChanged() }
+    }
+
+    /// The drag left the catcher, or ended on it. Off the box it goes back to
+    /// waiting, still up while the file is near; `followPointer` takes it down
+    /// once the file moves away. Nothing was pinned for it, so there is nothing
+    /// to settle.
+    private func dragLeft() {
+        if dropPocket.phase != nil {
+            if dropPocket.exited() { pocketChanged() }
+            return
+        }
+        dropPocket.trayLetGo()
+        settleAfterDrag()
+    }
+
+    /// A drop on the box does what the place it landed on says: the shelf
+    /// keeps it, as a drop on the shelf itself would; AirDrop sends it; a
+    /// chip makes something new from it and leaves it where it was. Then the
+    /// box says what it did, or why it could not, before it goes.
+    ///
+    /// A chip this plan leaves out takes nothing: the file stays where it
+    /// was, and the box says what the chip needs.
+    private func droppedOnPocket(_ pasteboard: NSPasteboard, at point: NSPoint,
+                                 gesture: TrayIngestGesture) -> Bool {
+        let target = pocketTarget(at: point)
+        pocketDrops += 1
+        let drop = pocketDrops
+        let accepted: Bool
+        var note: DropPocketNote?
+        switch target {
+        case .shelf: accepted = tray.accept(pasteboard: pasteboard, gesture: gesture)
+        case .airDrop: accepted = tray.airDrop(pasteboard: pasteboard)
+        case .choice(let choice) where choice.needs != nil && !uiState.pocketExtras:
+            // Refused, so the file slides back to where it came from.
+            accepted = false
+            note = .locked(choice, offerPlan: license.hasServer && SeePlanOffer.take())
+        case .choice(.notesFromIt):
+            // Calls writes the notes, the way it does for a recording
+            // brought in from its own window.
+            if let url = DropReader.fileURLs(on: pasteboard).first {
+                model.meetings.recordings.add(url)
+                accepted = true
+            } else {
+                accepted = false
+            }
+        case .choice(let choice):
+            accepted = tray.perform(pasteboard: pasteboard, choice: choice) { [weak self] result in
+                self?.dropWorkEnded(result, drop: drop)
+            }
+            if accepted { dropWorkRunning += 1 }
+        }
+        Moments.shared.announce(accepted ? .fileDropped : .dropRefused, "on the drop box, \(target)")
+        if accepted {
+            FirstStepsModel.shared.note(.dropFile)
+            uiState.selectedTab = .tray
+        }
+        uiState.pocketNote = note ?? (accepted
+            ? .done(target, count: uiState.pocketOffer.count)
+            : .refused(tray.lastError))
+        if dropPocket.landed() {
+            // A locked chip's note carries a reason too, so it stays as long,
+            // and longer with a button to reach. A chip's work keeps the box
+            // until it says "Done", or how it went wrong.
+            holdPocketNote(for: note?.seePlan != nil ? SeePlanOffer.holdFor
+                           : accepted && uiState.pocketNote?.work == .going ? DropPocket.workingFor
+                           : accepted && note == nil ? DropPocket.landedFor : DropPocket.refusedFor)
+        }
+        // A drop is the end of the drag, the same as on the panel below.
+        if fileInHand.released() { fileInHandChanged() }
+        pocketChanged()
+        return accepted
+    }
+
+    /// The box's note stays `seconds`, then the box goes.
+    private func holdPocketNote(for seconds: TimeInterval) {
+        pocketExpiry?.cancel()
+        pocketExpiry = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            if self.dropPocket.expire() { self.pocketChanged() }
+        }
+    }
+
+    /// A chip's work ended. Most of it ends while the box still says
+    /// "Making…", and a failure then puts why in that line, for as long as a
+    /// reason stays. Work that outlasts the box, a long film, gets the
+    /// refusal sound instead, and the tray keeps the whole message.
+    private func dropWorkEnded(_ result: DropWorkResult, drop: Int) {
+        dropWorkRunning = max(0, dropWorkRunning - 1)
+        let boxIsThisDrop = drop == pocketDrops && dropPocket.phase == .landed
+        guard let reason = result.failures.first?.reason else {
+            if boxIsThisDrop {
+                uiState.pocketNote = .finished(result)
+                holdPocketNote(for: DropPocket.landedFor)
+                pocketChanged()
+            } else {
+                lateDropWorkEnded(succeeded: true)
+            }
+            return
+        }
+        guard boxIsThisDrop else {
+            Moments.shared.announce(.dropRefused, "drop box work failed after the box closed")
+            lateDropWorkEnded(succeeded: false)
+            return
+        }
+        uiState.pocketNote = .failed(reason)
+        holdPocketNote(for: DropPocket.refusedFor)
+        pocketChanged()
+    }
+
+    /// Work that outlasted the box ended. The island's cloud keeps working
+    /// while any other work is still going; when the last one ends it is
+    /// happy for a moment if it went well, and goes at once if it didn't
+    /// (the refusal sound has said so, and the tray keeps why). Nothing
+    /// expands: a finish is a pulse in the compact island.
+    private func lateDropWorkEnded(succeeded: Bool) {
+        guard uiState.dropWork == .working, dropWorkRunning == 0 else { return }
+        dropWorkDoneTask?.cancel()
+        guard succeeded else {
+            uiState.dropWork = nil
+            apply()
+            return
+        }
+        uiState.dropWork = .done
+        apply()
+        dropWorkDoneTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(CompactIsland.dropWorkDoneDuration * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            self.uiState.dropWork = nil
+            self.apply()
+        }
+    }
+
+    /// The file in hand moved: the box opens near the top and goes away from
+    /// it. Not while the island is open for something else — the box would
+    /// take over a panel someone is reading — nor where it cannot rest, over a
+    /// full-screen app.
+    private func followPointer() {
+        guard let screen = NotchScreen.catching else { return }
+        let canRest = (NotchScreen.target?.islandCanRest ?? false) && !frontIsFullScreen
+        let mayOpen = canRest && applied != .expanded
+        let was = dropPocket.phase
+        if dropPocket.follow(pointer: NSEvent.mouseLocation,
+                             screen: screen.frame,
+                             column: DynamicNotchOverlay.windowFrame(inScreenFrame: screen.frame),
+                             mayOpen: mayOpen) {
+            // Decided once, as the box opens: it sizes the box, and a box that
+            // grew a row under the file would move what is under it. Read off
+            // the system's drag pasteboard, names and types only.
+            if was == nil, dropPocket.phase == .open {
+                let meetings = model.meetings
+                let abilities = DropReader.abilities(
+                    takesNotes: meetings.isEnabled && !meetings.recordings.isBusy)
+                uiState.pocketOffer = DropReader.offer(on: NSPasteboard(name: .drag), abilities: abilities)
+                uiState.pocketExtras = license.entitlement.limits.dropBoxExtras
+            }
+            pocketChanged()
+        }
+    }
+
+    /// The box moved on: the catcher reshapes round it and the island follows.
+    private func pocketChanged() {
+        HoverTrace.note("drop box: \(dropPocket.phase.map(String.init(describing:)) ?? "none")")
+        // The box went with work still going: the island's cloud takes over.
+        if dropPocket.phase == nil, dropWorkRunning > 0, uiState.dropWork != .working {
+            dropWorkDoneTask?.cancel()
+            uiState.dropWork = .working
+        }
+        if dropPocket.phase != .over { uiState.overPocketTarget = nil }
+        dropCatcher?.pocket(dropPocket.isCatching,
+                            content: DropPocketLayout(offer: uiState.pocketOffer).size)
+        apply()
+    }
+
+    /// The place on the box under a drag point. The catcher is the box's size
+    /// and not the panel's while the box is up, so the point goes through the
+    /// screen to reach the panel's space, where the box published its frame.
+    /// Before that frame arrives the whole box is the shelf.
+    private func pocketTarget(at pointInWindow: NSPoint) -> DropPocketTarget {
+        guard let box = uiState.pocketFrame, let catcher = dropCatcher?.frame,
+              let screen = NotchScreen.catching else { return .shelf }
+        let inPanel = NotchDropCatcher.panelPoint(pointInWindow, catcher: catcher,
+                                                  panel: NotchDropCatcher.panelFrame(on: screen))
+        return DropPocketLayout(offer: uiState.pocketOffer).target(
+            at: CGPoint(x: inPanel.x - box.minX, y: inPanel.y - box.minY),
+            offer: uiState.pocketOffer)
+    }
+
     /// Pinned open rather than peeked: a drag is a deliberate act, and the
     /// panel collapsing mid-drag would drop the file into nothing.
     /// Opens for ANY drag, supported or not. A refusal you can read beats a
@@ -1021,6 +1279,10 @@ final class NotchController {
         // nonsense.
         uiState.isDropTargeted = !uiState.isDraggingOut
         uiState.dropRejection = kind.isSupported ? nil : kind.explanation
+        // Read off the system's drag pasteboard, which is the one the catcher
+        // is looking at: names and types only, nothing opened.
+        uiState.pictureOffer = uiState.isDraggingOut || !kind.isSupported
+            ? .none : PictureConverter.offer(on: NSPasteboard(name: .drag))
         if !uiState.isDraggingOut { Moments.shared.announce(kind.isSupported ? .fileOver : .dropRefused, "over the notch") }
         hoverSuppressed = false
         pinForDrag()
@@ -1142,6 +1404,15 @@ final class NotchController {
         return hit?.acceptsInbound == true ? hit : nil
     }
 
+    /// The format row's chip under a drag point, inbound only: a picture going
+    /// OUT of the shelf is not offered copies of itself. The same flip as the
+    /// rail's, against the same screen.
+    private func pictureTarget(at pointInWindow: NSPoint) -> PictureTarget? {
+        guard !uiState.isDraggingOut, let screen = NotchScreen.catching else { return nil }
+        return uiState.pictureTarget(
+            atPanelPoint: CGPoint(x: pointInWindow.x, y: screen.frame.height - pointInWindow.y))
+    }
+
     /// The catcher, when grown to the panel, occupies exactly the same frame as
     /// the kit's — half the screen wide, full height, centred and top-flush.
     /// That means a drag point in catcher-window coordinates needs no screen
@@ -1183,6 +1454,9 @@ final class NotchController {
         dragPinTask = nil
         stickyExpand = false
         uiState.isDropTargeted = false
+        // The row goes with the drag that brought it.
+        uiState.pictureOffer = .none
+        uiState.overPictureTarget = nil
         // Belt and braces for the 15s watchdog above, which is the one caller
         // that can arrive here with a drag-out still nominally in flight.
         // Nothing this gesture turned on may outlive the pin it took.
@@ -1416,57 +1690,11 @@ final class NotchController {
         everyModel?(AnyView(IslandPreview(registry: registry))) ?? AnyView(EmptyView())
     }
 
-    /// Summon the typed command bar, or put it away if it is already up.
-    ///
-    /// The same shape as `toggleClipboard`, and for the same reason — read the
-    /// long note there about why `wasExpanded` is sampled BEFORE `apply()` and
-    /// why only the already-expanded case focuses directly. A bar that opened
-    /// without the keyboard would be a text field you have to click, summoned by
-    /// a shortcut you pressed to avoid reaching for the mouse.
-    ///
-    /// Unlike the clipboard this changes no tab: the bar is summoned rather than
-    /// found, so it renders over whichever tab you were on.
-    func toggleCommandBar() {
-        // Traced because the one report this could not explain — "I pressed it
-        // and the notch was not there" — is indistinguishable from three
-        // different causes: the chord never reached us, it reached us and we
-        // declined, or we opened something that was then not drawn. The trace
-        // tells them apart; `apply` alone cannot, because a decline logs nothing.
-        HoverTrace.note("commandBar hotkey fired  enabled=\(assistant.commandBarEnabled)"
-            + " applied=\(applied.map(String.init(describing:)) ?? "none")"
-            + " barOpen=\(assistant.isCommandBarOpen) presenting=\(assistant.isPresenting)")
-        guard assistant.commandBarEnabled else {
-            HoverTrace.note("commandBar declined — switched off")
-            return
-        }
-        // FIRST, before anything else looks at the panel. The chord's own
-        // modifier may have started a push-to-talk hold on the way down — see
-        // `DictationModel.abandonHoldForChord`. Left running it would deliver an
-        // empty transcript on top of the bar we are about to open.
-        dictation.abandonHoldForChord()
-        if applied == .expanded, assistant.isCommandBarOpen {
-            assistant.closeCommandBar()
-            collapseExplicitly()
-            return
-        }
-        let wasExpanded = applied == .expanded
-        assistant.openCommandBar()
-        hoverSuppressed = false
-        hotkeyExpand = true
-        hoveredSinceHotkey = false
-        wantsKeyboard = true
-        apply()
-        if wasExpanded, applied == .expanded {
-            wantsKeyboard = false
-            focusForTyping()
-        }
-    }
-
     /// Hand the panel the keyboard so the pending gate can be answered.
     ///
     /// THE REASON THIS IS A HOTKEY AND NOT AUTOMATIC. Every other place that
     /// takes the keyboard does so because the user just pressed something — the
-    /// clipboard hotkey, invoking the assistant. A gate is the opposite: it
+    /// clipboard hotkey, holding the dictation key. A gate is the opposite: it
     /// arrives because an agent hit a permission check, at whatever moment that
     /// happens, which is usually mid-sentence somewhere else. Taking the
     /// keyboard then would not merely swallow keystrokes; the card binds ⌘Y, ⌘N,
@@ -1626,6 +1854,101 @@ final class NotchController {
         apply()
     }
 
+    // MARK: - File in hand
+
+    /// Notice a drag the shelf would keep as it starts, wherever it starts, so
+    /// the catcher can rest on its wide strip and the island can say "here"
+    /// before the pointer arrives. The rule is `FileInHand`'s; this only reads
+    /// the drag pasteboard and the clock for it.
+    ///
+    /// Button events only: down, dragged, up. Global for other apps, local for
+    /// our own windows — a press there is never a file arriving, and `nil`
+    /// tells `FileInHand` so. Neither needs a permission: only KEY events are
+    /// guarded that way. Dragged events come by the hundred a second while the
+    /// button is down, and `FileInHand` keeps the work on each to a timestamp
+    /// once the press is decided.
+    private func watchForFileInHand() {
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            let type = event.type
+            MainActor.assumeIsolated { self?.fileGesture(type, insideAirlock: false) }
+        }) {
+            fileInHandMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            let type = event.type
+            MainActor.assumeIsolated { self?.fileGesture(type, insideAirlock: true) }
+            return event
+        }) {
+            fileInHandMonitors.append(local)
+        }
+    }
+
+    private func fileGesture(_ type: NSEvent.EventType, insideAirlock: Bool) {
+        let changed: Bool
+        switch type {
+        case .leftMouseDown:
+            changed = fileInHand.pressed(changeCount: insideAirlock ? nil : NSPasteboard(name: .drag).changeCount)
+        case .leftMouseDragged:
+            changed = fileInHand.dragged(now: Date(),
+                                         changeCount: { NSPasteboard(name: .drag).changeCount },
+                                         types: { NSPasteboard(name: .drag).types?.map(\.rawValue) ?? [] })
+            if !changed, fileInHand.isHeld { followPointer() }
+        case .leftMouseUp:
+            changed = fileInHand.released()
+        default:
+            return
+        }
+        if changed { fileInHandChanged() }
+    }
+
+    /// The strip and the sign move together, and while something is held a
+    /// slow clock lets go of a release nobody saw (`FileInHand.silence`).
+    /// Without that clock one missed mouse-up would leave the strip across the
+    /// menu bar, eating clicks, until the next press anywhere put it right.
+    ///
+    /// The same clock follows the pointer for the drop box, ten times a second.
+    /// Dragged events do that while they come, but once the drag is over one
+    /// of our own windows they come to the drag, not to a monitor, and a file
+    /// that rests near the top sends none at all.
+    private func fileInHandChanged() {
+        let held = fileInHand.isHeld
+        HoverTrace.note("file in hand: \(held)")
+        uiState.fileInHand = held
+        dropCatcher?.reach(held)
+        fileInHandWatch?.cancel()
+        fileInHandWatch = nil
+        if held {
+            followPointer()
+            fileInHandWatch = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    guard !Task.isCancelled, let self else { return }
+                    let buttonDown = NSEvent.pressedMouseButtons & 1 != 0
+                    if self.fileInHand.tick(now: Date(), buttonDown: buttonDown) {
+                        self.fileInHandChanged()
+                        return
+                    }
+                    self.followPointer()
+                }
+            }
+        } else {
+            if dropPocket.released() {
+                HoverTrace.note("drop box: none (let go)")
+                dropCatcher?.pocket(false, content: DropPocketLayout(offer: uiState.pocketOffer).size)
+            } else if dropPocket.phase == .over {
+                HoverTrace.note("drop box: let go over it, waiting for the drop")
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(DropPocket.dropWait * 1_000_000_000))
+                    guard let self, self.dropPocket.dropMissed() else { return }
+                    HoverTrace.note("drop box: none (no drop came)")
+                    self.pocketChanged()
+                }
+            }
+        }
+        apply()
+    }
+
     // MARK: - Hover (peek)
 
     /// Two regions, one pointer. The catcher owns the cutout and the panel owns
@@ -1689,7 +2012,6 @@ final class NotchController {
             // skips the peek machinery, but a hotkey-opened panel is waiting
             // for precisely this event.
             if hotkeyExpand { hoveredSinceHotkey = true }
-            if assistantExpand { hoveredSinceAnswer = true }
             guard !hoverSuppressed, applied == .compact else { return }
             hoverTask = Task { [weak self] in
                 // INVARIANT, and the reason `PeekDwell` exists as a separate,
@@ -1767,26 +2089,6 @@ final class NotchController {
                     self.hoveredSinceHotkey = false
                     self.releaseKeyboard()
                 }
-                // An answer you have read and moved away from is finished with.
-                // Until now only Escape or the 45-second timer cleared one, so
-                // the panel sat over the top of the screen long after it had
-                // been read — the pointer leaving is the plainest statement
-                // that it has been.
-                //
-                // A PENDING CARD is exempt, and that exemption is the whole
-                // reason this is not simply `assistant.dismiss()`. A card is a
-                // question waiting on the user; the island contract reserves
-                // expansion for exactly that, and dropping one because the
-                // pointer wandered would answer it by walking away. `dismiss`
-                // would log it `.deferred` and the agent would wait for its
-                // own timeout.
-                if AnswerDismissal.onPointerExit(
-                    answerShowing: self.assistantExpand,
-                    hoveredSinceAnswer: self.hoveredSinceAnswer,
-                    hasPendingCard: self.assistant.pending != nil) {
-                    self.hoveredSinceAnswer = false
-                    self.assistant.dismiss()
-                }
                 self.apply() // collapses unless pinned by tap/attention
             }
         }
@@ -1815,43 +2117,6 @@ final class NotchController {
         hoverExpand = false
     }
 
-    #if AIRLOCK_GUIDE
-    /// A guide is starting: everything that was holding the panel for the
-    /// words that started it lets go, and the keyboard goes back to the app
-    /// being guided — the next thing typed belongs in its form, not here.
-    ///
-    /// Not `collapseExplicitly`: that also settles onboarding and dismisses
-    /// an answer as a decision, and a guide beginning is neither.
-    private func yieldToGuide() {
-        stickyExpand = false
-        hoverExpand = false
-        hotkeyExpand = false
-        hoveredSinceHotkey = false
-        dictationExpand = false
-        if assistant.isPresenting { assistant.dismiss() }
-        assistantExpand = false
-        if assistant.isCommandBarOpen { assistant.closeCommandBar() }
-        wantsKeyboard = false
-        releaseKeyboard()
-        apply()
-    }
-
-    /// Whether the guide held the panel at the last `guideChanged`.
-    private var guideHeldPanel = false
-
-    /// The guide changed. Copies what the island reads and re-resolves — but
-    /// only when the pill or the hold actually moved: the guide reports once
-    /// a second while it runs, and the card's own words reach the panel
-    /// through observation, not through here.
-    private func guideChanged() {
-        let compact = guide.compact
-        let holds = guide.panel != nil
-        guard compact != uiState.guideCompact || holds != guideHeldPanel else { return }
-        uiState.guideCompact = compact
-        guideHeldPanel = holds
-        apply()
-    }
-    #endif
 
     private func collapseExplicitly() {
         stickyExpand = false
@@ -1865,11 +2130,6 @@ final class NotchController {
         hotkeyExpand = false
         hoveredSinceHotkey = false
         dictationExpand = false
-        // Through the model, not just the flag: clearing `assistantExpand`
-        // alone would leave it believing it is still on screen, so the next
-        // answer would not re-trigger the expansion.
-        if assistant.isPresenting { assistant.dismiss() }
-        assistantExpand = false
         // Through the model too, so a drag left mid-flight cannot re-assert the
         // hold on its way out. An explicit collapse is a decision and outranks
         // a gesture — and the two cannot be concurrent anyway, since there is
@@ -1924,34 +2184,6 @@ final class NotchController {
         // dictation surface, not the Home tab. See the flag.
         uiState.holdDictationThroughCollapse = !listening
         if listening { hoverSuppressed = false }
-        apply()
-    }
-
-    /// Open for an answer, and STAY open.
-    ///
-    /// Takes the keyboard so Escape can dismiss, using the same Spotlight
-    /// arrangement as the clipboard hotkey — and hands it back on the way out,
-    /// or the panel keeps eating keystrokes meant for the app you were in.
-    private func showAssistant(_ presenting: Bool) {
-        assistantExpand = presenting
-        // Cleared on the way IN, so a hover from a previous answer cannot
-        // dismiss this one before it has been seen.
-        if presenting { hoveredSinceAnswer = false }
-        if presenting {
-            hoverSuppressed = false
-            // Dictation ending as an answer arrives: the answer owns the panel.
-            uiState.holdDictationThroughCollapse = false
-            // A new answer means the previous one's hold-through-collapse is
-            // over — this one owns the panel now.
-            uiState.holdAnswerThroughCollapse = false
-            focusForTyping()
-        } else {
-            // Keep the answer on screen through the collapse this dismissal is
-            // about to cause — the alternative is the home tab mounting under
-            // a shrinking panel. See `NotchUIState.holdAnswerThroughCollapse`.
-            uiState.holdAnswerThroughCollapse = true
-            releaseKeyboard()
-        }
         apply()
     }
 
@@ -2042,7 +2274,21 @@ final class NotchController {
 
     // MARK: - State
 
+    /// Shows the line on every file drag while nothing else says the same:
+    /// not once the box is open, nor with the panel open, nor where the island
+    /// cannot rest. Never moves the island itself.
+    private func updateDragHint() {
+        guard fileInHand.isHeld, dropPocket.phase == nil, applied != .expanded, !frontIsFullScreen,
+              NotchScreen.target?.islandCanRest ?? false,
+              let screen = NotchScreen.catching else {
+            dragHintWindow.hide()
+            return
+        }
+        dragHintWindow.show(on: screen)
+    }
+
     private func apply() {
+        defer { updateDragHint() }
         // FIRST, and ONLY while one of the island's two transient windows is
         // still open. Everything below reads those windows against this, and
         // the deadline tasks at the bottom re-enter here to move it on.
@@ -2134,7 +2380,6 @@ final class NotchController {
         if hoverExpand { holds.insert(.peeked) }
         if hotkeyExpand { holds.insert(.hotkey) }
         if dictationExpand { holds.insert(.dictating) }
-        if assistantExpand { holds.insert(.answering) }
         if scrubExpand { holds.insert(.scrubbing) }
         // The one hold no gesture is propping up: setup runs in the panel, so
         // the collapse timer would otherwise eat the wizard mid-sentence.
@@ -2145,10 +2390,8 @@ final class NotchController {
         // The crash-reports question opens the panel the same way.
         if uiState.crashQuestion { holds.insert(.notes) }
         if uiState.usageQuestion { holds.insert(.notes) }
-        // The guide's first look, its card (layout B), or why it stopped.
-        #if AIRLOCK_GUIDE
-        if guide.panel != nil { holds.insert(.guiding) }
-        #endif
+        // The drop box: the user's own drag props it up, like a scrub.
+        if dropPocket.phase != nil { holds.insert(.dropping) }
 
         // Keep-awake while an agent works (card Awake 1) follows the same
         // facts the lamp does; the model ignores a pass that changed nothing.
@@ -2201,8 +2444,18 @@ final class NotchController {
             lastLoggedSlots = slots
             HoverTrace.note("slots  " + slots)
         }
+        // What the expanded island draws. The box's phase while it is up; once
+        // it is gone, the last one drawn until the island next opens for
+        // anything else, so a closing box is not swapped for the panel mid-way.
+        let shownPocket = dropPocket.phase ?? (desired == .expanded ? nil : uiState.dropPocket)
+        if shownPocket != uiState.dropPocket {
+            withAnimation(Motion.open.animation(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
+                uiState.dropPocket = shownPocket
+            }
+        }
         HoverTrace.note("apply  sticky=\(stickyExpand) peek=\(hoverExpand) hotkey=\(hotkeyExpand)"
-            + " dictate=\(dictationExpand) answer=\(assistantExpand) scrub=\(scrubExpand)"
+            + " dictate=\(dictationExpand) scrub=\(scrubExpand)"
+            + " drop=\(dropPocket.phase.map(String.init(describing:)) ?? "-")"
             + " suppressed=\(hoverSuppressed) rest=\(canRest) top=\(pointerAtTop)"
             + " → \(desired) (was \(applied.map(String.init(describing:)) ?? "none"))")
         transition(to: desired)
@@ -2379,10 +2632,6 @@ final class NotchController {
     /// can't interleave expand/hide animations.
     private func transition(to desired: IslandPresentation) {
         guard desired != applied, let notch else {
-            // The answer dismissed but no conversion followed — a hover or pin
-            // is keeping the panel open. Then the tab genuinely should mount,
-            // now, because the panel is staying.
-            uiState.holdAnswerThroughCollapse = false
             uiState.holdDictationThroughCollapse = false
             uiState.whatsNewLeaving = nil
             uiState.crashQuestionLeaving = false
@@ -2409,7 +2658,9 @@ final class NotchController {
         let opening = desired == .expanded && applied != .expanded
         let closing = applied == .expanded && desired != .expanded
         applied = desired
-        if opening { Moments.shared.announce(.islandOpened) }
+        // The drop box is not the panel opening: nobody is there to read, and
+        // Free's reminders count opens (`UpgradeReminderModel`).
+        if opening, uiState.dropPocket == nil { Moments.shared.announce(.islandOpened) }
         if closing { Moments.shared.announce(.islandClosed) }
         // A picked day is a detour, not a mode — it snaps back rather than
         // becoming somewhere you can get stranded (see `CalendarWidgetModel`),
@@ -2424,10 +2675,6 @@ final class NotchController {
         // Closing ends the "an agent is asking" view: reopened by hand, the
         // panel is the tab you chose. The next gate's arrival sets it again.
         if shrinking { uiState.askingYou = false }
-        // Same reasoning for the typing bar: it opened an empty notch, and a
-        // bar left open under a collapse would reopen that empty notch on the
-        // next hover, where the tab was expected.
-        if shrinking, assistant.isCommandBarOpen { assistant.closeCommandBar() }
         // The system meters are drawn by a panel section and nothing else, so
         // this is the only signal that tells them whether anyone is reading.
         // Expanded, not merely visible: the compact island has never carried a
@@ -2740,9 +2987,6 @@ final class NotchController {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
             self?.uiState.panelConverting = false
-            // The collapse the dismissal caused is over; whatever the panel
-            // shows next, it no longer shows the lingering answer.
-            self?.uiState.holdAnswerThroughCollapse = false
             self?.uiState.holdDictationThroughCollapse = false
             self?.uiState.whatsNewLeaving = nil
             self?.uiState.crashQuestionLeaving = false

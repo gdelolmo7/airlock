@@ -29,9 +29,9 @@ public enum TrayDropKind: Equatable, Sendable {
         case .files, .imageData:
             return ""
         case .webLink:
-            return "That's a link with no image behind it. Drag the picture itself, or save it first."
+            return String(localized: "That's a link with no image behind it. Drag the picture itself, or save it first.")
         case .text:
-            return "That's text, not a file. The Shelf holds files."
+            return String(localized: "That's text, not a file. The Shelf holds files.")
         case .unknown:
             // The identifier is for classification and the log, never the
             // sentence: "com.apple.mail.PasteboardTypeMessageTransfer isn't a
@@ -43,7 +43,7 @@ public enum TrayDropKind: Equatable, Sendable {
 
     /// What anything unrecognised is told, whatever it was.
     public static let unknownExplanation =
-        "That isn't a file, so the Shelf can't hold it. Drag the file from Finder instead."
+        String(localized: "That isn't a file, so the Shelf can't hold it. Drag the file from Finder instead.")
 
     /// Every drag flavour the notch listens for, and the ONE place the list is
     /// written down. Both drop surfaces read it: the AppKit catcher over the

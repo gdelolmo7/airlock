@@ -52,13 +52,8 @@ struct SettingsColumn: View {
         case .agents: AgentsPane()
         case .permissions: PermissionsPane()
         case .license: PlansPane()
-        #if AIRLOCK_GUIDE
-        case .guide: GuidePane()
-        case .privacy: PrivacyPane()
-        #else
-        // The guide's two panes, never in the column without it.
+        // The screen guide's two panes, which are gone; never in the column.
         case .guide, .privacy: EmptyView()
-        #endif
         // `resolved` never returns these; they are listed so the switch
         // stays exhaustive if a case is ever un-folded.
         case .widgets, .policy, .tray, .about: EmptyView()
@@ -92,10 +87,9 @@ struct SettingsSearchResults: View {
     let query: String
     var onChoose: () -> Void
     @Environment(SettingsModel.self) private var model
-    @Environment(AgentsWidgetModel.self) private var agents
 
     var body: some View {
-        let results = SettingsAnchor.search(query, agentsOn: agents.isEnabled)
+        let results = SettingsAnchor.search(query)
         ScrollView {
             VStack(spacing: SettingsLook.rowSpacing) {
                 if results.isEmpty {
@@ -176,7 +170,7 @@ struct PaneReference: View {
             Spacer(minLength: 8)
             // A real button, not a tappable phrase: the label says where it
             // goes, so VoiceOver reads the destination rather than "link".
-            LookButton(label ?? "Open \(pane.title)") {
+            LookButton(label ?? String(localized: "Open \(pane.title)")) {
                 if let anchor { model.reveal(anchor) } else { model.pane = pane }
             }
         }
@@ -187,20 +181,15 @@ struct PaneReference: View {
 // MARK: - General
 
 extension SoundLevel {
-    /// What the level plays, in words. The guide's two sounds are named only
-    /// in a copy that has the guide.
-    func explanation(guide: Bool) -> String {
+    /// What the level plays, in words.
+    var explanation: String {
         switch self {
         case .off:
-            "Airlock makes no sound. The notch still opens when a request needs you."
+            String(localized: "Airlock makes no sound. The notch still opens when a request needs you.")
         case .important:
-            guide
-                ? "A soft call when a request needs you, and a chime when an agent finishes or the guide reaches your goal. As loud as your Mac's alert sounds."
-                : "A soft call when a request needs you, and a chime when an agent finishes. As loud as your Mac's alert sounds."
+            String(localized: "A soft call when a request needs you, and a chime when an agent finishes. As loud as your Mac's alert sounds.")
         case .all:
-            guide
-                ? "Also a light tap when you approve a request, and a low note when the guide has to stop. As loud as your Mac's alert sounds."
-                : "Also a light tap when you approve a request. As loud as your Mac's alert sounds."
+            String(localized: "Also a light tap when you approve a request. As loud as your Mac's alert sounds.")
         }
     }
 }
@@ -216,29 +205,30 @@ private struct GeneralPane: View {
 
     /// What the chosen level plays, in words.
     private var soundsExplanation: String {
-        Sounds.binding($soundLevel).wrappedValue.explanation(guide: GuideSwitch.isOn)
+        Sounds.binding($soundLevel).wrappedValue.explanation
     }
 
     private var soundsName: String {
         switch Sounds.binding($soundLevel).wrappedValue {
-        case .off: "Off"
-        case .important: "Only important"
-        case .all: "All"
+        case .off: String(localized: "Off")
+        case .important: String(localized: "Only important")
+        case .all: String(localized: "All")
         }
     }
 
     var body: some View {
         @Bindable var model = model
-        LookPage("General", subtitle: "Startup, sounds, updates and diagnostics.",
+        LookPage(String(localized: "General"), subtitle: String(localized: "Startup, sounds, updates and diagnostics."),
                  moreOptions: $moreOptions, anchorsInMoreOptions: Self.anchorsInMoreOptions) {
             LookToggleRow("Launch at login",
-                          subtitle: model.isBundled ? nil : "Only works in the installed Airlock app",
+                          subtitle: model.isBundled ? nil : String(localized: "Only works in the installed Airlock app"),
                           isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 .settingsAnchor(.launchAtLogin)
                 .disabled(!model.isBundled)
             if let note = model.launchAtLoginNote {
                 LaunchAtLoginProblem(note: note)
             }
+            LanguageRow()
 
             NotchScreenSection(followsMainDisplay: $model.followsMainDisplay,
                                showsOnExternalWhenClosed: $model.showsOnExternalWhenClosed,
@@ -256,7 +246,7 @@ private struct GeneralPane: View {
                 }
             }
             .settingsAnchor(.sounds)
-            LookToggleRow("Trackpad feedback", subtitle: "A light tap under your finger for things you do",
+            LookToggleRow("Trackpad feedback", subtitle: String(localized: "A light tap under your finger for things you do"),
                           isOn: $trackpadTicks)
 
             // Version and updates. What was the About pane, where people were
@@ -270,9 +260,6 @@ private struct GeneralPane: View {
                 UsageCountsSection(isOn: Binding(get: { UsageCounts.shared.isEnabled },
                                                  set: { UsageCounts.shared.choose($0, from: .settings) }))
             }
-            #if AIRLOCK_GUIDE
-            GuideSettings()
-            #endif
         } more: {
             LookGroupLabel("Screen")
             LookNote(NotchScreenSection.explanation(followsMainDisplay: model.followsMainDisplay))
@@ -284,10 +271,6 @@ private struct GeneralPane: View {
             AboutDetails()
             AdvancedSwitch()
         }
-        #if AIRLOCK_GUIDE
-        // ⌥ held while General opens reveals the guide prototype's rows.
-        .onAppear { GuidePreferences.unlockIfOptionHeld() }
-        #endif
     }
 }
 
@@ -306,22 +289,22 @@ struct NotchScreenSection: View {
     /// Without Accessibility, `FullScreenFront` cannot see a full-screen
     /// window, so the notch stays over it — and nothing said why.
     static let fullScreenNeedsAccessibility =
-        "Without the Accessibility permission the notch can't tell when an app is full screen, so it stays on top of it."
+        String(localized: "Without the Accessibility permission the notch can't tell when an app is full screen, so it stays on top of it.")
     /// Lid closed, this switch off: there is no screen left to draw on, and
     /// until this sentence nothing said so before it happened.
     static let lidClosedHidesTheNotch =
-        "With this off, the notch has nowhere to show while the lid is closed, so nothing on screen will tell you when something needs you."
+        String(localized: "With this off, the notch has nowhere to show while the lid is closed, so nothing on screen will tell you when something needs you.")
 
     /// The long version, behind "More options" on General.
     static func explanation(followsMainDisplay: Bool) -> String {
         followsMainDisplay
-            ? "The notch goes wherever your main display is (the one set as main in System Settings › Displays). On a monitor it sits in the middle of the menu bar and works the same. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
-            : "The notch stays on your MacBook. With the lid closed, it can sit in the middle of the menu bar on your main display instead, and works the same. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you."
+            ? String(localized: "The notch goes wherever your main display is (the one set as main in System Settings › Displays). On a monitor it sits in the middle of the menu bar and works the same. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you.")
+            : String(localized: "The notch stays on your MacBook. With the lid closed, it can sit in the middle of the menu bar on your main display instead, and works the same. In full screen it hides with the menu bar and comes back when you move the pointer to the top. It still appears on its own when an agent needs you.")
     }
 
     var body: some View {
         LookToggleRow("Show on the main display",
-                      subtitle: followsMainDisplay ? "Follows the display set as main" : "Stays on your MacBook",
+                      subtitle: followsMainDisplay ? String(localized: "Follows the display set as main") : String(localized: "Stays on your MacBook"),
                       isOn: $followsMainDisplay)
             .settingsAnchor(.displays)
         if !followsMainDisplay {
@@ -332,7 +315,7 @@ struct NotchScreenSection: View {
             }
         }
         if !canSeeFullScreen {
-            ProblemCard(sentence: Self.fullScreenNeedsAccessibility, button: "Turn it on",
+            ProblemCard(sentence: Self.fullScreenNeedsAccessibility, button: String(localized: "Turn it on"),
                         action: { TypeService.openAccessibilitySettings() })
         }
     }
@@ -351,7 +334,7 @@ private struct NotchPane: View {
     @State private var moreOptions = false
 
     var body: some View {
-        LookPage("The notch", subtitle: "What it shows, and how it looks.",
+        LookPage(String(localized: "The notch"), subtitle: String(localized: "What it shows, and how it looks."),
                  learnMore: SettingsPane.appearance.learnMore,
                  moreOptions: $moreOptions) {
             // The island as it is now, redrawn as anything below changes
@@ -409,7 +392,7 @@ private struct NotchLookRows: View {
         // know what a point is (X9).
         LookRow("Width") {
             LookSlider(value: $appearance.panelWidth, range: appearance.widthRange, step: 10,
-                       label: "\(Int((appearance.panelWidth / NotchAppearanceModel.defaultPanelWidth * 100).rounded()))%")
+                       label: String(localized: "\(Int((appearance.panelWidth / NotchAppearanceModel.defaultPanelWidth * 100).rounded()))%"))
         }
         .settingsAnchor(.panelWidth)
         // Width is not a free choice: the gutters flank the camera, and
@@ -422,7 +405,7 @@ private struct NotchLookRows: View {
 
         LookRow("Text size") {
             LookSlider(value: $appearance.textScale, range: NotchAppearanceModel.textScaleRange, step: 0.1,
-                       label: "\(Int(appearance.textScale * 100))%")
+                       label: String(localized: "\(Int(appearance.textScale * 100))%"))
         }
         .settingsAnchor(.textSize)
         if appearance.textScale > 1.2 {
@@ -440,7 +423,7 @@ private struct NotchLookRows: View {
         // Its own group now that the figures are not beside the camera: they
         // are one line at the top of the Agents tab, over the sessions.
         LookGroupLabel("Agents tab")
-        LookToggleRow("Claude usage limits", subtitle: "Your 5-hour and weekly limits, at the top of the Agents tab",
+        LookToggleRow("Claude usage limits", subtitle: String(localized: "Your 5-hour and weekly limits, at the top of the Agents tab"),
                       isOn: $appearance.showsClaudeUsage)
             .settingsAnchor(.usageLimits)
             .disabled(!agents.isEnabled)
@@ -477,10 +460,10 @@ private struct NotchLookRows: View {
             case .connected:
                 LookNote("Connected. The figures come from a Claude session in a terminal; the desktop app never reports them.")
             case .replaced:
-                ProblemCard(sentence: "Not connected, so these figures can't update. Something else is using the line at the bottom of a Claude session. Connecting puts Airlock back without changing what you see there.",
-                            button: "Connect", action: { usage.connect() })
+                ProblemCard(sentence: String(localized: "Not connected, so these figures can't update. Something else is using the line at the bottom of a Claude session. Connecting puts Airlock back without changing what you see there."),
+                            button: String(localized: "Connect"), action: { usage.connect() })
             case .hooksMissing:
-                PaneReference("Connect Claude Code first. Claude usage comes from it.", to: .agents)
+                PaneReference(String(localized: "Connect Claude Code first. Claude usage comes from it."), to: .agents)
             }
         }
         // Reading it touches the settings file, so it happens when the pane
@@ -495,9 +478,9 @@ private struct NotchLookRows: View {
     private var disabledNote: String? {
         switch (agents.isEnabled, battery.isEnabled) {
         case (true, true): return nil
-        case (false, true): return "AI agents are off below, so Claude usage isn't shown"
-        case (true, false): return "The battery is off below, so it isn't shown"
-        case (false, false): return "AI agents and the battery are both off below"
+        case (false, true): return String(localized: "AI agents are off below, so Claude usage isn't shown")
+        case (true, false): return String(localized: "The battery is off below, so it isn't shown")
+        case (false, false): return String(localized: "AI agents and the battery are both off below")
         }
     }
 }
@@ -513,7 +496,7 @@ private struct NotchLookNotes: View {
         LookNote(surfaceNote)
         LookNote(gutterSummary)
         LookNote("Text size makes the notch's text up to 140% bigger. The strip beside the camera keeps its size — text that grew there would be cut off rather than wrap — and the top bar grows only part way, because it has to stay clear of the camera.")
-        LookRow("Width and text size", subtitle: "Back to how they came") {
+        LookRow("Width and text size", subtitle: String(localized: "Back to how they came")) {
             HStack(spacing: 6) {
                 LookButton("Reset width") { appearance.panelWidth = NotchAppearanceModel.defaultPanelWidth }
                 LookButton("Reset text size") { appearance.textScale = 1 }
@@ -539,12 +522,11 @@ private struct NotchLookNotes: View {
     private var surfaceNote: String {
         switch appearance.surface {
         case .black:
-            return "Solid black, so the notch reads as one piece with the camera housing — which is black whatever you do."
-        case .darkGlass, .lightGlass:
-            let caveat = appearance.surface == .lightGlass
-                ? " The camera area itself is always black, so a light notch shows a black strip where it meets it when closed."
-                : " Only visible over a colourful desktop; against a dark wallpaper it looks much like black."
-            return "Blurs the desktop behind the notch using Liquid Glass." + caveat
+            return String(localized: "Solid black, so the notch reads as one piece with the camera housing — which is black whatever you do.")
+        case .darkGlass:
+            return String(localized: "Blurs the desktop behind the notch using Liquid Glass. Only visible over a colourful desktop; against a dark wallpaper it looks much like black.")
+        case .lightGlass:
+            return String(localized: "Blurs the desktop behind the notch using Liquid Glass. The camera area itself is always black, so a light notch shows a black strip where it meets it when closed.")
         }
     }
 
@@ -552,10 +534,9 @@ private struct NotchLookNotes: View {
     /// side of the camera for the top bar.
     private var gutterSummary: String {
         guard appearance.centreTightening > 0 else {
-            return "A wider notch leaves more room either side of the camera for the tabs and the battery."
+            return String(localized: "A wider notch leaves more room either side of the camera for the tabs and the battery.")
         }
-        return "A wider notch leaves more room either side of the camera for the tabs and the battery. "
-            + "Some of that room is the clear space set under Camera below."
+        return String(localized: "A wider notch leaves more room either side of the camera for the tabs and the battery. Some of that room is the clear space set under Camera below.")
     }
 }
 
@@ -567,7 +548,7 @@ private struct NotchLookNotes: View {
 /// drag writes — deliberately, so the two are editors of one setting rather
 /// than two competing sources of layout.
 private struct WidgetRow: View {
-    let title: String
+    let title: LocalizedStringKey
     var subtitle: String?
     let id: String
     @Binding var isOn: Bool
@@ -575,7 +556,7 @@ private struct WidgetRow: View {
     /// to re-read after it writes.
     @State private var revision = 0
 
-    init(_ title: String, subtitle: String? = nil, id: String, isOn: Binding<Bool>) {
+    init(_ title: LocalizedStringKey, subtitle: String? = nil, id: String, isOn: Binding<Bool>) {
         self.title = title
         self.subtitle = subtitle
         self.id = id
@@ -589,9 +570,9 @@ private struct WidgetRow: View {
 
     private static func name(_ column: WidgetColumn) -> String {
         switch column {
-        case .leading: "Leading"
-        case .trailing: "Trailing"
-        case .full: "Full width"
+        case .leading: String(localized: "Leading")
+        case .trailing: String(localized: "Trailing")
+        case .full: String(localized: "Full width")
         }
     }
 
@@ -632,34 +613,23 @@ private struct WidgetRows: View {
     @Environment(AgentsWidgetModel.self) private var agents
     @Environment(RepositoryWidgetModel.self) private var repository
     @Environment(TrayModel.self) private var tray
-    #if AIRLOCK_GUIDE
-    @AppStorage(AskWidget.enabledKey) private var asksOnHome = true
-    #endif
     @State private var choosingCalendars = false
-    /// With the guide on, the agents switch is Developer mode (card 3.02).
-    private var guideOn: Bool { GuideSwitch.isOn }
 
     var body: some View {
         // Switch AND column on one row. They are the same decision about the
         // same widget — "show this, there" — and the column menu writes
         // `widget.column`, which is exactly what arrange mode's drag writes.
         LookGroupLabel("When it's open")
-        #if AIRLOCK_GUIDE
-        if SettingsPane.guideIsOn {
-            LookToggleRow("Ask strip on Home", subtitle: "A line at the top of Home that starts the guide",
-                          isOn: $asksOnHome)
-        }
-        #endif
-        WidgetRow("Media", subtitle: "Spotify and Apple Music", id: "media",
+        WidgetRow("Media", subtitle: String(localized: "Spotify and Apple Music"), id: "media",
                   isOn: Binding(get: { media.isEnabled }, set: { media.isEnabled = $0 }))
             .settingsAnchor(.widgets)
-        WidgetRow("Sound", subtitle: "Output and per-app volume", id: "sound",
+        WidgetRow("Sound", subtitle: String(localized: "Output and per-app volume"), id: "sound",
                   isOn: Binding(get: { sound.isEnabled }, set: { sound.isEnabled = $0 }))
         WidgetRow("Calendar", id: "calendar",
                   isOn: Binding(get: { calendar.isEnabled }, set: { calendar.isEnabled = $0 }))
-        WidgetRow("System", subtitle: "CPU, GPU and memory", id: "system",
+        WidgetRow("System", subtitle: String(localized: "CPU, GPU and memory"), id: "system",
                   isOn: Binding(get: { system.isEnabled }, set: { system.isEnabled = $0 }))
-        WidgetRow("Repository status", subtitle: "Branch and changes, on the Agents tab", id: "repository",
+        WidgetRow("Repository status", subtitle: String(localized: "Branch and changes, on the Agents tab"), id: "repository",
                   isOn: Binding(get: { repository.isEnabled }, set: { repository.isEnabled = $0 }))
         // No column: it is gutter chrome, drawn beside the housing on every
         // tab, so there is no slot to place it in.
@@ -668,7 +638,7 @@ private struct WidgetRows: View {
             UsageCounts.shared.record(.widgetSwitched("battery", on: $0))
         }))
 
-        LookToggleRow("Wave follows the audio", subtitle: "The music bars move with the real sound",
+        LookToggleRow("Wave follows the audio", subtitle: String(localized: "The music bars move with the real sound"),
                       isOn: Binding(get: { media.reactiveWave }, set: { media.reactiveWave = $0 }))
             .settingsAnchor(.reactiveWave)
             .disabled(!media.isEnabled)
@@ -677,7 +647,7 @@ private struct WidgetRows: View {
                               needsPermission: media.tapStatusNeedsPermission)
         }
 
-        LookToggleRow("Per-app volume", subtitle: "A level and a mute for each app",
+        LookToggleRow("Per-app volume", subtitle: String(localized: "A level and a mute for each app"),
                       isOn: Binding(get: { appVolume.isEnabled }, set: { appVolume.isEnabled = $0 }))
             .settingsAnchor(.perAppVolume)
         // Deliberately NOT disabled by the Sound switch above, unlike the
@@ -685,7 +655,7 @@ private struct WidgetRows: View {
         // switch would leave the taps running with no way to stop them; this
         // one has to stay reachable to be revocable.
         if !sound.isEnabled, appVolume.isEnabled {
-            ProblemCard(sentence: "Sound is switched off above, so the levels still apply but the mixer isn't in the notch.")
+            ProblemCard(sentence: String(localized: "Sound is switched off above, so the levels still apply but the mixer isn't in the notch."))
         }
 
         // Reads the SURFACE, not the stored flag. While the answer is still
@@ -694,9 +664,8 @@ private struct WidgetRows: View {
         // beside a visible tab is one the user cannot use to dismiss it,
         // because switching an off switch off is not a gesture. Flipping it
         // here writes `.chosen(false)`, which is the explicit no that hides it.
-        LookToggleRow(guideOn ? "Developer mode" : "AI agents",
-                      subtitle: guideOn ? "For people who use Claude Code or Codex" : "Claude Code and Codex in the notch",
-                      isOn: Binding(get: { agents.isEnabled || (!guideOn && agents.basis == .noHooksInstalled) },
+        LookToggleRow("AI agents", subtitle: String(localized: "Claude Code and Codex in the notch"),
+                      isOn: Binding(get: { agents.isEnabled || agents.basis == .noHooksInstalled },
                                     set: {
                                         agents.choose($0)
                                         UsageCounts.shared.record(.widgetSwitched("agents", on: $0))
@@ -706,7 +675,7 @@ private struct WidgetRows: View {
         calendarsRow
 
         // The shelf is a widget; it does not need a page of its own.
-        LookRow("Shelf", subtitle: tray.items.count == 1 ? "1 item" : "\(tray.items.count) items") {
+        LookRow("Shelf", subtitle: tray.items.count == 1 ? String(localized: "1 item") : String(localized: "\(tray.items.count) items")) {
             HStack(spacing: 6) {
                 LookButton("Open folder") { tray.openFolder() }
                 LookButton("Clear") { tray.clear() }
@@ -727,7 +696,7 @@ private struct WidgetRows: View {
         if !calendar.isEnabled {
             // Picking calendars for a widget that isn't shown is a control
             // with nothing behind it.
-            LookRow("Calendars", subtitle: "Turn the calendar on above to choose")
+            LookRow("Calendars", subtitle: String(localized: "Turn the calendar on above to choose"))
                 .opacity(0.45)
                 .settingsAnchor(.calendars)
         } else if calendar.authStatus == .fullAccess {
@@ -742,7 +711,7 @@ private struct WidgetRows: View {
                 .settingsAnchor(.calendars)
             }
         } else {
-            LookRow("Calendars", subtitle: "Airlock needs your permission to read them") {
+            LookRow("Calendars", subtitle: String(localized: "Airlock needs your permission to read them")) {
                 LookButton("Allow Calendar", prominent: true) { Task { await calendar.requestAccess() } }
             }
             .settingsAnchor(.calendars)
@@ -758,7 +727,6 @@ private struct WidgetNotes: View {
     @Environment(MediaWidgetModel.self) private var media
     @Environment(AgentsWidgetModel.self) private var agents
     @Environment(TrayModel.self) private var tray
-    private var guideOn: Bool { GuideSwitch.isOn }
 
     var body: some View {
         LookGroupLabel("Widgets")
@@ -769,21 +737,16 @@ private struct WidgetNotes: View {
         LookNote("The sound card switches the output device and moves the system level — the things macOS hides behind an Option-click on the menu bar. Per-app volume is the mixer it never shipped: a level and a mute for each app making sound, kept per app and remembered.")
         LookNote("Per-app volume is off by default, because it is the one thing here that takes over the audio path: an app you turn down has its sound passed through Airlock, made quieter and played back, which asks macOS for permission to hear system audio the first time. Nothing is recorded, stored or sent anywhere. Leave it off and Airlock never touches the sound.")
 
-        LookGroupLabel(guideOn ? "Developer mode" : "AI agents")
+        LookGroupLabel("AI agents")
         LookNote(agents.explanation)
-        if guideOn {
-            // Card 3.02. The same switch, named for who it is for.
-            LookNote("For people who use Claude Code or Codex: the Agents tab and its settings page, connecting them, Claude usage, and handing a question to Claude Code. A request waiting for your answer always shows, whatever this says.")
-        } else {
-            LookNote("Everything for coding agents: the Agents tab with Claude usage and its quick-prompt bar, and the agent icons beside the notch. Everything else — clipboard, Shelf, dictation, calendar, media — works the same either way.")
-        }
+        LookNote("Everything for coding agents: the Agents tab with Claude usage and its quick-prompt bar, and the agent icons beside the notch. Everything else — clipboard, Shelf, dictation, calendar, media — works the same either way.")
 
         LookGroupLabel("Shelf")
         LookRow("Kept in") {
             LookValue(tray.directory.path, monospaced: true)
                 .textSelection(.enabled)
         }
-        LookNote("Clear moves everything to the Trash, so it is recoverable from there. Dropped files are moved in, so a file leaves the folder you dragged it out of — hold Option while dropping to leave the original where it is. The workspace beside it is where the notch opens a terminal.")
+        LookNote("Clear moves everything to the Trash, so it is recoverable from there. Dropped files are moved in, so a file leaves the folder you dragged it out of — hold Option while dropping to leave the original where it is. A format or action in the drop box never moves anything: it leaves the original alone and puts a new file here. The workspace beside it is where the notch opens a terminal.")
     }
 }
 
@@ -960,7 +923,7 @@ private struct AboutDetails: View {
             HStack(spacing: 10) {
                 LookButton("Copy diagnostics") { copyDiagnostics() }
                 if copied {
-                    LookStatus(ok: true, text: "Copied")
+                    LookStatus(ok: true, text: String(localized: "Copied"))
                 }
             }
             .padding(.horizontal, 12)
@@ -979,8 +942,11 @@ private struct AboutDetails: View {
     private var healthSummary: String {
         let report = SupportDiagnostics.report(settings: model, updater: updater,
                                                license: license, widgets: widgetStates)
-        return "\(report.hardware) · notch \(report.hasNotch ? "yes" : "no") · "
-            + "\(report.displayCount) display\(report.displayCount == 1 ? "" : "s")"
+        let notch = report.hasNotch ? String(localized: "notch yes") : String(localized: "notch no")
+        let displays = report.displayCount == 1
+            ? String(localized: "1 display")
+            : String(localized: "\(report.displayCount) displays")
+        return "\(report.hardware) · \(notch) · \(displays)"
     }
 
     private func rebuildDiagnostics() {
@@ -1043,24 +1009,14 @@ struct AgentsPane: View {
 
     var body: some View {
         LookPage(SettingsPane.agents.title,
-                 subtitle: "Coding agents, how their requests reach you, and what they may do without asking.",
+                 subtitle: String(localized: "Coding agents, how their requests reach you, and what they may do without asking."),
                  learnMore: SettingsPane.agents.learnMore, moreOptions: $moreOptions, anchorsInMoreOptions: [.givingUp]) {
-            #if AIRLOCK_GUIDE
-            if SettingsPane.guideIsOn { DeveloperModeSection() }
-            #endif
-            if showsAgents { agentRows }
+            agentRows
         } more: {
-            #if AIRLOCK_GUIDE
-            if SettingsPane.guideIsOn { DeveloperModeNotes() }
-            #endif
-            if showsAgents { agentNotes }
+            agentNotes
             AdvancedSwitch()
         }
     }
-
-    /// With the guide on, the hooks, answering and rules wait behind
-    /// Developer mode; with it off they are the page.
-    private var showsAgents: Bool { !SettingsPane.guideIsOn || agents.isEnabled }
 
     // Hooks, then how you hear about a prompt, then the rules. Install order,
     // not alphabetical: nothing below matters until a hook exists above.
@@ -1071,7 +1027,7 @@ struct AgentsPane: View {
             // Under the agents it limits, tagged, rather than a surprise the
             // second agent meets in its terminal.
             LookRow("Answer every agent from the notch",
-                    subtitle: "On Free, the notch answers one coding agent at a time. Others ask in their own terminal.") {
+                    subtitle: String(localized: "On Free, the notch answers one coding agent at a time. Others ask in their own terminal.")) {
                 PlanTagButton(.plus) { model.reveal(.plans) }
             }
         }
@@ -1100,7 +1056,7 @@ struct AgentsPane: View {
                         sentence: AgentsConnection.blockedSentence(
                             .init(name: row.name, status: row.status, settingsPath: row.configPath)),
                         tone: .needs,
-                        button: "Check again",
+                        button: String(localized: "Check again"),
                         action: { model.refresh() })
         }
         if let error = row.actionError {
@@ -1126,9 +1082,7 @@ struct AgentsPane: View {
         HotkeyRecorder("Answers the waiting request",
                        binding: Binding(get: { agents.hotkey }, set: { agents.hotkey = $0 }),
                        conflict: { chord in
-            CommandBarChord.collision(chord: chord,
-                                      holdKey: dictation.holdKey,
-                                      askKey: dictation.askKey)
+            HoldKeyChord.collision(chord: chord, holdKey: dictation.holdKey)
         })
         .disabled(!agents.hotkeyEnabled)
         if let error = agents.hotkeyError {
@@ -1137,13 +1091,12 @@ struct AgentsPane: View {
             // The same honesty the clipboard pane gives ⌘⇧C and Maccy: a
             // global hotkey outranks an app's own menu shortcut, so this
             // quietly takes one people may already use.
-            LookNote("⇧⌘A is also Finder's Applications folder. A global shortcut wins, so Finder won't see it "
-                     + "while Airlock is running — pick ⌃⌥⌘A above if you'd rather keep it.")
+            LookNote("⇧⌘A is also Finder's Applications folder. A global shortcut wins, so Finder won't see it while Airlock is running — pick ⌃⌥⌘A above if you'd rather keep it.")
         }
 
         // The same setting as General's Sounds, seen from here: off is Off, on
         // is Only important unless All was already chosen.
-        LookToggleRow("Play a sound", subtitle: "When a request arrives", isOn: Binding(
+        LookToggleRow("Play a sound", subtitle: String(localized: "When a request arrives"), isOn: Binding(
             get: { Sounds.binding($soundLevel).wrappedValue != .off },
             set: { on in
                 let level = Sounds.binding($soundLevel)
@@ -1171,7 +1124,7 @@ struct AgentsPane: View {
         // Card Agents 1. Here rather than beside the usage figures on The
         // notch page: those rows are about what the top bar shows, and this is
         // about being told something, the subject of this page.
-        LookRow("Warn me near Claude's limit", subtitle: "When the 5-hour or weekly limit gets this full") {
+        LookRow("Warn me near Claude's limit", subtitle: String(localized: "When the 5-hour or weekly limit gets this full")) {
             LookMenu(usageAlerts.level == 0 ? "Never" : "At \(usageAlerts.level)%") {
                 Picker("Warn me", selection: Binding(get: { usageAlerts.level },
                                                      set: { usageAlerts.level = $0 })) {
@@ -1184,7 +1137,7 @@ struct AgentsPane: View {
             }
         }
         .settingsAnchor(.usageWarning)
-        LookToggleRow("Say when it resets", subtitle: "After a warning, once that limit is back to zero",
+        LookToggleRow("Say when it resets", subtitle: String(localized: "After a warning, once that limit is back to zero"),
                       isOn: Binding(get: { usageAlerts.announcesReset },
                                     set: { usageAlerts.announcesReset = $0 }))
             .disabled(usageAlerts.level == 0)
@@ -1204,15 +1157,9 @@ struct AgentsPane: View {
         }
 
         LookGroupLabel("Answering")
-        LookNote("A request never takes the keyboard by itself — it arrives while you're typing somewhere else, "
-                 + "and a keypress meant for your editor would answer something you hadn't read. Press the shortcut "
-                 + "and the request becomes answerable; only then does it show its shortcuts.")
-        LookNote("With nothing waiting it opens the Agents tab, and pressing it again closes it. It works even with "
-                 + "AI agents switched off in Settings › \(SettingsPane.appearance.tabTitle), because a waiting request is "
-                 + "shown either way.")
-        LookNote("Without a sound, the notch opening is the signal, and that reaches you only if you're looking at "
-                 + "the screen. A sound reaches you wherever you are; the spoken announcement reaches VoiceOver users. "
-                 + "Settings › General › Sounds turns every Airlock sound on or off.")
+        LookNote("A request never takes the keyboard by itself — it arrives while you're typing somewhere else, and a keypress meant for your editor would answer something you hadn't read. Press the shortcut and the request becomes answerable; only then does it show its shortcuts.")
+        LookNote("With nothing waiting it opens the Agents tab, and pressing it again closes it. It works even with AI agents switched off in Settings › \(SettingsPane.appearance.tabTitle), because a waiting request is shown either way.")
+        LookNote("Without a sound, the notch opening is the signal, and that reaches you only if you're looking at the screen. A sound reaches you wherever you are; the spoken announcement reaches VoiceOver users. Settings › General › Sounds turns every Airlock sound on or off.")
         LookNote("Claude usage only updates while Claude Code is running in a terminal.")
 
         // Read-only here and edited in a file: a number you cannot change is
@@ -1225,8 +1172,7 @@ struct AgentsPane: View {
                       : "never — it waits")
         }
         .settingsAnchor(.givingUp)
-        LookNote("An unanswered request goes back to the agent's terminal, which asks you there instead. "
-                 + "Waiting never approves or denies anything.")
+        LookNote("An unanswered request goes back to the agent's terminal, which asks you there instead. Waiting never approves or denies anything.")
 
         PolicyDetails()
     }
@@ -1248,9 +1194,9 @@ struct AgentsPane: View {
     private func caption(for kind: AgentKind) -> String? {
         switch kind {
         case .codex:
-            return "Shows what Codex is doing. Its requests are still answered in the terminal."
+            return String(localized: "Shows what Codex is doing. Its requests are still answered in the terminal.")
         case .claudeCode:
-            return "Requests come to the notch: Approve, Deny or Always, plus your rules."
+            return String(localized: "Requests come to the notch: Approve, Deny or Always, plus your rules.")
         default:
             return nil
         }
@@ -1327,10 +1273,13 @@ private struct SuggestionRow: View {
     }
 
     private var headline: String {
-        let times = suggestion.count == 1 ? "once" : "\(suggestion.count) times"
-        return suggestion.kind == .allow
-            ? "You've approved this \(times) — stop asking?"
-            : "You've refused this \(times) — block it outright?"
+        let count = suggestion.count
+        switch (suggestion.kind == .allow, count == 1) {
+        case (true, true): return String(localized: "You've approved this once — stop asking?")
+        case (true, false): return String(localized: "You've approved this \(count) times — stop asking?")
+        case (false, true): return String(localized: "You've refused this once — block it outright?")
+        case (false, false): return String(localized: "You've refused this \(count) times — block it outright?")
+        }
     }
 }
 
@@ -1408,9 +1357,14 @@ private struct RuleWidthSheet: View {
     }
 
     private var headline: String {
-        let times = suggestion.count == 1 ? "once" : "\(suggestion.count) times"
-        let verb = suggestion.kind == .allow ? "approved" : "refused"
-        return "You \(verb) \(suggestion.ruleText) \(times)."
+        let rule = suggestion.ruleText
+        let count = suggestion.count
+        switch (suggestion.kind == .allow, count == 1) {
+        case (true, true): return String(localized: "You approved \(rule) once.")
+        case (true, false): return String(localized: "You approved \(rule) \(count) times.")
+        case (false, true): return String(localized: "You refused \(rule) once.")
+        case (false, false): return String(localized: "You refused \(rule) \(count) times.")
+        }
     }
 }
 
@@ -1482,9 +1436,9 @@ private struct StatusBadge: View {
 
     private var label: String {
         switch status {
-        case .installed: return "Connected"
-        case .notInstalled: return "Not connected"
-        case .conflict: return "Needs a hand"
+        case .installed: return String(localized: "Connected")
+        case .notInstalled: return String(localized: "Not connected")
+        case .conflict: return String(localized: "Needs a hand")
         }
     }
 }
@@ -1515,7 +1469,7 @@ private struct PolicyRows: View {
             // The normal state on a Monday morning, not an edge case: no agent
             // has run, so there is no project to name, and a menu of one is a
             // promise not being kept.
-            LookRow("Rules for", subtitle: "Projects appear here once an agent has run in one") {
+            LookRow("Rules for", subtitle: String(localized: "Projects appear here once an agent has run in one")) {
                 LookValue(PolicyScope.everywhere.label)
             }
             .settingsAnchor(.rules)
@@ -1542,7 +1496,7 @@ private struct PolicyRows: View {
             HStack(spacing: 8) {
                 LookMenu(draftKind.label) {
                     Picker("Kind", selection: $draftKind) {
-                        ForEach(PolicyRuleKind.allCases) { Text($0.label).tag($0) }
+                        ForEach(PolicyRuleKind.allCases) { Text($0 == .allow ? String(localized: "Allow") : String(localized: "Deny")).tag($0) }
                     }
                     .pickerStyle(.inline)
                     .labelsHidden()
@@ -1581,7 +1535,7 @@ private struct PolicyRows: View {
     /// often exactly what a team wants committed.
     private var scopeSubtitle: String? {
         guard case .project = model.policyScope else { return nil }
-        return "Kept inside the project, so git shows it as a new file"
+        return String(localized: "Kept inside the project, so git shows it as a new file")
     }
 
     // MARK: - Rule lists
@@ -1603,10 +1557,9 @@ private struct PolicyRows: View {
             // "this file is not being read".
             // The way out on the first of the two lists only: one button is
             // enough for one file.
-            ProblemCard(sentence: "Can't show the rules: this file has a mistake in it. Fix it in your editor, "
-                            + "then press Reload.",
+            ProblemCard(sentence: String(localized: "Can't show the rules: this file has a mistake in it. Fix it in your editor, then press Reload."),
                         tone: .stopped,
-                        button: kind == .deny ? "Open in editor" : nil,
+                        button: kind == .deny ? String(localized: "Open in editor") : nil,
                         action: kind == .deny ? { model.openPolicyInEditor() } : nil)
         case .missing:
             LookNote(model.policyScope == .everywhere
@@ -1636,12 +1589,12 @@ private struct PolicyRows: View {
     private func emptyRulesCopy(_ kind: PolicyRuleKind) -> String {
         if case .project = model.policyScope {
             return kind == .allow
-                ? "Nothing extra is auto-approved here — the Everywhere list still applies."
-                : "Nothing extra is denied here — the Everywhere list still applies."
+                ? String(localized: "Nothing extra is auto-approved here — the Everywhere list still applies.")
+                : String(localized: "Nothing extra is denied here — the Everywhere list still applies.")
         }
         return kind == .allow
-            ? "Nothing is auto-approved — every request asks."
-            : "Nothing is auto-denied."
+            ? String(localized: "Nothing is auto-approved — every request asks.")
+            : String(localized: "Nothing is auto-denied.")
     }
 
     private func ruleRow(_ rule: PolicyRule, kind: PolicyRuleKind) -> some View {
@@ -1685,15 +1638,18 @@ private struct PolicyRows: View {
 
     /// The number that makes a dead rule visible.
     private func matchLabel(_ record: RuleProvenance) -> String {
-        record.hasNeverMatched ? "never matched"
-            : "\(record.matches) match\(record.matches == 1 ? "" : "es")"
+        if record.hasNeverMatched { return String(localized: "never matched") }
+        return record.matches == 1
+            ? String(localized: "1 match")
+            : String(localized: "\(record.matches) matches")
     }
 
     /// "you, Tuesday" for a rule an Always click wrote; "from the template" for
     /// one that was in the file before anybody clicked anything.
     private func authorLabel(_ record: RuleProvenance) -> String {
-        guard let authored = record.authoredAt else { return "from the template" }
-        return "you, \(Self.authoredFormat.string(from: authored))"
+        guard let authored = record.authoredAt else { return String(localized: "from the template") }
+        let when = Self.authoredFormat.string(from: authored)
+        return String(localized: "you, \(when)")
     }
 
     /// Weekday inside the last week, then a date — "you, Tuesday" is a memory
@@ -1718,18 +1674,17 @@ private struct PolicyRows: View {
 
     private var draftHelp: String {
         if draftIsInvalid {
-            return "Not a rule yet. Type a tool's name, like Read, or a tool with what it acts on in brackets, "
-                + "like Bash(git status)."
+            return String(localized: "Not a rule yet. Type a tool's name, like Read, or a tool with what it acts on in brackets, like Bash(git status).")
         }
         if let parsed, parsed.pattern == nil {
-            return "\(parsed.tool) matches every use of that tool, whatever the arguments."
+            return String(localized: "\(parsed.tool) matches every use of that tool, whatever the arguments.")
         }
         if let parsed, let pattern = parsed.pattern {
-            return "Matches \(parsed.tool) when its \(parsed.tool == "Bash" ? "command" : "file") fits \(pattern). "
-                + "A * stands for anything."
+            return parsed.tool == "Bash"
+                ? String(localized: "Matches \(parsed.tool) when its command fits \(pattern). A * stands for anything.")
+                : String(localized: "Matches \(parsed.tool) when its file fits \(pattern). A * stands for anything.")
         }
-        return "A tool's name covers every use of it. Add what it acts on in brackets to narrow it down: "
-            + "Bash(git status), Bash(npm run *), Edit(*/secrets/*). A * stands for anything."
+        return String(localized: "A tool's name covers every use of it. Add what it acts on in brackets to narrow it down: Bash(git status), Bash(npm run *), Edit(*/secrets/*). A * stands for anything.")
     }
 
     private func add() {
@@ -1750,9 +1705,7 @@ private struct PolicyDetails: View {
 
     var body: some View {
         LookGroupLabel("Rules")
-        LookNote("A rule is suggested after the second time you answer the same way. Commands Airlock always asks "
-                 + "about, like rm -rf or sudo, are never suggested: they would still ask, so the rule would be a "
-                 + "promise Airlock can't keep.")
+        LookNote("A rule is suggested after the second time you answer the same way. Commands Airlock always asks about, like rm -rf or sudo, are never suggested: they would still ask, so the rule would be a promise Airlock can't keep.")
         // Precedence as four lines, not a diagram. It is the one thing about
         // rules that can genuinely surprise somebody: a rule they wrote,
         // visibly matching, and the notch still asking. The floor is why.
@@ -1766,9 +1719,7 @@ private struct PolicyDetails: View {
             precedence(4, "Otherwise", "the notch asks you.")
         }
         .lookRowBox()
-        LookNote("Each project can have its own rules, kept in the project's folder. They add to the Everywhere "
-                 + "rules, and a project's Never runs always beats an Everywhere Runs without asking. The Always "
-                 + "button in the notch writes to the project's rules when the agent was started in a folder.")
+        LookNote("Each project can have its own rules, kept in the project's folder. They add to the Everywhere rules, and a project's Never runs always beats an Everywhere Runs without asking. The Always button in the notch writes to the project's rules when the agent was started in a folder.")
 
         if advanced {
             LookGroupLabel("Try a request")
@@ -1789,8 +1740,7 @@ private struct PolicyDetails: View {
 
             LookGroupLabel("Recent requests (\(model.recentGates.count))")
             if model.recentGates.isEmpty {
-                LookNote("Nothing yet. Every request your agents make — and everything your rules settle "
-                         + "without asking — shows up here.")
+                LookNote("Nothing yet. Every request your agents make — and everything your rules settle without asking — shows up here.")
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.recentGates.prefix(12)) { gate in
@@ -1802,8 +1752,7 @@ private struct PolicyDetails: View {
                     LookButton("Clear history") { model.clearGateHistory() }
                 }
             }
-            LookNote("Match counts and \u{201c}added by\u{201d} come from the request history, which doesn't record "
-                     + "which project a request came from — so they are totals across every project.")
+            LookNote("Match counts and \u{201c}added by\u{201d} come from the request history, which doesn't record which project a request came from — so they are totals across every project.")
 
             LookGroupLabel("Rules file")
             // Loud: a file that failed to parse contributes NO rules, so the
@@ -1815,8 +1764,8 @@ private struct PolicyDetails: View {
                 // force either. Only the built-in risk floor still holds.
                 ProblemCard(icon: "exclamationmark.triangle",
                             sentence: problem + " " + (model.policyScope == .everywhere
-                                ? "This file is being ignored entirely, so only Airlock's built-in checks are in effect: risky commands still ask."
-                                : "This file is being ignored entirely, so this project is running on the Everywhere rules alone — including its Never runs list."))
+                                ? String(localized: "This file is being ignored entirely, so only Airlock's built-in checks are in effect: risky commands still ask.")
+                                : String(localized: "This file is being ignored entirely, so this project is running on the Everywhere rules alone — including its Never runs list.")))
             }
             LookRow("File", subtitle: model.scopedPolicy.path) {
                 HStack(spacing: 6) {
@@ -1849,10 +1798,10 @@ private struct PolicyDetails: View {
 
     private func describe(_ verdict: PolicyVerdict) -> String {
         switch verdict {
-        case .allow(let rule): return "Auto-approved by \(rule)"
-        case .deny(let rule): return "Auto-denied by \(rule)"
-        case .ask(let risk?): return "Always asks — \(risk)"
-        case .ask: return "Asks you in the notch — no rule matches"
+        case .allow(let rule): return String(localized: "Auto-approved by \(rule)")
+        case .deny(let rule): return String(localized: "Auto-denied by \(rule)")
+        case .ask(let risk?): return String(localized: "Always asks — \(risk)")
+        case .ask: return String(localized: "Asks you in the notch — no rule matches")
         }
     }
 
@@ -1872,7 +1821,7 @@ private struct PolicyDetails: View {
         }
     }
 
-    private func precedence(_ step: Int, _ title: String, _ detail: String) -> some View {
+    private func precedence(_ step: Int, _ title: LocalizedStringKey, _ detail: LocalizedStringKey) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
             Text("\(step)")
                 .font(Theme.chrome(11.5, .semibold).monospacedDigit())

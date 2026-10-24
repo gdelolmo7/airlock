@@ -29,7 +29,6 @@ extension Moment {
         case .fileDropped: .settle
         case .approved, .denied: .firm
         case .gateArrived, .agentFinished, .agentFailed,
-             .guideStep, .guideDone, .guideLost, .guideEnded,
              .islandOpened, .islandClosed,
              .listeningStarted, .listeningStopped,
              .copied, .pastedFromHistory,

@@ -77,9 +77,9 @@ public struct DiagnosticsHealth: Equatable, Sendable {
             // on screen, so it says it the way Settings does.
             let plain: String
             switch hook.state {
-            case .installed: plain = "connected"
-            case .notInstalled: plain = "not connected"
-            case .conflict: plain = "needs a hand"
+            case .installed: plain = String(localized: "connected")
+            case .notInstalled: plain = String(localized: "not connected")
+            case .conflict: plain = String(localized: "needs a hand")
             }
             rows.append(Row(title: hook.agent,
                             detail: plain,
@@ -109,18 +109,18 @@ public struct DiagnosticsHealth: Equatable, Sendable {
 
         switch report.updater {
         case .configured(let automatic):
-            rows.append(Row(title: "Updates",
-                            detail: automatic ? "checks automatically" : "checks when you ask",
+            rows.append(Row(title: String(localized: "Updates"),
+                            detail: automatic ? String(localized: "checks automatically") : String(localized: "checks when you ask"),
                             severity: .fact))
         case .notConfigured:
-            rows.append(Row(title: "Updates",
-                            detail: "not configured in this build",
+            rows.append(Row(title: String(localized: "Updates"),
+                            detail: String(localized: "not configured in this build"),
                             severity: .unknown))
         case .notBundled:
             // Running from source. There is nothing to update and nothing to
             // fix, which is why this is not amber.
-            rows.append(Row(title: "Updates",
-                            detail: "running from source",
+            rows.append(Row(title: String(localized: "Updates"),
+                            detail: String(localized: "running from source"),
                             severity: .unknown))
         }
 
@@ -135,10 +135,10 @@ public struct DiagnosticsHealth: Equatable, Sendable {
         //
         // No row at all when it is off. There is nothing to say.
         if case .on(let holder) = report.secureInput {
-            let who = holder ?? "another app"
-            rows.append(Row(title: "Secure input",
-                            detail: "on — \(who) is hiding key presses, so a chord "
-                                  + "cannot cancel a hold",
+            let detail = holder.map { String(localized: "on — \($0) is hiding key presses, so a chord cannot cancel a hold") }
+                ?? String(localized: "on — another app is hiding key presses, so a chord cannot cancel a hold")
+            rows.append(Row(title: String(localized: "Secure input"),
+                            detail: detail,
                             severity: .unknown))
         }
 
@@ -152,12 +152,12 @@ public struct DiagnosticsHealth: Equatable, Sendable {
     /// something the rows disagree with.
     public var healthySummary: String {
         let unknowns = rows.filter { $0.severity == .unknown }
-        guard !unknowns.isEmpty else { return "Everything checked out." }
+        guard !unknowns.isEmpty else { return String(localized: "Everything checked out.") }
         let named = unknowns.map { "\($0.title): \($0.detail)" }.joined(separator: "; ")
         switch unknowns.count {
-        case 1: return named + ". That is not a problem."
-        case 2: return named + ". Neither is a problem."
-        default: return named + ". None of these is a problem."
+        case 1: return String(localized: "\(named). That is not a problem.")
+        case 2: return String(localized: "\(named). Neither is a problem.")
+        default: return String(localized: "\(named). None of these is a problem.")
         }
     }
 }

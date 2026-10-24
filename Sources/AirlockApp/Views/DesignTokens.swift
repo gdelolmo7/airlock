@@ -65,11 +65,11 @@ enum Theme {
     static let running = fixed(rgb(0.231, 0.576, 0.941))
     static let done = fixed(rgb(0.243, 0.812, 0.557))
     static let danger = fixed(rgb(0.910, 0.282, 0.247))
-    /// Airlock itself working — dictation listening, the assistant thinking.
+    /// Airlock itself working — dictation listening, call notes being written.
     ///
     /// Deliberately NOT `running`: that one means somebody else's agent is
     /// busy, and this app has a large second audience who will never start one.
-    /// Voice, the command bar and the clipboard are theirs, and this is the
+    /// Voice, call notes and the clipboard are theirs, and this is the
     /// colour that says the product is doing something for them.
     static let assistant = fixed(rgb(0.545, 0.361, 0.965))
     /// At rest, and for states that are true but not urgent — offline, idle.

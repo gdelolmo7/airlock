@@ -163,7 +163,7 @@ public struct AgentSession: Codable, Sendable, Identifiable, Hashable {
     public var queueCounter: String? {
         let waiting = waitingPermissions.count
         guard pendingPermission != nil, waiting > 1 else { return nil }
-        return "\(waiting) waiting"
+        return String(localized: "\(waiting) waiting")
     }
 }
 

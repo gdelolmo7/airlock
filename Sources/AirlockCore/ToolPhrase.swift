@@ -83,19 +83,45 @@ public enum ToolPhrase {
 
     // MARK: - Built-in tools
 
-    private static let read = Verb("read", "reading", "read")
-    private static let write = Verb("write", "writing", "wrote")
-    private static let edit = Verb("edit", "editing", "edited")
-    private static let search = Verb("search", "searching", "searched")
-    private static let list = Verb("list", "listing", "listed")
-    private static let lookFor = Verb("look for", "looking for", "looked for")
-    private static let lookUp = Verb("look up", "looking up", "looked up")
-    private static let update = Verb("update", "updating", "updated")
-    private static let check = Verb("check", "checking", "checked")
-    private static let use = Verb("use", "using", "used")
-    private static let run = Verb("run", "running", "ran")
-    private static let stop = Verb("stop", "stopping", "stopped")
-    private static let switchTo = Verb("switch", "switching", "switched")
+    private static let read = Verb(String(localized: "tool.read.base", defaultValue: "read"),
+                                    String(localized: "tool.read.ongoing", defaultValue: "reading"),
+                                    String(localized: "tool.read.past", defaultValue: "read"))
+    private static let write = Verb(String(localized: "tool.write.base", defaultValue: "write"),
+                                    String(localized: "tool.write.ongoing", defaultValue: "writing"),
+                                    String(localized: "tool.write.past", defaultValue: "wrote"))
+    private static let edit = Verb(String(localized: "tool.edit.base", defaultValue: "edit"),
+                                    String(localized: "tool.edit.ongoing", defaultValue: "editing"),
+                                    String(localized: "tool.edit.past", defaultValue: "edited"))
+    private static let search = Verb(String(localized: "tool.search.base", defaultValue: "search"),
+                                    String(localized: "tool.search.ongoing", defaultValue: "searching"),
+                                    String(localized: "tool.search.past", defaultValue: "searched"))
+    private static let list = Verb(String(localized: "tool.list.base", defaultValue: "list"),
+                                    String(localized: "tool.list.ongoing", defaultValue: "listing"),
+                                    String(localized: "tool.list.past", defaultValue: "listed"))
+    private static let lookFor = Verb(String(localized: "tool.look-for.base", defaultValue: "look for"),
+                                    String(localized: "tool.look-for.ongoing", defaultValue: "looking for"),
+                                    String(localized: "tool.look-for.past", defaultValue: "looked for"))
+    private static let lookUp = Verb(String(localized: "tool.look-up.base", defaultValue: "look up"),
+                                    String(localized: "tool.look-up.ongoing", defaultValue: "looking up"),
+                                    String(localized: "tool.look-up.past", defaultValue: "looked up"))
+    private static let update = Verb(String(localized: "tool.update.base", defaultValue: "update"),
+                                    String(localized: "tool.update.ongoing", defaultValue: "updating"),
+                                    String(localized: "tool.update.past", defaultValue: "updated"))
+    private static let check = Verb(String(localized: "tool.check.base", defaultValue: "check"),
+                                    String(localized: "tool.check.ongoing", defaultValue: "checking"),
+                                    String(localized: "tool.check.past", defaultValue: "checked"))
+    private static let use = Verb(String(localized: "tool.use.base", defaultValue: "use"),
+                                    String(localized: "tool.use.ongoing", defaultValue: "using"),
+                                    String(localized: "tool.use.past", defaultValue: "used"))
+    private static let run = Verb(String(localized: "tool.run.base", defaultValue: "run"),
+                                    String(localized: "tool.run.ongoing", defaultValue: "running"),
+                                    String(localized: "tool.run.past", defaultValue: "ran"))
+    private static let stop = Verb(String(localized: "tool.stop.base", defaultValue: "stop"),
+                                    String(localized: "tool.stop.ongoing", defaultValue: "stopping"),
+                                    String(localized: "tool.stop.past", defaultValue: "stopped"))
+    private static let switchTo = Verb(String(localized: "tool.switch.base", defaultValue: "switch"),
+                                    String(localized: "tool.switch.ongoing", defaultValue: "switching"),
+                                    String(localized: "tool.switch.past", defaultValue: "switched"))
 
     /// Claude Code's own tools. Nil for anything else, which `named` handles.
     private static func builtIn(_ tool: String, _ input: [String: Any]?, _ moment: Moment) -> String? {
@@ -117,79 +143,79 @@ public enum ToolPhrase {
             if let description = text("description") { return description }
             let command = text("command").map { String($0.prefix(40)) }
             switch moment {
-            case .asking: return "Run shell command"
-            case .running: return command.map { "Running: \($0)" } ?? "Running a command"
-            case .finished: return command.map { "Ran: \($0)" } ?? "Ran command"
+            case .asking: return String(localized: "Run shell command")
+            case .running: return command.map { String(localized: "Running: \($0)") } ?? String(localized: "Running a command")
+            case .finished: return command.map { String(localized: "Ran: \($0)") } ?? String(localized: "Ran command")
             // The command itself, because with no description of Claude's
             // there is nothing else that says WHICH one was refused.
-            case .refused: return command ?? "a shell command"
+            case .refused: return command ?? String(localized: "a shell command")
             }
         case "Read":
-            return read.line(moment, file("file_path") ?? "a file")
+            return read.line(moment, file("file_path") ?? String(localized: "a file"))
         case "NotebookRead":
-            return read.line(moment, file("notebook_path") ?? "a notebook")
+            return read.line(moment, file("notebook_path") ?? String(localized: "a notebook"))
         case "Write":
             // Asked as "Edit", like the two below: the card has always said so,
             // and it is the same approval.
-            return (moment == .asking ? edit : write).line(moment, file("file_path") ?? "file")
+            return (moment == .asking ? edit : write).line(moment, file("file_path") ?? String(localized: "file"))
         case "Edit", "MultiEdit":
-            return edit.line(moment, file("file_path") ?? "file")
+            return edit.line(moment, file("file_path") ?? String(localized: "file"))
         case "NotebookEdit":
-            return edit.line(moment, file("notebook_path") ?? "a notebook")
+            return edit.line(moment, file("notebook_path") ?? String(localized: "a notebook"))
         case "Glob":
             // The pattern is a glob — `**/*.swift` — which is exactly the kind
             // of text this exists to keep off the notch.
-            return lookFor.line(moment, "files")
+            return lookFor.line(moment, String(localized: "files"))
         case "Grep":
-            return search.line(moment, text("pattern").flatMap(plainSearch).map { "files for \($0)" } ?? "files")
+            return search.line(moment, text("pattern").flatMap(plainSearch).map { String(localized: "files for \($0)") } ?? String(localized: "files"))
         case "LS":
-            return list.line(moment, file("path") ?? "a folder")
+            return list.line(moment, file("path") ?? String(localized: "a folder"))
         case "WebFetch":
-            return read.line(moment, text("url").flatMap(site) ?? "a web page")
+            return read.line(moment, text("url").flatMap(site) ?? String(localized: "a web page"))
         case "WebSearch":
-            return search.line(moment, text("query").map { "the web for \(quoted($0))" } ?? "the web")
+            return search.line(moment, text("query").map { String(localized: "the web for \(quoted($0))") } ?? String(localized: "the web"))
         case "Task", "Agent":
             let head: String
             switch moment {
-            case .asking: head = "Start a helper"
-            case .running: head = "Starting a helper"
-            case .finished: head = "Helper finished"
-            case .refused: head = "starting a helper"
+            case .asking: head = String(localized: "Start a helper")
+            case .running: head = String(localized: "Starting a helper")
+            case .finished: head = String(localized: "Helper finished")
+            case .refused: head = String(localized: "starting a helper")
             }
             return text("description").map { "\(head): \($0)" } ?? head
         case "TodoWrite":
-            return update.line(moment, "the to-do list")
+            return update.line(moment, String(localized: "the to-do list"))
         case "TodoRead":
-            return check.line(moment, "the to-do list")
+            return check.line(moment, String(localized: "the to-do list"))
         case "Skill":
             // `plugin:skill` → `skill`: the plugin is where it came from, not
             // what it is called.
             let skill = text("skill").map { $0.split(separator: ":").last.map(String.init) ?? $0 }
-            return use.line(moment, skill.map { "the \($0) skill" } ?? "a skill")
+            return use.line(moment, skill.map { String(localized: "the \($0) skill") } ?? String(localized: "a skill"))
         case "SlashCommand":
             let command = text("command").flatMap { $0.split(separator: " ").first.map(String.init) }
-            return run.line(moment, command ?? "a command")
+            return run.line(moment, command ?? String(localized: "a command"))
         case "ToolSearch":
-            return lookUp.line(moment, "tools")
+            return lookUp.line(moment, String(localized: "tools"))
         case "ExitPlanMode":
             switch moment {
-            case .asking: return "Approve the plan"
-            case .running: return "Sharing the plan"
-            case .finished: return "Shared the plan"
-            case .refused: return "the plan"
+            case .asking: return String(localized: "Approve the plan")
+            case .running: return String(localized: "Sharing the plan")
+            case .finished: return String(localized: "Shared the plan")
+            case .refused: return String(localized: "the plan")
             }
         case "EnterPlanMode":
-            return switchTo.line(moment, "to planning")
+            return switchTo.line(moment, String(localized: "to planning"))
         case "BashOutput", "TaskOutput":
-            return check.line(moment, "a background task")
+            return check.line(moment, String(localized: "a background task"))
         case "KillShell", "KillBash", "TaskStop":
-            return stop.line(moment, "a background task")
+            return stop.line(moment, String(localized: "a background task"))
         case "AskUserQuestion":
             switch moment {
-            case .asking: return "Answer a question"
-            case .running: return "Asking you a question"
-            case .finished: return "Asked you a question"
-            case .refused: return "a question"
+            case .asking: return String(localized: "Answer a question")
+            case .running: return String(localized: "Asking you a question")
+            case .finished: return String(localized: "Asked you a question")
+            case .refused: return String(localized: "a question")
             }
         default:
             return nil
@@ -237,9 +263,9 @@ public enum ToolPhrase {
         let label = mcp.map { MCPTool.label(service: $0.service, action: $0.action, fallback: tool) }
             ?? capitalizedFirst(action.joined(separator: " "))
         switch moment {
-        case .asking: return "Allow \(label)?"
-        case .running: return "Using \(label)"
-        case .finished: return "Used \(label)"
+        case .asking: return String(localized: "Allow \(label)?")
+        case .running: return String(localized: "Using \(label)")
+        case .finished: return String(localized: "Used \(label)")
         // The tool, named and nothing more: what a refusal was about.
         case .refused: return label
         }

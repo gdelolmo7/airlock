@@ -47,7 +47,7 @@ public enum RecordingImport {
         return words.isEmpty ? fallbackTitle : words
     }
 
-    public static let fallbackTitle = "Recording"
+    public static let fallbackTitle = String(localized: "Recording")
 
     /// When the recording began, never later than it could have, given that
     /// it has ended by `now`: its own date, which a voice memo carries; else
@@ -64,12 +64,12 @@ public enum RecordingImport {
     /// How long a recording is, "40 min", or "1:30" under two minutes: the
     /// chip on a file held over the notes window.
     public static func length(_ seconds: TimeInterval) -> String {
-        seconds < 120 ? MeetingFiles.clock(seconds) : "\(max(1, Int((seconds / 60).rounded()))) min"
+        seconds < 120 ? MeetingFiles.clock(seconds) : String(localized: "\(max(1, Int((seconds / 60).rounded()))) min")
     }
 
     /// What the window says when a file can't be read as sound.
     public static func unreadable(_ fileName: String) -> String {
-        "Airlock can't read \u{201C}\(fileName)\u{201D} as sound. Try one saved as M4A, MP3 or WAV."
+        String(localized: "Airlock can't read \u{201C}\(fileName)\u{201D} as sound. Try one saved as M4A, MP3 or WAV.")
     }
 
     /// The four steps and where the reading is in them.
@@ -155,27 +155,27 @@ public enum RecordingImport {
         /// "About 6 minutes left.", for the window's card.
         public var timeLeftSentence: String {
             let left = timeLeft
-            if stage == .notes, left < 20 { return "Almost done." }
-            if left < 45 { return "Less than a minute left." }
+            if stage == .notes, left < 20 { return String(localized: "Almost done.") }
+            if left < 45 { return String(localized: "Less than a minute left.") }
             let minutes = Int((left / 60).rounded())
-            return minutes <= 1 ? "About a minute left." : "About \(minutes) minutes left."
+            return minutes <= 1 ? String(localized: "About a minute left.") : String(localized: "About \(minutes) minutes left.")
         }
 
         /// "about 6 min left", for the Calls tab's row.
         public var timeLeftShort: String {
             let left = timeLeft
-            if stage == .notes, left < 20 { return "almost done" }
-            if left < 45 { return "under a minute left" }
-            return "about \(max(1, Int((left / 60).rounded()))) min left"
+            if stage == .notes, left < 20 { return String(localized: "almost done") }
+            if left < 45 { return String(localized: "under a minute left") }
+            return String(localized: "about \(max(1, Int((left / 60).rounded()))) min left")
         }
 
         /// What it is doing, for the Calls tab: "Reading the recording",
         /// then "Telling the voices apart", then "Writing the notes".
         public var doing: String {
             switch stage {
-            case .opening, .listening: "Reading the recording"
-            case .voices: tellsVoices ? "Telling the voices apart" : "Reading the recording"
-            case .notes: "Writing the notes"
+            case .opening, .listening: String(localized: "Reading the recording")
+            case .voices: tellsVoices ? String(localized: "Telling the voices apart") : String(localized: "Reading the recording")
+            case .notes: String(localized: "Writing the notes")
             }
         }
 
@@ -183,7 +183,7 @@ public enum RecordingImport {
         /// the step being done.
         public var heading: String {
             switch stage {
-            case .opening, .listening: "Listening to the recording"
+            case .opening, .listening: String(localized: "Listening to the recording")
             case .voices, .notes: doing
             }
         }
@@ -191,9 +191,9 @@ public enum RecordingImport {
         /// "14 of 40 min", or "0:45 of 1:30" for a recording under two
         /// minutes, where minutes would say nothing.
         public var heardWords: String {
-            if seconds < 120 { return "\(MeetingFiles.clock(heard)) of \(MeetingFiles.clock(seconds))" }
+            if seconds < 120 { return String(localized: "\(MeetingFiles.clock(heard)) of \(MeetingFiles.clock(seconds))") }
             let whole = max(1, Int((seconds / 60).rounded()))
-            return "\(min(whole, Int(heard / 60))) of \(whole) min"
+            return String(localized: "\(min(whole, Int(heard / 60))) of \(whole) min")
         }
 
         /// The window's steps, in order: done, the one being done, then the
@@ -203,15 +203,15 @@ public enum RecordingImport {
             func state(_ step: Stage) -> Step.State {
                 step < stage ? .done : step == stage ? .now : .later
             }
-            let quoted = "\u{201C}\(fileName)\u{201D}"
-            steps.append(Step(text: stage == .opening ? "Opening \(quoted)" : "Opened \(quoted)",
+            steps.append(Step(text: stage == .opening ? String(localized: "Opening \u{201C}\(fileName)\u{201D}")
+                                                      : String(localized: "Opened \u{201C}\(fileName)\u{201D}"),
                               state: state(.opening), detail: nil))
-            steps.append(Step(text: "Writing down what was said", state: state(.listening),
+            steps.append(Step(text: String(localized: "Writing down what was said"), state: state(.listening),
                               detail: stage == .listening ? heardWords : nil))
             if tellsVoices {
-                steps.append(Step(text: "Telling the voices apart", state: state(.voices), detail: nil))
+                steps.append(Step(text: String(localized: "Telling the voices apart"), state: state(.voices), detail: nil))
             }
-            steps.append(Step(text: "Writing the notes", state: state(.notes), detail: nil))
+            steps.append(Step(text: String(localized: "Writing the notes"), state: state(.notes), detail: nil))
             return steps
         }
     }

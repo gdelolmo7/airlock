@@ -45,10 +45,11 @@ final class HoldKeyMonitor {
 
         var displayName: String {
             switch self {
-            case .control: return "⌃ Control"
-            case .option: return "⌥ Option"
-            case .command: return "⌘ Command"
-            case .shift: return "⇧ Shift"
+            case .control: return String(localized: "⌃ Control")
+            case .option: return String(localized: "⌥ Option")
+            case .command: return String(localized: "⌘ Command")
+            case .shift: return String(localized: "⇧ Shift")
+
             case .function: return "fn"
             }
         }

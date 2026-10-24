@@ -39,19 +39,16 @@ enum SupportDiagnostics {
 
     // MARK: - Permissions
 
-    /// The three macOS will answer, and the one it will not.
+    /// The ones macOS will answer, and the one it will not.
     ///
-    /// **Screen recording appears only while the guide is turned on.** The
-    /// guide (`GuideCapture`) is the one thing in the app that captures a
-    /// window, and it is off unless someone switched it on in a hidden
-    /// setting. For everybody else a row would be a fact about a permission
-    /// the app does not use — and a reader who saw it denied would go and
-    /// grant something for nothing.
+    /// Screen Recording is used by the Screenshot and Record controls and
+    /// nothing else, so "not allowed" there is normal for anyone who never
+    /// pressed them.
     ///
-    /// Audio capture is what people mistake for it. That one is real (the wave
-    /// tap and per-app volume both need it) and macOS exposes no way to read it
-    /// short of creating a tap, so it is reported as what it is rather than
-    /// guessed at.
+    /// Audio capture is what people mistake for it. That one is real (the
+    /// other side of calls, the wave tap and per-app volume all need it) and
+    /// macOS exposes no way to read it short of creating a tap, so it is
+    /// reported as what it is rather than guessed at.
     private static func permissions() -> [DiagnosticsReport.Permission] {
         var permissions: [DiagnosticsReport.Permission] = [
             .init("Calendar", calendarState()),
@@ -62,13 +59,9 @@ enum SupportDiagnostics {
             // to shorten: a dead dictation key with Accessibility allowed is the
             // exact pair of facts that took a day to tell apart.
             .init("Input Monitoring", inputMonitoringPermission()),
+            .init("Screen Recording", CGPreflightScreenCaptureAccess() ? .allowed : .notAllowed),
             .init("Audio capture", .asksOnFirstUse),
         ]
-        #if AIRLOCK_GUIDE
-        if GuideSwitch.isOn {
-            permissions.append(.init("Screen recording (guide)", GuideCapture.isPermitted ? .allowed : .notAllowed))
-        }
-        #endif
         return permissions
     }
 

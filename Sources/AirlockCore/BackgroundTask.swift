@@ -73,6 +73,6 @@ public struct BackgroundTask: Codable, Sendable, Hashable {
 
     /// The session row's line while the agent waits on them.
     public static func waitingLine(_ count: Int) -> String {
-        count == 1 ? "Waiting on a background task" : "Waiting on \(count) background tasks"
+        count == 1 ? String(localized: "Waiting on a background task") : String(localized: "Waiting on \(count) background tasks")
     }
 }

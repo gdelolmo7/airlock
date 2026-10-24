@@ -136,10 +136,11 @@ final class ClipboardWidgetModel {
     /// What the card says when a picture row's file has gone. The clipboard is
     /// left as it was: emptying it and then having nothing to put there is the
     /// bug this replaced.
-    static let pictureGoneSentence = "That picture is no longer saved, so the clipboard wasn't changed."
-    static let pictureGoneButton = "Remove it"
+    static let pictureGoneSentence = String(localized: "That picture is no longer saved, so the clipboard wasn't changed.")
+    static let pictureGoneButton = String(localized: "Remove it")
     /// The row's own words in place of the picture's.
-    static let missingPictureRowText = "Picture no longer saved"
+    static let missingPictureRowText = String(localized: "Picture no longer saved")
+
 
     /// The gallery's stand-in for the image folder. Nil outside a preview.
     @ObservationIgnored private var previewMissingPictures: Set<String>?
@@ -482,6 +483,7 @@ final class ClipboardWidgetModel {
         save()
         // The kind only: what was copied never reaches the log.
         Moments.shared.announce(.copied, { if case .file = item.payload { "file" } else { "text" } }())
+        FirstStepsModel.shared.note(.copyTwice)
     }
 
     // MARK: - Actions

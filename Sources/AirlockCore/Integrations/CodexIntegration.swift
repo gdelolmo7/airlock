@@ -18,7 +18,7 @@ public struct CodexIntegration: AgentIntegration {
     /// Codex hooks are fire-and-forget; nothing ever waits on a directive.
     public func isBlocking(eventName: String?) -> Bool { false }
 
-    public func directiveOutput(for directive: HookDirective, eventName: String?) -> Data? { nil }
+    public func directiveOutput(for directive: HookDirective, eventName: String?, payload: Data) -> Data? { nil }
 
     /// Codex is a native binary: `codex`, `codex exec …`, or a platform binary
     /// like `codex-aarch64-apple-darwin` behind the npm wrapper.

@@ -11,7 +11,7 @@ enum TrayFix: Equatable {
     /// Automation › Finder, for "Add selection".
     case finderAutomation
 
-    static let button = "Open Settings"
+    static let button = String(localized: "Open Settings")
 
     var settingsURL: URL? {
         switch self {
@@ -250,7 +250,9 @@ final class TrayModel {
     /// is the point: PNG is lossless and already what the shelf wants, JPEG is
     /// what most of the web is, and TIFF is the one AppKit synthesises for
     /// anything else — taking it first would re-encode a perfectly good JPEG.
-    private static let imageFlavours: [(identifier: String, extension: String)] = [
+    /// The format row reads the same list, so a picture is copied from the
+    /// bytes the shelf would have kept.
+    static let imageFlavours: [(identifier: String, extension: String)] = [
         ("public.png", "png"), ("public.jpeg", "jpg"), ("public.tiff", "tiff"),
     ]
 
@@ -288,7 +290,7 @@ final class TrayModel {
     /// both paths — a drag that opened the notch, was classified as supported,
     /// and then simply did nothing.
     private nonisolated static let log = Logger(subsystem: "com.airlock.app", category: "shelf")
-    private static let unreadableDrop = "That couldn't be read. Try dragging it again."
+    private static let unreadableDrop = String(localized: "That couldn't be read. Try dragging it again.")
 
     /// What happened, then the plain cause. The system's own sentence goes to
     /// the log, never to the Shelf (`docs/how-airlock-talks.md`).
@@ -297,33 +299,33 @@ final class TrayModel {
         return what + " " + PlainProblem.file(error)
     }
 
-    private static let unreadableImage = "That picture couldn't be read. Save it first, then drag the file."
+    private static let unreadableImage = String(localized: "That picture couldn't be read. Save it first, then drag the file.")
 
     // MARK: - Messages
 
     // Named, not inlined, so the state gallery prints the shipping words for
     // states it cannot cause.
     static func couldNotCreate(_ root: URL, _ error: Error) -> String {
-        problem("The Shelf's folder couldn't be made, so nothing can go on it yet.", error)
+        problem(String(localized: "The Shelf's folder couldn't be made, so nothing can go on it yet."), error)
     }
     static func couldNotSaveImage(_ error: Error) -> String {
-        problem("The picture couldn't go on the Shelf.", error)
+        problem(String(localized: "The picture couldn't go on the Shelf."), error)
     }
     static func couldNotTrash(_ error: Error) -> String {
-        problem("That couldn't be moved to the Trash.", error)
+        problem(String(localized: "That couldn't be moved to the Trash."), error)
     }
     nonisolated static let needsDownloadsAccess =
-        "Turn on Downloads for Airlock in System Settings › Privacy & Security › Files and Folders."
-    static let airDropNeedsAFile = "AirDrop can only send files."
+        String(localized: "Turn on Downloads for Airlock in System Settings › Privacy & Security › Files and Folders.")
+    static let airDropNeedsAFile = String(localized: "AirDrop can only send files.")
     static func airDropUnavailable(_ description: String) -> String {
-        "AirDrop isn't available for \(description)."
+        String(localized: "AirDrop isn't available for \(description).")
     }
-    static func couldNotOpen(_ name: String) -> String { "Couldn't open \(name)." }
-    static let nothingSelectedInFinder = "Nothing is selected in Finder."
+    static func couldNotOpen(_ name: String) -> String { String(localized: "Couldn't open \(name).") }
+    static let nothingSelectedInFinder = String(localized: "Nothing is selected in Finder.")
     /// Finder refused the question. It used to be reported as an empty
     /// selection, which sent people to select files that were already selected.
     static let finderNotAllowed =
-        "Airlock isn't allowed to see what's selected in Finder. Turn on Finder for Airlock in Privacy & Security › Automation."
+        String(localized: "Airlock isn't allowed to see what's selected in Finder. Turn on Finder for Airlock in Privacy & Security › Automation.")
 
     /// Bytes with no file behind them, turned into one on the shelf.
     ///
@@ -339,7 +341,7 @@ final class TrayModel {
         do {
             try layout.ensureExists()
         } catch {
-            lastError = Self.problem("The picture couldn't go on the Shelf.", error)
+            lastError = Self.problem(String(localized: "The picture couldn't go on the Shelf."), error)
             return false
         }
 
@@ -500,7 +502,7 @@ final class TrayModel {
         do {
             try layout.ensureExists()
         } catch {
-            lastError = Self.problem("That couldn't go on the Shelf.", error)
+            lastError = Self.problem(String(localized: "That couldn't go on the Shelf."), error)
             return false
         }
 
@@ -609,7 +611,109 @@ final class TrayModel {
         // complained about, so nobody is left staring at an error about a file
         // that has since arrived.
         lastError = result.message
-        if result.added > 0 { UsageCounts.shared.record(.used(.shelfDropped)) }
+        if result.added > 0 {
+            UsageCounts.shared.record(.used(.shelfDropped))
+            FirstStepsModel.shared.note(.dropFile)
+        }
+        reload()
+    }
+
+    // MARK: - Picture copies
+
+    /// A picture dropped on a chip in the format row: a copy in that format
+    /// lands on the shelf, and the picture itself stays exactly where it was.
+    /// Nothing is moved: the person asked for a JPG of their HEIC, not for
+    /// their HEIC to leave the Desktop.
+    ///
+    /// The same shape as `accept(urls:)`: placeholder tiles while the work runs
+    /// off the main actor, then the tiles or a message.
+    @discardableResult
+    func convert(pasteboard: NSPasteboard, to target: PictureTarget) -> Bool {
+        let inputs = PictureConverter.inputs(on: pasteboard)
+        guard !inputs.isEmpty else {
+            lastError = Self.unreadableDrop
+            return false
+        }
+        do {
+            try layout.ensureExists()
+        } catch {
+            lastError = Self.problem(String(localized: "The copy couldn't go on the Shelf."), error)
+            return false
+        }
+
+        let names = PictureCopyNames.names(for: inputs.map(\.name), target: target,
+                                           existing: Set(items.map(\.name)).union(ingesting))
+        ingesting.append(contentsOf: names)
+        let tray = layout.tray
+        Task { [weak self] in
+            let result = await BlockingWork.run {
+                PictureConverter.run(inputs, target: target, names: names, tray: tray)
+            }
+            self?.finishCopies(names, result)
+        }
+        return true
+    }
+
+    private func finishCopies(_ names: [String], _ result: PictureConversionResult) {
+        let landed = Set(names)
+        ingesting.removeAll { landed.contains($0) }
+        lastError = result.message
+        reload()
+    }
+
+    // MARK: - The drop box's choices
+
+    /// A file dropped on a chip in the drop box: what the chip says lands on
+    /// the shelf as new files (or, for "Copy text", on the clipboard), and
+    /// what was dragged stays exactly where it was.
+    ///
+    /// The same shape as `convert`: placeholder tiles while the work runs,
+    /// then the tiles or a message.
+    /// `onDone` hears how the work went, once the files are on the shelf.
+    @discardableResult
+    func perform(pasteboard: NSPasteboard, choice: DropChoice,
+                 onDone: (@MainActor @Sendable (DropWorkResult) -> Void)? = nil) -> Bool {
+        let inputs = PictureConverter.inputs(on: pasteboard)
+        guard !inputs.isEmpty else {
+            lastError = Self.unreadableDrop
+            return false
+        }
+        do {
+            try layout.ensureExists()
+        } catch {
+            lastError = Self.problem(String(localized: "That couldn't go on the Shelf."), error)
+            return false
+        }
+
+        // A copy of the same kind keeps its extension only where this Mac
+        // writes that kind back.
+        let keeps: Set<String>?, fallback: String
+        switch DropWork.kind(of: inputs[0]) {
+        case .picture: (keeps, fallback) = (DropReader.keptPictureExtensions, "jpg")
+        case .video: (keeps, fallback) = (DropReader.keptVideoExtensions, "mp4")
+        default: (keeps, fallback) = (nil, "")
+        }
+        let names = DropNames.names(for: inputs.map(\.name), choice: choice,
+                                    existing: Set(items.map(\.name)).union(ingesting),
+                                    keeps: keeps, fallback: fallback)
+        ingesting.append(contentsOf: names)
+        let tray = layout.tray
+        Task { [weak self] in
+            let result = await DropWork.run(inputs, choice: choice, names: names, tray: tray)
+            self?.finishDrop(names, result)
+            onDone?(result)
+        }
+        return true
+    }
+
+    private func finishDrop(_ names: [String], _ result: DropWorkResult) {
+        let landed = Set(names)
+        ingesting.removeAll { landed.contains($0) }
+        lastError = result.message
+        if let text = result.text {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
         reload()
     }
 
@@ -638,7 +742,7 @@ final class TrayModel {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self],
                                           options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         let owned = TrayShelfOwnership.filter(urls, tray: layout.tray)
-        if owned.isEmpty && !urls.isEmpty { lastError = "Only things on the Shelf can go there." }
+        if owned.isEmpty && !urls.isEmpty { lastError = String(localized: "Only things on the Shelf can go there.") }
         return owned
     }
 
@@ -676,7 +780,7 @@ final class TrayModel {
         guard let downloads = try? FileManager.default.url(
             for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         else {
-            lastError = "Your Downloads folder couldn't be found."
+            lastError = String(localized: "Your Downloads folder couldn't be found.")
             return
         }
         // The tile leaves at once and comes BACK if the move fails — the same
@@ -765,7 +869,7 @@ final class TrayModel {
                 }
             }
         }
-        return TrayRelocationResult(moved: moved, failures: failures, destination: "Downloads")
+        return TrayRelocationResult(moved: moved, failures: failures, destination: String(localized: "Downloads"))
     }
 
     func dismissError() {
@@ -875,7 +979,8 @@ final class TrayModel {
             return false
         }
         guard !urls.isEmpty else { return false }
-        return send(urls, describedAs: urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items")
+        return send(urls, describedAs: urls.count == 1 ? urls[0].lastPathComponent : String(localized: "\(urls.count) items"))
+
     }
 
     private func stageImageForSending(from pasteboard: NSPasteboard) -> URL? {

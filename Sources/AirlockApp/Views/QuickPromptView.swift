@@ -16,7 +16,7 @@ struct QuickPromptBar: View {
     @FocusState private var focused: Bool
     /// `ImageRenderer` cannot draw a text field; a snapshot draws the words.
     var drawsAsLabel = false
-    static let placeholder = "Ask Claude to…"
+    static let placeholder = String(localized: "Ask Claude to…")
 
     /// `text` is the state gallery's, for the words a failed send kept. The
     /// panel never passes it.
@@ -69,7 +69,7 @@ struct QuickPromptBar: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(focused ? Theme.claudeCoral.opacity(0.5) : Theme.rowStroke, lineWidth: 1)
         )
-        // Off the panel's rounded corners, level with the command bar's field.
+        // Off the panel's rounded corners, level with the tab's other rows.
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .help("Opens a new terminal with Claude Code, and hands it your prompt.")
@@ -103,7 +103,7 @@ struct TerminalTroubleCard: View {
                     // The sentence sends you to System Settings, so the button
                     // goes there and says so: "Open Settings" in the notch
                     // reads as Airlock's own.
-                    button: trouble.opensAutomationSettings ? PermissionPage.button : "Dismiss",
+                    button: trouble.opensAutomationSettings ? PermissionPage.button : String(localized: "Dismiss"),
                     action: {
                         if trouble.opensAutomationSettings {
                             PermissionPage.automation.open()

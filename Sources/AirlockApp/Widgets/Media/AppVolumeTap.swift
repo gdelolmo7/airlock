@@ -91,7 +91,7 @@ final class AppVolumeTap {
     /// the slider, deliberately. That would retry, and be refused again, for as
     /// long as the output is a Multi-Output Device; choosing a single device
     /// retries on its own (`AppVolumeModel.outputDeviceChanged`).
-    static let multiOutputRefusal = "Per-app volume doesn't work with a Multi-Output Device yet."
+    static let multiOutputRefusal = String(localized: "Per-app volume doesn't work with a Multi-Output Device yet.")
 
     /// The output device this tap was built against, as a UID.
     ///

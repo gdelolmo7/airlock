@@ -22,6 +22,8 @@ struct WelcomeCardView: View {
 
     struct Redo: Equatable {
         let question: String
+        /// Under the question while it is offered.
+        var reason: String = WelcomeCard.redoReason
         var stage: Stage = .offered
 
         enum Stage: Equatable {
@@ -111,14 +113,14 @@ struct WelcomeCardView: View {
             icon(redo.stage == .written ? "checkmark" : "arrow.clockwise",
                  tint: redo.stage == .written ? Theme.done : Theme.assistant)
             VStack(alignment: .leading, spacing: 2) {
-                Text(redo.stage == .written ? "New notes are on the call's page." : redo.question)
+                Text(redo.stage == .written ? String(localized: "New notes are on the call's page.") : redo.question)
                     .font(Theme.chrome(12))
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Group {
                     switch redo.stage {
-                    case .offered: Text(WelcomeCard.redoReason)
-                    case .writing: WaitingIndicator(words: "Writing them online…", wordsFromStart: true)
+                    case .offered: Text(redo.reason)
+                    case .writing: WaitingIndicator(words: String(localized: "Writing them online…"), wordsFromStart: true)
                     case .written: EmptyView()
                     case .said(let why): Text(why)
                     }
@@ -130,10 +132,10 @@ struct WelcomeCardView: View {
             Spacer(minLength: 6)
             switch redo.stage {
             case .offered:
-                quietButton("Redo", filled: true, action: onRedo)
-                quietButton("Not now", filled: false, action: onNotNow)
+                quietButton(String(localized: "Redo"), filled: true, action: onRedo)
+                quietButton(String(localized: "Not now"), filled: false, action: onNotNow)
             case .written:
-                quietButton("Open notes", filled: true, action: onOpenNotes)
+                quietButton(String(localized: "Open notes"), filled: true, action: onOpenNotes)
             case .writing, .said:
                 EmptyView()
             }
@@ -197,9 +199,13 @@ struct WelcomeCardSlot: View {
                         onOpenNotes: { if let call { meetings.showCall(folder: call.lastPathComponent) } },
                         onGotIt: onGotIt)
             .task(id: card) {
+                // A Free call locked past 30 minutes opens on the new plan
+                // first, so the redo offered is of the whole call.
+                await CallUnlockService.shared.look()
                 guard let found = await meetings.welcomeRedo(plan: plan) else { return }
                 call = found.folder
-                redo = WelcomeCardView.Redo(question: card.redoQuestion(for: found.record))
+                redo = WelcomeCardView.Redo(question: card.redoQuestion(for: found.record),
+                                            reason: WelcomeCard.redoReason(for: found.record))
             }
     }
 

@@ -51,6 +51,18 @@ public enum CallLanguageFollow {
         return name
     }
 
+    /// The same name in the language the app is showing: "Catalan" in
+    /// English, "Catalán" in Spanish. `name(of:)` stays English for the
+    /// files and the notes writer.
+    public static func shownName(of identifier: String) -> String? {
+        guard let code = CallLanguage.code(of: identifier) else { return nil }
+        let shown = Bundle.main.preferredLocalizations.first ?? "en"
+        guard let name = Locale(identifier: shown).localizedString(forLanguageCode: code), name != code else {
+            return nil
+        }
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
     // MARK: - Reading each line
 
     /// Words a line needs before its language counts. "Sí, vale." reads as

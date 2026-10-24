@@ -41,13 +41,13 @@ struct PlansPane: View {
         _goingFree = State(initialValue: goingFree)
     }
 
-    static let subtitle = "What you are on, and what Plus and Pro add. Nothing you made is ever removed."
+    static let subtitle = String(localized: "What you are on, and what Plus and Pro add. Nothing you made is ever removed.")
 
     var body: some View {
         @Bindable var license = license
         let page = PlansPage(entitlement: license.entitlement, stored: license.storedLicense,
                              period: license.plansPeriod, canAskServer: license.hasServer)
-        return LookPage("Plans", subtitle: Self.subtitle, moreOptions: $moreOptions) {
+        return LookPage(String(localized: "Plans"), subtitle: Self.subtitle, moreOptions: $moreOptions) {
             LookGroupLabel("Your plan")
             VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
                 if page.hero.isYours {
@@ -71,7 +71,7 @@ struct PlansPane: View {
                 }
             }
             .settingsAnchor(.plans)
-            underTheCards(aside: page.line.map { $0.button.note ?? "Paying opens in your browser." })
+            underTheCards(aside: page.line.map { $0.button.note ?? String(localized: "Paying opens in your browser.") })
             if let heading = page.stepsDownHeading, !page.stepsDown.isEmpty {
                 stepsDown(page, heading: heading)
             }
@@ -171,16 +171,14 @@ struct PlansPane: View {
             .padding(.top, 2)
         case .waiting:
             flowBox(title: "Finish paying in your browser",
-                    detail: "\(flowPlan). Lemon Squeezy charges you and sends the receipt. "
-                        + "Your key is emailed to you as well, in case this page doesn't fill itself in.",
+                    detail: "\(flowPlan). Lemon Squeezy charges you and sends the receipt. Your key is emailed to you as well, in case this page doesn't fill itself in.",
                     waiting: true) {
                 LookButton("Open the page again") { buy(license.purchase.plan, license.purchase.period) }
                 LookButton("Not now") { license.purchase.cancel() }
             }
         case .stalled:
             flowBox(title: "Still waiting for the browser",
-                    detail: "Still paying? Open the page again. Paid already? Your key is in your email: "
-                        + "press Enter a key and paste it.",
+                    detail: "Still paying? Open the page again. Paid already? Your key is in your email: press Enter a key and paste it.",
                     waiting: true) {
                 LookButton("Open the page again") { buy(license.purchase.plan, license.purchase.period) }
                 LookButton("Enter a key") { enteringKey = true }
@@ -207,7 +205,7 @@ struct PlansPane: View {
         "\(license.purchase.plan.label), \(PlanCatalog.price(license.purchase.plan, license.purchase.period))"
     }
 
-    private func flowBox<Buttons: View>(title: String, detail: String, waiting: Bool,
+    private func flowBox<Buttons: View>(title: LocalizedStringKey, detail: LocalizedStringKey, waiting: Bool,
                                         @ViewBuilder buttons: () -> Buttons) -> some View {
         let row = buttons()
         return VStack(alignment: .leading, spacing: 8) {
@@ -263,8 +261,7 @@ struct PlansPane: View {
     /// first, like Remove.
     private func goingFreeQuestion(from plan: AirlockPlan) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Take your key off this Mac and use Free? Nothing you made is deleted, "
-                 + "and you can paste the key back any time.")
+            Text("Take your key off this Mac and use Free? Nothing you made is deleted, and you can paste the key back any time.")
                 .font(Theme.chrome(12))
                 .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -288,7 +285,7 @@ struct PlansPane: View {
     private var keyRows: some View {
         if license.entitlement.license != nil {
             // A licence is in, overdue included: nothing to paste.
-            LookRow("Your key is on this Mac", subtitle: "Removing it doesn't touch your subscription") {
+            LookRow("Your key is on this Mac", subtitle: String(localized: "Removing it doesn't touch your subscription")) {
                 LookButton("Remove…") { confirmingRemove = true }
                     .disabled(confirmingRemove)
             }
@@ -300,7 +297,7 @@ struct PlansPane: View {
                 .settingsAnchor(.licenceKey)
             if confirmingRemove { removeQuestion }
         } else {
-            LookRow("Have a key?", subtitle: "It is in your purchase email.") {
+            LookRow("Have a key?", subtitle: String(localized: "It is in your purchase email.")) {
                 LookButton("Enter a key") { enteringKey = true }
             }
             .settingsAnchor(.licenceKey)
@@ -323,7 +320,7 @@ struct PlansPane: View {
                     .disabled(license.isActivating
                               || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 if license.isActivating {
-                    WaitingIndicator(words: "Checking your key with the shop…")
+                    WaitingIndicator(words: String(localized: "Checking your key with the shop…"))
                 } else if !license.token.isEmpty {
                     LookButton("Remove…") { confirmingRemove = true }
                         .disabled(confirmingRemove)
@@ -355,7 +352,7 @@ struct PlansPane: View {
                 .disabled(license.isCheckingPlan)
             }
             if license.isCheckingPlan {
-                WaitingIndicator(words: "Asking the shop…")
+                WaitingIndicator(words: String(localized: "Asking the shop…"))
             } else if let check = license.lastCheck {
                 Text(check.sentence)
                     .font(Theme.chrome(11))
@@ -406,45 +403,30 @@ struct PlansPane: View {
             // What happens AFTERWARDS: the question somebody counting days
             // is asking.
             LookGroupLabel("Your trial")
-            LookNote("Your trial started before Airlock had plans, so it runs to its end with everything Plus has. "
-                     + "Afterwards you're on Free: Airlock keeps working, and nothing you made is deleted. "
-                     + "No card, and nothing to cancel.")
+            LookNote("Your trial started before Airlock had plans, so it runs to its end with everything Plus has. Afterwards you're on Free: Airlock keeps working, and nothing you made is deleted. No card, and nothing to cancel.")
         case .overdue(let licence) where licence.ref != nil:
             // No invented payment link: the shop's subscription page is
             // where a card is changed.
             LookGroupLabel("Your payment")
-            LookNote("Airlock hasn't been able to confirm your last payment. Update your card under Manage "
-                     + "subscription; this clears itself the next time Airlock reaches the licence server. "
-                     + "Not sure how? Write to hello@useairlock.app.")
+            LookNote("Airlock hasn't been able to confirm your last payment. Update your card under Manage subscription; this clears itself the next time Airlock reaches the licence server. Not sure how? Write to hello@useairlock.app.")
         default:
             EmptyView()
         }
         LookGroupLabel("The plans")
-        LookNote(Self.pitch(guide: GuideSwitch.isOn))
+        LookNote(Self.pitch)
         if license.entitlement.license != nil {
             LookGroupLabel("Your key")
-            LookNote("Remove takes the key off this Mac only; the subscription itself is untouched. "
-                     + "One key covers one Mac; to move it, write to hello@useairlock.app.")
+            LookNote("Remove takes the key off this Mac only; the subscription itself is untouched. One key covers one Mac; to move it, write to hello@useairlock.app.")
         }
         LookGroupLabel("Privacy")
         LookNote(Self.privacy)
     }
 
-    /// The pitch, for somebody deciding. The guide is named only in a copy
-    /// that has it (`GuideMentionsTests`).
-    static func pitch(guide: Bool) -> String {
-        let covers = guide
-            ? "the guide that helps with everyday tasks on screen, dictation, the notch's widgets, and approving your coding agents one at a time"
-            : "dictation, the notch's widgets, and approving your coding agents one at a time"
-        return "Free covers \(covers), with no card. Plus adds notes for the whole call, written online on any "
-            + "Mac, even one without Apple Intelligence. Pro has them written by the best model we've tested. "
-            + "Already paying? Change plan on your subscription page, so you never pay twice. Cancel whenever "
-            + "you like: it keeps working until the end of the period you paid for, then moves to Free, and "
-            + "nothing is deleted."
-    }
+    /// The pitch, for somebody deciding.
+    static let pitch = String(localized: "Free covers dictation, the notch's widgets, and approving your coding agents one at a time, with no card. Plus adds notes for the whole call, written online on any Mac, even one without Apple Intelligence. Pro has them written by the best model we've tested. Already paying? Change plan on your subscription page, so you never pay twice. Cancel whenever you like: it keeps working until the end of the period you paid for, then moves to Free, and nothing is deleted.")
 
     /// What leaves this Mac for the licence, and when.
-    static let privacy = "Your key is checked on this Mac. Airlock contacts the licence server when you activate a key, in the days around your renewal date, when you open this page with a subscription (at most every ten minutes) and when you press Check my plan now. Never otherwise. It sends your key and a code that identifies this Mac, so one key stays on one Mac. Nothing about what you do with Airlock is sent, and in between everything works offline."
+    static let privacy = String(localized: "Your key is checked on this Mac. Airlock contacts the licence server when you activate a key, in the days around your renewal date, when you open this page with a subscription (at most every ten minutes) and when you press Check my plan now. Never otherwise. It sends your key and a code that identifies this Mac, so one key stays on one Mac. Nothing about what you do with Airlock is sent, and in between everything works offline.")
 
     /// Say what is actually wrong. "Invalid licence" for a key that is simply
     /// for another product sends somebody to support for no reason.
@@ -453,13 +435,13 @@ struct PlansPane: View {
         case .otherMachine:
             // Not an accusation: one key covers one Mac, and the way out is
             // stated rather than left to support.
-            return "This key is already set up on another Mac. One key covers one Mac. To move it here, write to hello@useairlock.app, or subscribe again for this Mac."
+            return String(localized: "This key is already set up on another Mac. One key covers one Mac. To move it here, write to hello@useairlock.app, or subscribe again for this Mac.")
         case .malformed:
-            return "That doesn't look like a licence key. Copy the whole line from your purchase email."
+            return String(localized: "That doesn't look like a licence key. Copy the whole line from your purchase email.")
         case .signature:
-            return "That key wasn't recognised. Copy it again from your purchase email, or write to hello@useairlock.app."
+            return String(localized: "That key wasn't recognised. Copy it again from your purchase email, or write to hello@useairlock.app.")
         case .wrongProduct:
-            return "That key is for a different product."
+            return String(localized: "That key is for a different product.")
         }
     }
 }
@@ -519,7 +501,7 @@ private struct PeriodSwitch: View {
         .fixedSize()
     }
 
-    private func segment(_ value: License.Period, _ title: String) -> some View {
+    private func segment(_ value: License.Period, _ title: LocalizedStringKey) -> some View {
         let picked = period == value
         return Button { period = value } label: {
             Text(title)
@@ -592,7 +574,8 @@ private struct PlanHero: View {
             Rectangle()
                 .fill(tint.opacity(0.14))
                 .frame(height: 1)
-            Text("Also yours, from Plus".uppercased())
+            Text("Also yours, from Plus")
+                .textCase(.uppercase)
                 .font(Theme.label)
                 .foregroundStyle(Theme.textTertiary)
                 .padding(.top, 12)

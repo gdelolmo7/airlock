@@ -18,8 +18,10 @@ import Speech
 ///   worse notes. A second analyzer cost nothing measurable on this Mac.
 /// - **The language is decided early, then followed.** Dictation races its
 ///   two languages over every hold; a meeting is one long hold. Both
-///   recognisers run until about a paragraph has been heard, the race is
-///   called on that (`TranscriptRace.winner`, the same rule), and what the
+///   recognisers run until about a paragraph has been heard, or a sentence
+///   or two when one is far surer than the other
+///   (`TranscriptRace.clearWinner`), the race is called on that
+///   (`TranscriptRace.winner`, the same rule), and what the
 ///   winner heard meanwhile is handed on in order. The race is not the end
 ///   of it: a call that moves into another language later is followed
 ///   (`CallLanguageFollow`), see below.
@@ -518,7 +520,11 @@ final class MeetingTrack {
             let mixed = Set(racing.map(\.listener.module)).count > 1
             let ready = mixed ? counts.allSatisfy { $0 >= Self.decideAfter } || counts.contains { $0 >= Self.decideAtTheLatest }
                               : counts.contains { $0 >= Self.decideAfter }
-            if ready { decide() }
+            // A take far ahead on its first lines has already won: waiting
+            // for a paragraph from each showed the wrong language for the
+            // first minute of a call.
+            let clear = !mixed && TranscriptRace.clearWinner(among: candidates()) != nil
+            if ready || clear { decide() }
             return
         }
         review()
@@ -583,12 +589,21 @@ final class MeetingTrack {
     /// primary throughout, so Spanish spoken with English first showed the
     /// English recogniser's attempt at it until the race was called, which
     /// in a short meeting is the end.
+    ///
+    /// Once every speech take has finished a line, how sure each was decides
+    /// instead (`TranscriptRace.liveChoice`): an English recogniser fed
+    /// Spanish still writes English words ("Yes, sir."), which read as
+    /// English and kept its take on screen, while its confidence on them
+    /// was half the Spanish one's.
     private func shownTake() -> Take? {
         guard let primary = racing.first else { return nil }
         guard racing.count > 1 else { return primary }
-        let choice = CallLanguageFollow.shown(racing.map { take in
-            (take.id, take.code, CallLive.inProgress(held: take.held.map(\.segment.text), guess: unfinished(of: take)))
-        }, showing: showing)
+        let scored = candidates()
+        let choice = Set(racing.map(\.listener.module)) == [.speech] && scored.allSatisfy({ $0.confidence > 0 })
+            ? TranscriptRace.liveChoice(among: scored, showing: showing)
+            : CallLanguageFollow.shown(racing.map { take in
+                (take.id, take.code, CallLive.inProgress(held: take.held.map(\.segment.text), guess: unfinished(of: take)))
+            }, showing: showing)
         if choice != showing {
             log("\(speaker.rawValue) live words → \(choice)")
             showing = choice
@@ -604,12 +619,7 @@ final class MeetingTrack {
         guard winner == nil, let primary = racing.first else { return }
         let chosen: Take
         if Set(racing.map(\.listener.module)) == [.speech] {
-            let candidates = racing.map {
-                TranscriptRace.Candidate(localeIdentifier: $0.id,
-                                         text: $0.held.map(\.segment.text).joined(separator: " "),
-                                         confidence: Self.confidence(of: $0.held) ?? 0)
-            }
-            let winnerID = TranscriptRace.winner(among: candidates, primary: primary.id)?.localeIdentifier
+            let winnerID = TranscriptRace.winner(among: candidates(), primary: primary.id)?.localeIdentifier
             chosen = racing.first { $0.id == winnerID } ?? primary
         } else {
             // Recognisers of two kinds score on two scales: the follow's rule,
@@ -649,6 +659,16 @@ final class MeetingTrack {
         racing = []
         // The held lines are lines now: only the winner's guess is left.
         showHearing()
+    }
+
+    /// The racing takes as the race scores them: what each has finished,
+    /// and how sure it was of it (zero while it has scored nothing).
+    private func candidates() -> [TranscriptRace.Candidate] {
+        racing.map {
+            TranscriptRace.Candidate(localeIdentifier: $0.id,
+                                     text: $0.held.map(\.segment.text).joined(separator: " "),
+                                     confidence: Self.confidence(of: $0.held) ?? 0)
+        }
     }
 
     private static func confidence(of lines: [Line]) -> Double? {

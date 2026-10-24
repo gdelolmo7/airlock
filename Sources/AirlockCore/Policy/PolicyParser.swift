@@ -26,35 +26,34 @@ public enum PolicyParser {
         public var description: String {
             switch self {
             case let .tabIndentation(line):
-                return "line \(line): tabs aren't allowed here. Indent with spaces instead."
+                return String(localized: "line \(line): tabs aren't allowed here. Indent with spaces instead.")
             case let .expectedKey(line):
-                return "line \(line): a setting name followed by a colon should be here, like \u{201c}allow:\u{201d}."
+                return String(localized: "line \(line): a setting name followed by a colon should be here, like \u{201c}allow:\u{201d}.")
             case let .unknownKey(key, line):
-                return "line \(line): \u{201c}\(key)\u{201d} isn't a setting Airlock knows. "
-                    + "The ones it knows are version, ask_timeout, allow and deny."
+                return String(localized: "line \(line): \u{201c}\(key)\u{201d} isn't a setting Airlock knows. The ones it knows are version, ask_timeout, allow and deny.")
             case let .missingValue(key, line):
-                return "line \(line): \u{201c}\(key)\u{201d} needs a value after the colon."
+                return String(localized: "line \(line): \u{201c}\(key)\u{201d} needs a value after the colon.")
             case let .invalidValue(key, line):
-                return "line \(line): Airlock can't read the value of \u{201c}\(key)\u{201d}."
+                return String(localized: "line \(line): Airlock can't read the value of \u{201c}\(key)\u{201d}.")
             case let .inlineListValue(key, line):
-                return "line \(line): put each \u{201c}\(key)\u{201d} rule on its own line below it, starting with a dash."
+                return String(localized: "line \(line): put each \u{201c}\(key)\u{201d} rule on its own line below it, starting with a dash.")
             case let .listItemOutsideList(line):
-                return "line \(line): a line starting with a dash belongs under allow: or deny:."
+                return String(localized: "line \(line): a line starting with a dash belongs under allow: or deny:.")
             case let .badRule(_, line, .empty):
-                return "line \(line): this rule is empty."
+                return String(localized: "line \(line): this rule is empty.")
             case let .badRule(rule, line, reason):
-                return "line \(line): \u{201c}\(rule)\u{201d} \(Self.explain(reason))"
+                return Self.explain(reason, rule: rule, line: line)
             }
         }
 
         /// One sentence each, phrased as the thing to go and fix.
-        private static func explain(_ reason: PolicyRule.ParseError) -> String {
+        private static func explain(_ reason: PolicyRule.ParseError, rule: String, line: Int) -> String {
             switch reason {
-            case .empty: return "is empty."
-            case .missingClosingParen: return "is missing a closing bracket."
+            case .empty: return String(localized: "line \(line): \u{201c}\(rule)\u{201d} is empty.")
+            case .missingClosingParen: return String(localized: "line \(line): \u{201c}\(rule)\u{201d} is missing a closing bracket.")
             case .emptyPattern:
-                return "has empty brackets. Write the tool on its own, like Bash, or put what to match inside them."
-            case .malformedTool: return "doesn't start with a tool name. A rule looks like Read, or Bash(git status)."
+                return String(localized: "line \(line): \u{201c}\(rule)\u{201d} has empty brackets. Write the tool on its own, like Bash, or put what to match inside them.")
+            case .malformedTool: return String(localized: "line \(line): \u{201c}\(rule)\u{201d} doesn't start with a tool name. A rule looks like Read, or Bash(git status).")
             }
         }
     }

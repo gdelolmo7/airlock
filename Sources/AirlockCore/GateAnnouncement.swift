@@ -38,25 +38,27 @@ public enum GateAnnouncement {
         if let question = request.question {
             // The card steps through them, and a listener cannot see "1 of 3".
             let count = request.questions.count
+            let first = clamp(question.question)
             sentence = count > 1
-                ? "\(agent) asks \(count) questions, starting with: \(clamp(question.question))"
-                : "\(agent) asks: \(clamp(question.question))"
+                ? String(localized: "\(agent) asks \(count) questions, starting with: \(first)")
+                : String(localized: "\(agent) asks: \(first)")
         } else {
             // `summary` is already a one-line human phrase ("Run shell
             // command", "Edit src/app.ts"), which is exactly what should be
             // spoken. The raw command is not — it is unbounded and full of
             // punctuation VoiceOver reads aloud.
-            sentence = "\(agent) needs permission: \(clamp(request.summary))"
+            let summary = clamp(request.summary)
+            sentence = String(localized: "\(agent) needs permission: \(summary)")
         }
 
         sentence = terminated(sentence)
 
         if let risk {
-            sentence += " Risky — \(risk.reason)."
+            sentence += " " + String(localized: "Risky — \(risk.reason).")
         }
 
         if let hotkey {
-            sentence += " Press \(hotkey) to answer."
+            sentence += " " + String(localized: "Press \(hotkey) to answer.")
         }
 
         return sentence

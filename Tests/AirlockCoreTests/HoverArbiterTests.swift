@@ -261,4 +261,56 @@ final class HoverArbiterTests: XCTestCase {
         XCTAssertEqual(arbiter.update(.panel, hovering: false, pointer: origin), .unchanged)
         XCTAssertFalse(arbiter.isHovering)
     }
+
+    // MARK: - A catcher reshaped by code
+
+    /// The trace from the night it happened: the drop box opens under the
+    /// pointer, both sources claim it, the box closes and the catcher shrinks
+    /// back to the cutout without ever saying the pointer left. Every hover
+    /// after that was `.unchanged` and the notch would not peek.
+    func testACatcherStillClaimingThePointerAfterTheBoxEatsTheNextHover() {
+        var arbiter = HoverArbiter()
+        let box = CGPoint(x: 1921, y: 1266)
+        XCTAssertEqual(arbiter.update(.panel, hovering: true, pointer: box), .entered)
+        XCTAssertEqual(arbiter.update(.catcher, hovering: true, pointer: box), .unchanged)
+        XCTAssertEqual(arbiter.update(.panel, hovering: false, pointer: box), .unchanged)
+        arbiter.forgetAnchor() // the box closing is a collapse we asked for
+
+        let away = CGPoint(x: 1785, y: 1148)
+        XCTAssertEqual(arbiter.update(.panel, hovering: false, pointer: away), .unchanged,
+                       "the catcher's stale claim keeps the pointer 'on the notch'")
+        XCTAssertEqual(arbiter.update(.panel, hovering: true, pointer: far(away)), .unchanged,
+                       "and so the real hover-in does nothing: the bug")
+    }
+
+    func testWithdrawingTheCatcherAfterItShrinksLetsTheNextHoverIn() {
+        var arbiter = HoverArbiter()
+        let box = CGPoint(x: 1921, y: 1266)
+        XCTAssertEqual(arbiter.update(.panel, hovering: true, pointer: box), .entered)
+        XCTAssertEqual(arbiter.update(.catcher, hovering: true, pointer: box), .unchanged)
+        XCTAssertEqual(arbiter.update(.panel, hovering: false, pointer: box), .unchanged)
+        arbiter.forgetAnchor()
+
+        let away = CGPoint(x: 1785, y: 1148)
+        let cutout = CGRect(x: 1640, y: 1408, width: 200, height: 32)
+        XCTAssertTrue(HoverArbiter.withdrawsAfterReshape(reported: true, region: cutout, pointer: away))
+        XCTAssertEqual(arbiter.update(.catcher, hovering: false, pointer: away), .left)
+        XCTAssertEqual(arbiter.update(.catcher, hovering: true, pointer: CGPoint(x: 1740, y: 1430)),
+                       .entered, "the next visit to the notch is an arrival again")
+    }
+
+    /// The check after a reshape may only ever take a claim back. A window
+    /// growing under the pointer is the synthesised entry that once opened
+    /// the island over nothing, so it must not be reported from here.
+    func testAReshapeNeverReportsAnEntry() {
+        let region = CGRect(x: 0, y: 0, width: 100, height: 30)
+        XCTAssertFalse(HoverArbiter.withdrawsAfterReshape(reported: false, region: region,
+                                                          pointer: CGPoint(x: 500, y: 500)),
+                       "nothing claimed, nothing to take back")
+        XCTAssertFalse(HoverArbiter.withdrawsAfterReshape(reported: true, region: region,
+                                                          pointer: CGPoint(x: 50, y: 10)),
+                       "still under the pointer: the claim stands")
+        XCTAssertTrue(HoverArbiter.withdrawsAfterReshape(reported: true, region: region,
+                                                         pointer: CGPoint(x: 500, y: 500)))
+    }
 }

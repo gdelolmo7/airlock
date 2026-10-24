@@ -23,11 +23,14 @@ public enum BatteryReading {
         guard let minutes, minutes > 0 else { return nil }
         let hours = minutes / 60
         let rest = minutes % 60
-        let hourPart = hours == 1 ? "1 hour" : "\(hours) hours"
-        let minutePart = rest == 1 ? "1 minute" : "\(rest) minutes"
-        if hours == 0 { return minutePart }
-        if rest == 0 { return hourPart }
-        return "\(hourPart) \(minutePart)"
+        if hours == 0 { return rest == 1 ? String(localized: "1 minute") : String(localized: "\(rest) minutes") }
+        if rest == 0 { return hours == 1 ? String(localized: "1 hour") : String(localized: "\(hours) hours") }
+        switch (hours == 1, rest == 1) {
+        case (true, true): return String(localized: "1 hour 1 minute")
+        case (true, false): return String(localized: "1 hour \(rest) minutes")
+        case (false, true): return String(localized: "\(hours) hours 1 minute")
+        case (false, false): return String(localized: "\(hours) hours \(rest) minutes")
+        }
     }
 
     /// "18 minutes left", or nil when macOS has no estimate yet. The caller
@@ -35,13 +38,13 @@ public enum BatteryReading {
     /// glyph, the gutter admits it is still calculating.
     public static func remaining(minutes: Int?) -> String? {
         guard let phrase = duration(minutes: minutes) else { return nil }
-        return "\(phrase) left"
+        return String(localized: "\(phrase) left")
     }
 
     /// Plugged in and not charging. macOS does this on purpose — Optimised
     /// Battery Charging, or the charge limit — and "on power" beside a bolt read
     /// as a charger that had stopped working. Saying why is the whole fix.
-    public static let holding = "plugged in, holding the charge to protect the battery"
+    public static let holding = String(localized: "plugged in, holding the charge to protect the battery")
 
     /// What the gutter draws: the battery at its real level, plus a small mark
     /// for the cable. A full battery with a bolt at 5% was the old drawing, and
@@ -91,18 +94,17 @@ public enum BatteryReading {
                               isPluggedIn: Bool,
                               isCharged: Bool,
                               minutesRemaining: Int?) -> String {
-        let head = "Battery \(percentage)%"
-        if isCharged { return "\(head), fully charged" }
+        if isCharged { return String(localized: "Battery \(percentage)%, fully charged") }
         if isCharging {
             guard let full = duration(minutes: minutesRemaining) else {
-                return "\(head), charging, calculating time until full"
+                return String(localized: "Battery \(percentage)%, charging, calculating time until full")
             }
-            return "\(head), charging, \(full) until full"
+            return String(localized: "Battery \(percentage)%, charging, \(full) until full")
         }
-        if isPluggedIn { return "\(head), \(holding)" }
+        if isPluggedIn { return String(localized: "Battery \(percentage)%, \(holding)") }
         guard let left = remaining(minutes: minutesRemaining) else {
-            return "\(head), calculating time left"
+            return String(localized: "Battery \(percentage)%, calculating time left")
         }
-        return "\(head), \(left)"
+        return String(localized: "Battery \(percentage)%, \(left)")
     }
 }

@@ -32,15 +32,15 @@ public enum FeaturePage: String, CaseIterable, Sendable {
     /// Settings already uses for the same things.
     public var title: String {
         switch self {
-        case .callNotes: "Call notes"
-        case .clipboardHistory: "Clipboard history"
-        case .mediaAndSound: "Media and sound"
-        case .dictation: "Dictation"
-        case .today: "Calendar and meetings"
-        case .thisMac: "CPU, GPU and memory"
-        case .dropShelf: "Shelf"
-        case .keepAwake: "Keep awake"
-        case .codingAgents: "Coding agents"
+        case .callNotes: String(localized: "Call notes")
+        case .clipboardHistory: String(localized: "Clipboard history")
+        case .mediaAndSound: String(localized: "Media and sound")
+        case .dictation: String(localized: "Dictation")
+        case .today: String(localized: "Calendar and meetings")
+        case .thisMac: String(localized: "CPU, GPU and memory")
+        case .dropShelf: String(localized: "Shelf")
+        case .keepAwake: String(localized: "Keep awake")
+        case .codingAgents: String(localized: "Coding agents")
         }
     }
 }

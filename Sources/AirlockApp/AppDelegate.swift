@@ -29,17 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// object, so hooks installed in one are installed in the other and the
     /// completion flag is settled in one place.
     private var onboardingModel: OnboardingModel?
-    #if AIRLOCK_GUIDE
-    private var welcome: WelcomeWindowController?
-    #endif
     /// The once-only "permissions again after the rename" window, kept while
     /// it is up.
     private var permissionsAgain: PermissionsAgainWindowController?
     private var dictation: DictationModel?
-    private var assistant: AssistantModel?
-    #if AIRLOCK_GUIDE
-    private var guide: GuideController?
-    #endif
     private var agentsWidget: AgentsWidgetModel?
     private var audioOutput: AudioOutputModel?
     private var appVolume: AppVolumeModel?
@@ -84,17 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Before EVERYTHING, including the identity migration: a snapshot run
-        // renders five views and quits, and has no business copying a year of
-        // somebody's preferences on the way past. See `PanelSnapshot`.
-        if let destination = PanelSnapshot.requested() {
-            let ok = PanelSnapshot.write(to: destination, width: NotchAppearanceModel().panelWidth)
-            NSApp.terminate(nil)
-            _ = ok
-            return
-        }
-        // Same place, same reason: the gallery is the whole app in this run,
-        // and it must not leave a trace in anyone's settings. See `StateGallery`.
+        // Before EVERYTHING, including the identity migration: the gallery is
+        // the whole app in this run, and it must not leave a trace in anyone's
+        // settings. See `StateGallery`.
         if let gallery = StateGallery.requested() {
             StateGallery.run(gallery)
             return
@@ -223,191 +208,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dictation.media = media
         self.dictation = dictation
 
-        // Answering a spoken question when nothing editable is focused. The
-        // dictation model holds a weak reference so the routing probe knows
-        // whether asking is even on the table.
-        let assistant = AssistantModel()
-        self.assistant = assistant
-        dictation.assistant = assistant
-        // The screen guide (prototype). Inert unless switched on in the
-        // hidden Settings section; the two models reach it only to ask
-        // whether it is on and, if so, to hand it a goal.
-        #if AIRLOCK_GUIDE
-        let guide = GuideController.shared
-        self.guide = guide
-        dictation.guide = guide
-        assistant.guide = guide
-        #endif
-        // Which languages the app-name scan should read bundle localizations
-        // for: the languages that will actually be SPOKEN, which is what the
-        // dictation locale settings are. English is dropped — the on-disk
-        // bundle name already is English — and an unset primary means the
-        // system language, exactly as `DictationModel.prepare` resolves it.
-        assistant.spokenLanguageCodes = { [weak dictation] in
-            guard let dictation else { return [] }
-            let identifiers = [dictation.localeIdentifier.isEmpty
-                                   ? Locale.current.identifier
-                                   : dictation.localeIdentifier,
-                               dictation.secondaryLocaleIdentifier]
-            var codes: Set<String> = []
-            for identifier in identifiers where !identifier.isEmpty {
-                if let code = Locale(identifier: identifier).language.languageCode?.identifier {
-                    codes.insert(code)
-                }
-            }
-            codes.remove("en")
-            return codes.sorted()
-        }
-        // Read through self: the agents model is made later in launch.
-        assistant.offersAgentHandOff = { [weak self] in self?.agentsWidget?.isEnabled ?? false }
-        assistant.onEscalate = { [weak model] question in
-            // The same path the quick-prompt bar uses: a fresh Claude Code
-            // session in a new terminal, carrying the question.
-            guard let model else { return }
-            Task { await model.submitQuickPrompt(question) }
-        }
         // A dictation with nowhere to land: on the clipboard, and kept in its
         // history like every copy Airlock makes for the person.
         dictation.onCopyTranscript = { text in AirlockCopy.put(text) }
-        // Questions about past calls are answered from them while call notes
-        // are on, and a source under the answer opens the call at that moment.
-        assistant.callNotesEnabled = { [weak model] in model?.meetings.isEnabled ?? false }
-        assistant.onShowCall = { [weak model] source in
-            model?.meetings.showCall(folder: source.folder, saidAt: source.time)
-        }
-        // Setup commands go to a VISIBLE terminal the user owns — never run
-        // silently in-process. They read it, watch it, and can stop it.
-        assistant.onRunInTerminal = { [weak model] command in
-            model?.runInTerminal(command)
-        }
-        assistant.onCopy = { text in AirlockCopy.put(text) }
-
-        // Spoken actions. Assembled here because Core may not reach into the
-        // widget models, and the widget models are the only things that know
-        // what exists right now.
-        //
-        // `agentSessions` is left EMPTY, and it is the only field that is.
-        // Naming a running session makes `VoiceAgentAction` target it, and the
-        // card then reads "Ask airlock: run the tests" — a promise nothing here
-        // can keep, because putting text into a session somebody already owns
-        // is something `TerminalJumpService` twice says it will not do. With the
-        // list empty every spoken instruction proposes a fresh session, which is
-        // both what the card says and what happens. See
-        // `VoicePerformer.sendToExistingSession`.
-        // `weak assistant` matters: this closure is STORED ON `assistant`, so a
-        // strong capture is a cycle. It reads two caches that live there.
-        assistant.contextProvider = { [weak audioOutput, weak clipboardWidget, weak assistant] in
-            VoiceContext(
-                audioOutputs: audioOutput?.devices ?? [],
-                // Two departures from what the panel renders, both required by
-                // what `VoiceClipboardAction` says it is given.
-                //
-                // Not `ClipboardWidgetModel.items`: that is the panel's FILTERED
-                // view, so a search term left in the field would silently narrow
-                // what a spoken phrase can find.
-                //
-                // Re-sorted newest-first: `history.items` is pinned-first,
-                // because that is the useful order to look at. Spoken phrases
-                // address this list by recency — "the last thing I copied", "the
-                // third thing I copied" — and `VoiceClipboardAction` resolves
-                // ties by position on exactly that assumption. Handing it a
-                // pinned row as "the last thing I copied" would be wrong in the
-                // one way nobody would think to check.
-                clipboard: (clipboardWidget?.history.items ?? [])
-                    .sorted { $0.copiedAt > $1.copiedAt },
-                // The cache, never a fresh enumeration: this closure runs on the
-                // main actor at the moment of asking, and spawning a subprocess
-                // there is exactly the hesitation the pre-warm on key-down
-                // exists to avoid. Stale by at most a minute, and a name that
-                // has since gone away fails at `perform` rather than silently.
-                shortcuts: assistant?.shortcutNames ?? [],
-                apps: assistant?.appTargets ?? [],
-                sites: assistant?.siteAliases ?? [],
-                volume: audioOutput?.volume.map(Double.init))
-        }
-        let voicePerformer = VoicePerformer(
-            copyClipboardItem: { [weak clipboardWidget] id in
-                clipboardWidget?.recopy(id: id) == true
-            },
-            selectAudioOutput: { [weak audioOutput] uid in
-                guard let device = audioOutput?.devices.first(where: { $0.uid == uid })
-                else { return false }
-                audioOutput?.select(device)
-                return true
-            },
-            startSession: { [weak model] text in
-                guard let model,
-                      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                else { return false }
-                // The same path the quick-prompt bar and the escalation use: a
-                // new terminal running `claude`, carrying the prompt.
-                Task { await model.submitQuickPrompt(text) }
-                return true
-            },
-            runShortcut: { name in
-                // Not re-resolved against the cached list first, deliberately:
-                // the cache is up to a minute old, and refusing a Shortcut that
-                // exists because our copy of the library is stale would be worse
-                // than handing the name to the CLI and letting it decide.
-                ShortcutsService.launch(name)
-            },
-            setVolume: { [weak audioOutput] level in
-                // Nil `volume` means the current device has no software volume
-                // — HDMI and many USB interfaces — and saying so beats a card
-                // that claims to have moved something that cannot move.
-                guard let audioOutput, audioOutput.volume != nil else { return false }
-                audioOutput.setVolume(Float(level))
-                return true
-            },
-            media: { [weak media, weak dictation] command in
-                // Read BEFORE cancelling, or the answer is always false.
-                let dictationPaused = dictation?.pausedPlaybackForHold ?? false
-                // Then cancel: dictation resumes playback after a hold, which
-                // would undo this the instant it succeeded. This is what makes
-                // `.alreadyThere` an honest answer for `.pause` rather than a
-                // command that silently loses to a resume half a second later.
-                dictation?.forgetPausedMusic()
-
-                switch MediaCommandPlan.decide(command: command,
-                                               isPlaying: media?.state?.isPlaying,
-                                               dictationPaused: dictationPaused) {
-                case .noPlayer:
-                    // Saying so beats a card that claims to have paused silence.
-                    return false
-                case .alreadyThere:
-                    return true
-                case .toggle:
-                    guard let media else { return false }
-                    switch command {
-                    case .play, .pause: media.togglePlay()
-                    case .next: media.next()
-                    case .previous: media.previous()
-                    }
-                    return true
-                }
-            },
-            open: { target in
-                InstalledApps.open(target)
-            })
-        assistant.onPerform = { voicePerformer.perform($0) }
-
         dictation.onChooseInput = { [weak self] in self?.appWindow?.show(anchor: .microphoneInput) }
         dictation.onChooseLanguage = { [weak self] in self?.appWindow?.show(anchor: .language) }
-        assistant.onRecordGate = { [weak model] request, outcome, _ in
-            // `agent: "voice"` — a free string on `GateRecord`, so the log reads
-            // back as what it was without pretending a session existed.
-            model?.record(GateRecord(request: request, outcome: outcome,
-                                     agent: "voice", decidedAt: Date()))
-        }
-        assistant.onAlwaysAllow = { rule in
-            do {
-                // Global, not project: a spoken action has no working directory.
-                _ = try PolicyStore().appendAllowRule(rule, projectRoot: nil)
-            } catch {
-                Log.policy.error("failed to persist spoken rule — \(error.localizedDescription, privacy: .private)")
-            }
-        }
-
         // Follows the sessions' working directories, so the git rows describe
         // exactly the checkouts agents are in.
         let repositoryWidget = RepositoryWidgetModel()
@@ -423,6 +228,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudNotes.access = { [weak license] in license?.notesAccess }
         cloudNotes.hasServer = { [weak license] in license?.hasServer ?? false }
         cloudNotes.start()
+        // A Free call locked past its 30 minutes opens on Plus or Pro, and
+        // goes at the end of its week (`CallUnlockService`).
+        let unlock = CallUnlockService.shared
+        unlock.plan = { [weak license] in license?.entitlement.snapshot ?? .free }
+        unlock.access = { [weak license] in license?.unlockAccess }
+        unlock.isHolding = { [weak model] in model?.meetings.isHolding($0) ?? true }
+        unlock.onChanged = { [weak model] in model?.meetings.callsChangedOnDisk() }
+        if !Self.isDemoMode { unlock.start() }
         // Plus and Pro download the voice model by themselves
         // (`CallVoiceDownload`, started from `watchPlanLimits`), never while a
         // call is being written down.
@@ -465,15 +278,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                            onChooseCalendars: { [weak self] in self?.appWindow?.show(anchor: .calendars) }),
             CallsWidget(meetings: model.meetings),
         ]
-        #if AIRLOCK_GUIDE
-        // Above the banner: with the guide on, asking is what Home is for.
-        widgets.append(AskWidget(dictation: dictation, assistant: assistant,
-                                 onType: { [weak self] in self?.notch?.toggleCommandBar() },
-                                 onOpenSettings: { [weak self] in self?.appWindow?.show(anchor: .commandBar) }))
-        #endif
         widgets += [
             // Order inside a placement is panel order, and the banner is the
             // headline: it sits above the rail, not under it.
+            // Above the banner: a new person's first days, then gone.
+            FirstStepsWidget(steps: .shared, dictation: dictation, calendar: calendarWidget),
             MediaWidget(media: media),
             SystemControlsWidget(controls: systemControls),
             KeyMapWidget(dictation: dictation, clipboard: clipboardWidget, agents: agentsWidget),
@@ -487,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let notch = NotchController(model: model, media: media, calendar: calendarWidget,
                                     battery: batteryWidget, system: systemWidget, tray: trayWidget,
                                     clipboard: clipboardWidget, dictation: dictation,
-                                    assistant: assistant, appearance: appearance,
+                                    appearance: appearance,
                                     agents: agentsWidget, audioOutput: audioOutput,
                                     sound: sound, appVolume: appVolume,
                                     systemControls: systemControls,
@@ -547,7 +356,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appWindow = AirlockWindowController(model: settingsModel, media: media,
                                              sound: sound, appVolume: appVolume,
                                              calendar: calendarWidget,
-                                             assistant: assistant,
                                              battery: batteryWidget, system: systemWidget,
                                              tray: trayWidget, clipboard: clipboardWidget,
                                              dictation: dictation, appearance: appearance,
@@ -561,9 +369,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appWindow?.calls = model.meetings.callsPage
         notch.onOpenSettings = { [weak self] in self?.appWindow?.show() }
         appWindow?.islandPreview = { [weak notch] in notch?.preview() ?? AnyView(EmptyView()) }
-        #if AIRLOCK_GUIDE
-        self.guide?.onOpenSettings = { [weak self] in self?.appWindow?.show(pane: .general) }
-        #endif
 
         // Clicking a notification lands on the pane that fixes what it reported.
         //
@@ -625,36 +430,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return uses
         }
+        reminders.panelTaken = { [weak notch] in notch?.panelIsTaken ?? false }
         reminders.onShown = { UsageCounts.shared.record(.reminderShown($0)) }
         reminders.onNotNow = { UsageCounts.shared.record(.reminderNotNow($0)) }
         reminders.listenToTheIsland()
 
         let onboardingModel = OnboardingModel(settings: settingsModel, calendar: calendarWidget,
                                               dictation: dictation, clipboard: clipboardWidget,
-                                              assistant: assistant, agentsWidget: agentsWidget)
+                                              agentsWidget: agentsWidget)
         onboardingModel.onReveal = { [weak notch] in notch?.reveal() }
         onboarding = OnboardingWindowController(model: onboardingModel)
         self.onboardingModel = onboardingModel
-        #if AIRLOCK_GUIDE
-        let welcomeModel = WelcomeModel(agentsWidget: agentsWidget,
-                                        dictation: dictation, assistant: assistant,
-                                        hookStatuses: settingsModel.agents.map(\.status))
-        welcomeModel.onReveal = { [weak notch] in notch?.reveal() }
-        welcomeModel.onConnectAgents = { [weak self] in self?.connectAgentsAfterWelcome() }
-        welcome = WelcomeWindowController(model: welcomeModel)
-        #endif
 
         // After the windows exist: a first-run update prompt must not race the
         // onboarding wizard for the screen.
         updater.start()
 
         dictation.start() // after the controller, so the listening hook is wired
-        assistant.prepare()
-        presentDemoAnswerIfAsked(assistant)
-        speakIfAsked(assistant)
-        #if AIRLOCK_GUIDE
-        previewGuideMotionIfAsked()
-        #endif
         installStatusItem()
         // Before any window can open, since a window is where its shortcuts are
         // wanted.
@@ -738,71 +530,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || process.arguments.contains("--demo")
     }
 
-    /// Stand an answer up at launch, so the panel state a gate used to be
-    /// invisible in can be looked at in a packaged build.
-    ///
-    /// Both forms for the reason `--onboarding` has both: `open` goes through
-    /// LaunchServices, which passes `--args` but drops the shell environment, so
-    /// the env form never reaches a bundle. And a bundle is the only place worth
-    /// checking this — see `AssistantModel.presentDemoAnswer`.
-    ///
-    ///   open output/package/Airlock.app --args --demo --demo-answer
-    ///
-    /// Then Seed Demo Session in the status menu puts a gate behind it — which
-    /// is why `--demo` is on that line as well: the item only exists in a demo
-    /// run, and pairing them is what CLAUDE.md documents anyway.
-    private func presentDemoAnswerIfAsked(_ assistant: AssistantModel) {
-        let process = ProcessInfo.processInfo
-        guard process.environment["AIRLOCK_DEMO_ANSWER"] != nil
-            || process.arguments.contains("--demo-answer") else { return }
-        assistant.presentDemoAnswer(
-            question: "What's the difference between a rebase and a merge?",
-            answer: "A merge keeps both histories and adds a commit that joins "
-                + "them. A rebase replays your commits on top of the other "
-                + "branch, so the history stays linear — at the cost of "
-                + "rewriting the commits you replayed.")
-    }
-
-    /// Speak a phrase without speaking it.
-    ///
-    ///   open output/package/Airlock.app --args --say "put the sound on the airpods"
-    ///
-    /// Runs the REAL path — the classifier, your real audio devices, your real
-    /// `policy.yaml` — and stops exactly where a spoken phrase would, at the
-    /// card. Deliberately not a canned proposal like `--demo-answer`: a
-    /// synthetic card proves the view renders and proves nothing about whether
-    /// the phrase reaches it, which is the half that can actually be broken.
-    ///
-    /// Argument form only, and `--args` is why: `open` goes through
-    /// LaunchServices, which passes arguments and drops the shell environment.
-    private func speakIfAsked(_ assistant: AssistantModel) {
-        let arguments = ProcessInfo.processInfo.arguments
-        guard let flag = arguments.firstIndex(of: "--say"),
-              arguments.index(after: flag) < arguments.endIndex else { return }
-        let phrase = arguments[arguments.index(after: flag)]
-        // After a beat, so the audio device list has been enumerated — a
-        // classifier run against an empty context resolves to nothing and would
-        // look exactly like a classifier that failed.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(600))
-            assistant.ask(phrase)
-        }
-    }
-
-    #if AIRLOCK_GUIDE
-    /// Play the guide's pretend task a moment after launch, the one Settings'
-    /// Motion → Preview plays, so the motion can be looked at in a packaged
-    /// build without clicking through to the hidden section.
-    ///
-    ///   open output/package/Airlock.app --args --guide-motion-preview
-    private func previewGuideMotionIfAsked() {
-        guard ProcessInfo.processInfo.arguments.contains("--guide-motion-preview") else { return }
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            GuideMotionPreview.play()
-        }
-    }
-    #endif
 
     /// The app is `LSUIElement`, so a launch that opens nothing looks to a new
     /// user exactly like a launch that failed. This is the one moment where
@@ -821,6 +548,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func presentOnboardingIfNeeded(_ settingsModel: SettingsModel) -> Bool {
         let process = ProcessInfo.processInfo
         guard !Self.isDemoMode else { return false }
+        // The Home "Try these" card starts with a first run; this starts it
+        // again on a Mac that has long had Airlock:
+        //   open output/package/Airlock.app --args --try-these
+        if process.arguments.contains("--try-these") { FirstStepsModel.shared.begin() }
         settingsModel.refresh()
         // Forced two ways because the honest path to seeing this window is to be
         // a new user, and the developer never is. The argument form is the one
@@ -829,16 +560,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //   open output/package/Airlock.app --args --onboarding
         let forced = process.environment["AIRLOCK_ONBOARDING"] != nil
             || process.arguments.contains("--onboarding")
-        #if AIRLOCK_GUIDE
-        // The guide's welcome window, on request only. A first run is the
-        // setup in the notch on every copy, the guide's included: the owner
-        // preferred it to a window in the middle of the screen (2026-10-08).
-        //   open output/package/Airlock.app --args --welcome
-        if process.arguments.contains("--welcome") {
-            welcome?.show()
-            return true
-        }
-        #endif
         guard forced || OnboardingModel.shouldPresentAtLaunch(settings: settingsModel)
         else { return false }
         // Falls back to the window if there is no panel to run in — a shut lid
@@ -846,6 +567,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // first run that silently does nothing is the exact failure this
         // function exists to prevent.
         onboardingModel?.beganFirstRun()
+        FirstStepsModel.shared.begin()
         if let onboardingModel, NotchScreen.target != nil {
             notch?.beginOnboarding(onboardingModel)
         } else {
@@ -854,19 +576,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    #if AIRLOCK_GUIDE
-    /// "Yes, I do" in the welcome: the setup wizard, straight to connecting
-    /// agents, in the panel as a first run would show it.
-    private func connectAgentsAfterWelcome() {
-        guard let onboardingModel else { return }
-        onboardingModel.continueFromWelcome()
-        if NotchScreen.target != nil {
-            notch?.beginOnboarding(onboardingModel)
-        } else {
-            onboarding?.show()
-        }
-    }
-    #endif
 
     /// Brings an agentic-notch install across to Airlock.
     ///
@@ -931,7 +640,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let notice = PermissionsAgainWindowController()
         permissionsAgain = notice
-        notice.show(guideOn: SettingsPane.guideIsOn) { [weak self] in
+        notice.show { [weak self] in
             self?.appWindow?.show(pane: .permissions)
         }
     }
@@ -1095,9 +804,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.toolTip = "Airlock"
         item.menu = makeStatusMenu()
         statusItem = item
-        #if AIRLOCK_GUIDE
-        watchGuideForStatusItem()
-        #endif
     }
 
     /// The status item's menu. Built apart from the item so a test can open
@@ -1109,20 +815,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and promoting it to a real global hotkey would be worse, since ⌘T is
         // New Tab in every app on this Mac. ⌘, and ⌘Q below are the exception
         // because `installMainMenu` claims them properly.
-        menu.addItem(makeItem("Show / Hide Panel", #selector(togglePanel), ""))
-        menu.addItem(makeItem("Settings…", #selector(openSettings), ","))
+        menu.addItem(makeItem(String(localized: "Show / Hide Panel"), #selector(togglePanel), ""))
+        menu.addItem(makeItem(String(localized: "Settings…"), #selector(openSettings), ","))
         // Every call's notes, whenever, not only the one the island offers
         // as it ends. Shown only while call notes are on (`menuNeedsUpdate`).
-        let callNotes = makeItem("Call Notes…", #selector(openCallNotes), "")
+        let callNotes = makeItem(String(localized: "Call Notes…"), #selector(openCallNotes), "")
         callNotes.tag = Self.callNotesMenuTag
         menu.addItem(callNotes)
         // Notes of a meeting in the room, with no call, or "Stop Notes"
         // while notes are taken. Same rule as the row above.
-        let handNotes = makeItem("Take Notes", #selector(pressNotesButton), "")
+        let handNotes = makeItem(String(localized: "Take Notes"), #selector(pressNotesButton), "")
         handNotes.tag = Self.handNotesMenuTag
         menu.addItem(handNotes)
         // Notes from a recording somebody already has. Same rule again.
-        let addRecording = makeItem("Add Recording…", #selector(addRecording), "")
+        let addRecording = makeItem(String(localized: "Add Recording…"), #selector(addRecording), "")
         addRecording.tag = Self.addRecordingMenuTag
         menu.addItem(addRecording)
         // On Free, the one way to Plus that is always there: the reminders
@@ -1130,40 +836,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Under the call rows, so "Call Notes…" keeps its place after
         // Settings; with call notes off it is the row after Settings.
         // Shown only on Free (`menuNeedsUpdate`).
-        let upgrade = makeItem("Upgrade to Plus…", #selector(openPlans), "")
+        let upgrade = makeItem(String(localized: "Upgrade to Plus…"), #selector(openPlans), "")
         upgrade.tag = Self.upgradeMenuTag
         menu.addItem(upgrade)
         // Findable again on purpose: "walk me through it" is the first thing
         // anyone asks for support, and re-running setup should not require
         // deleting a preference key.
-        menu.addItem(makeItem("Setup Guide…", #selector(openOnboarding), ""))
+        menu.addItem(makeItem(String(localized: "Setup Guide…"), #selector(openOnboarding), ""))
         // The menu bar's Help menu is drawn only while a window is open, and
         // this menu is the one that is always there.
-        let help = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        let help = NSMenuItem(title: String(localized: "Help"), action: nil, keyEquivalent: "")
         help.submenu = makeHelpMenu()
         menu.addItem(help)
         // Only in a real bundle: `swift run` has nothing to update, and a menu
         // item that cannot work is worse than one that is not there.
         if updater?.isAvailable == true {
-            menu.addItem(makeItem("Check for Updates…", #selector(checkForUpdates), ""))
+            menu.addItem(makeItem(String(localized: "Check for Updates…"), #selector(checkForUpdates), ""))
         }
         // Demo runs only. Sample sessions are a screenshot and dev-run tool, and
         // seeding four invented agents into somebody's real notch is not a
         // feature — it shipped in the menu of every packaged build regardless.
         if Self.isDemoMode {
-            menu.addItem(makeItem("Seed Demo Session", #selector(seedDemo), "d"))
+            menu.addItem(makeItem(String(localized: "Seed Demo Session"), #selector(seedDemo), "d"))
         }
         menu.addItem(.separator())
-        menu.addItem(makeItem("Quit Airlock", #selector(quit), "q"))
+        menu.addItem(makeItem(String(localized: "Quit Airlock"), #selector(quit), "q"))
         // Rows that depend on a setting are settled each time the menu opens
         // (`menuNeedsUpdate`).
         menu.delegate = self
         return menu
     }
 
-    /// Marks "Call Notes…", so `menuNeedsUpdate` can find it wherever the
-    /// guide's rows have pushed it. Any tag but 0 (every other row) and the
-    /// guide's.
+    /// Marks "Call Notes…", so `menuNeedsUpdate` can find it wherever other
+    /// rows have pushed it. Any tag but 0, which every other row has.
     static let callNotesMenuTag = 1
 
     /// Shows "Call Notes…" only while call notes are on, as the Voice page
@@ -1187,8 +892,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     static func handNotesTitle(_ button: MeetingNotesFlow.HandButton) -> String? {
         switch button {
-        case .takeNotes, .takeNotesOfCall: "Take Notes"
-        case .stop: "Stop Notes"
+        case .takeNotes, .takeNotesOfCall: String(localized: "Take Notes")
+        case .stop: String(localized: "Stop Notes")
         case .busy: nil
         }
     }
@@ -1201,7 +906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func showAddRecording(in menu: NSMenu, when on: Bool, reading: Bool) {
         guard let item = menu.items.first(where: { $0.tag == addRecordingMenuTag }) else { return }
         item.isHidden = !on
-        item.title = reading ? "Reading a Recording…" : "Add Recording…"
+        item.title = reading ? String(localized: "Reading a Recording…") : String(localized: "Add Recording…")
     }
 
     /// Marks "Upgrade to Plus…", for `menuNeedsUpdate`.
@@ -1230,7 +935,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let first = planLimits == nil
         planLimits = limits
         model?.oneAgentAtATime = limits.oneAgentAtATime
-        if !first { clipboardWidget?.planDidChange() }
+        if !first {
+            clipboardWidget?.planDidChange()
+            Task { await CallUnlockService.shared.look() }
+        }
         if limits.tellsVoicesApart, !Self.isDemoMode { CallVoiceDownload.shared.startSoon() }
     }
 
@@ -1250,94 +958,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UsageCounts.shared.record(.planChanged(from: before, to: plan))
     }
 
-    #if AIRLOCK_GUIDE
-    // MARK: - The guide in the menu bar (card 3.08)
-
-    /// Marks the rows `updateGuideRows` owns, so it can take them out again.
-    private static let guideMenuTag = 3_08
-
-    /// What the icon shows now, so a session change that leaves the dots
-    /// alone does not redraw the menu bar.
-    private var statusDots: GuidePresentation.MenuBarDots?
-
-    /// Swaps the cloud for the task's progress dots while a guide is on a
-    /// step, and back once it is not. On a Mac with no notch the menu bar is
-    /// where a glance goes; with one, the dots repeat the pill's.
-    ///
-    /// Re-arms itself: `withObservationTracking` fires once per change.
-    private func watchGuideForStatusItem() {
-        guard let guide else { return }
-        let (dots, plan) = withObservationTracking {
-            (GuidePresentation.menuBarDots(guide.session), GuidePresentation.plan(guide.session))
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.watchGuideForStatusItem() }
-        }
-        guard dots != statusDots else { return }
-        statusDots = dots
-        guard let button = statusItem?.button else { return }
-        if let dots, let plan {
-            button.image = Self.progressMark(dots)
-            button.toolTip = "Airlock: \(plan.title), step \(plan.number) of \(plan.count)"
-        } else {
-            button.image = Self.statusMark()
-            button.toolTip = "Airlock"
-        }
-    }
-
-    /// The dots: solid up to this step, rings after. A template, like the
-    /// cloud, so the menu bar tints it for light, dark and a selected item.
-    private static func progressMark(_ dots: GuidePresentation.MenuBarDots) -> NSImage {
-        let diameter: CGFloat = 5, gap: CGFloat = 3, height: CGFloat = 17
-        let width = CGFloat(dots.total) * diameter + CGFloat(max(dots.total - 1, 0)) * gap + 2
-        let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
-            for index in 0..<dots.total {
-                let x = 1 + CGFloat(index) * (diameter + gap)
-                let box = NSRect(x: x, y: (height - diameter) / 2, width: diameter, height: diameter)
-                NSColor.black.set()
-                if index < dots.filled {
-                    NSBezierPath(ovalIn: box).fill()
-                } else {
-                    let ring = NSBezierPath(ovalIn: box.insetBy(dx: 0.6, dy: 0.6))
-                    ring.lineWidth = 1.2
-                    ring.stroke()
-                }
-            }
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-
-    /// The status menu's guide rows, from the guide as it is now: "Stop the
-    /// guide" while a task runs, "Ask for help…" while it is on and idle.
-    /// Never both — asking mid-task would replace the running one.
-    private func updateGuideRows(in menu: NSMenu) {
-        for item in menu.items where item.tag == Self.guideMenuTag {
-            menu.removeItem(item)
-        }
-        guard let guide, guide.isEnabled else { return }
-        let row = guide.session.isLive
-            ? makeItem("Stop the Guide", #selector(stopGuide), "")
-            : makeItem("Ask for Help…", #selector(askGuide), "")
-        row.tag = Self.guideMenuTag
-        let separator = NSMenuItem.separator()
-        separator.tag = Self.guideMenuTag
-        menu.insertItem(row, at: 0)
-        menu.insertItem(separator, at: 1)
-    }
-
-    @objc private func askGuide() {
-        // The bar is opt-in (`assistant.commandBar.enabled`), and the notch
-        // declines it silently when off; the menu sends you to the switch.
-        if assistant?.commandBarEnabled == true {
-            notch?.toggleCommandBar()
-        } else {
-            appWindow?.show(anchor: .commandBar)
-        }
-    }
-
-    @objc private func stopGuide() { guide?.stop() }
-    #endif
 
     /// Help: the website, the list of what Airlock does, and the address
     /// that reaches a person. Built twice, for the status item's menu and
@@ -1346,15 +966,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Each row opens the browser or the mail app when chosen, and nothing
     /// is fetched before that.
     func makeHelpMenu() -> NSMenu {
-        let help = NSMenu(title: "Help")
-        help.addItem(makeItem("Airlock Website", #selector(openWebsite), ""))
+        let help = NSMenu(title: String(localized: "Help"))
+        help.addItem(makeItem(String(localized: "Airlock Website"), #selector(openWebsite), ""))
         // The home page's tiles, one per feature with a page of its own.
-        help.addItem(makeItem("What Airlock Can Do", #selector(openAllFeatures), ""))
+        help.addItem(makeItem(String(localized: "What Airlock Can Do"), #selector(openAllFeatures), ""))
         help.addItem(.separator())
-        help.addItem(makeItem("Email \(HelpLinks.email)", #selector(emailUs), ""))
+        help.addItem(makeItem(String(localized: "Email \(HelpLinks.email)"), #selector(emailUs), ""))
         // For mail written in a browser: without a mail app set up, the row
         // above opens Mail's account setup instead.
-        help.addItem(makeItem("Copy Email Address", #selector(copyEmailAddress), ""))
+        help.addItem(makeItem(String(localized: "Copy Email Address"), #selector(copyEmailAddress), ""))
         return help
     }
 
@@ -1397,8 +1017,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu(title: "Airlock")
-        appMenu.addItem(makeItem("Settings…", #selector(openSettings), ","))
-        appMenu.addItem(makeItem("Setup Guide…", #selector(openOnboarding), ""))
+        appMenu.addItem(makeItem(String(localized: "Settings…"), #selector(openSettings), ","))
+        appMenu.addItem(makeItem(String(localized: "Setup Guide…"), #selector(openOnboarding), ""))
         appMenu.addItem(.separator())
         // No Hide item, and therefore no ⌘H. Hiding is safe now: every panel
         // that must stay (the notch, the drop catcher, the window beside a
@@ -1408,34 +1028,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Dock icon offers Hide whenever there is a window to hide. A ⌘H here
         // would add only a way to hide the windows from inside the notch,
         // whose search field takes the keyboard while you are in another app.
-        appMenu.addItem(makeItem("Quit Airlock", #selector(quit), "q"))
+        appMenu.addItem(makeItem(String(localized: "Quit Airlock"), #selector(quit), "q"))
         appItem.submenu = appMenu
         main.addItem(appItem)
 
         let editItem = NSMenuItem()
-        let edit = NSMenu(title: "Edit")
+        let edit = NSMenu(title: String(localized: "Edit"))
         // Untargeted on purpose: these travel the responder chain to whatever
         // field editor is first responder, which is the only thing that knows
         // what "copy" means right now.
-        edit.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
-        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        edit.addItem(NSMenuItem(title: String(localized: "Undo"), action: Selector(("undo:")), keyEquivalent: "z"))
+        let redo = NSMenuItem(title: String(localized: "Redo"), action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         edit.addItem(redo)
         edit.addItem(.separator())
-        edit.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
-        edit.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
-        edit.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
-        edit.addItem(NSMenuItem(title: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: ""))
-        edit.addItem(NSMenuItem(title: "Select All",
+        edit.addItem(NSMenuItem(title: String(localized: "Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        edit.addItem(NSMenuItem(title: String(localized: "Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        edit.addItem(NSMenuItem(title: String(localized: "Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        edit.addItem(NSMenuItem(title: String(localized: "Delete"), action: #selector(NSText.delete(_:)), keyEquivalent: ""))
+        edit.addItem(NSMenuItem(title: String(localized: "Select All"),
                                 action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         editItem.submenu = edit
         main.addItem(editItem)
 
         let windowItem = NSMenuItem()
-        let window = NSMenu(title: "Window")
-        window.addItem(NSMenuItem(title: "Close",
+        let window = NSMenu(title: String(localized: "Window"))
+        window.addItem(NSMenuItem(title: String(localized: "Close"),
                                   action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
-        window.addItem(NSMenuItem(title: "Minimise",
+        window.addItem(NSMenuItem(title: String(localized: "Minimise"),
                                   action: #selector(NSWindow.performMiniaturize(_:)),
                                   keyEquivalent: "m"))
         windowItem.submenu = window
@@ -1517,17 +1137,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSMenuDelegate {
     /// Settles the status menu just before it shows. Call notes being on is
     /// read here rather than watched: the menu is the only place the row
-    /// shows, and nobody sees the menu closed. One method for both builds,
-    /// because a type can conform to `NSMenuDelegate` only once, so the
-    /// guide's rows are a call from here rather than a second conformance.
+    /// shows, and nobody sees the menu closed.
     func menuNeedsUpdate(_ menu: NSMenu) {
         let notesOn = model?.meetings.isEnabled ?? false
         Self.showCallNotes(in: menu, when: notesOn)
         Self.showHandNotes(in: menu, as: notesOn ? model?.meetings.handButton : nil)
         Self.showAddRecording(in: menu, when: notesOn, reading: model?.meetings.recordings.isBusy ?? false)
         Self.showUpgrade(in: menu, onFree: license?.entitlement.plan == .free)
-        #if AIRLOCK_GUIDE
-        updateGuideRows(in: menu)
-        #endif
     }
 }

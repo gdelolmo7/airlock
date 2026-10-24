@@ -384,12 +384,16 @@ public struct SessionState: Codable, Sendable, Equatable {
     /// question the card spells out — and how many more wait behind it.
     static func waitingLine(card: PermissionRequest, behind: Int) -> String {
         let line = card.waitingLine ?? card.summary
-        return behind > 0 ? "\(line) · \(behind) more after this" : line
+        return behind > 0 ? String(localized: "\(line) · \(behind) more after this") : line
     }
 
     /// The project a session has before the agent says where it runs — a
     /// placeholder, which the card swaps for a name (`SessionCardText.place`).
     public static let unknownProject = "session"
+
+    /// The row's line while the agent works with nothing more to say. Stored
+    /// and compared as it is; `SessionCardText.shown` words it for the card.
+    public static let workingLine = "Working…"
 
     /// The row's line once a gate is over, until the agent says anything else.
     ///
@@ -406,9 +410,9 @@ public struct SessionState: Codable, Sendable, Equatable {
         case .allowOnce, .alwaysAllow:
             // An answered question sends the agent back to work; an approved
             // call runs.
-            return request.question != nil ? "Working…" : (request.activity ?? request.summary)
+            return request.question != nil ? Self.workingLine : (request.activity ?? request.summary)
         case .deny:
-            return "Working…"
+            return Self.workingLine
         }
     }
 
@@ -443,7 +447,7 @@ public struct SessionState: Codable, Sendable, Equatable {
                 s.lastResponse = nil // the new turn hasn't answered yet
                 // First prompt names the conversation until a real title arrives.
                 if s.title == nil { s.title = Self.promptTitle(text) }
-                s.lastSummary = "Working…"
+                s.lastSummary = Self.workingLine
                 // Somebody typed, so whatever was still out stops holding the
                 // session: the next turn's end is judged on what it starts. A
                 // server left running never reports back, and without this one
@@ -463,7 +467,7 @@ public struct SessionState: Codable, Sendable, Equatable {
                     }
                 }
             case .injected:
-                s.lastSummary = "Working…"
+                s.lastSummary = Self.workingLine
             }
             if !s.status.wantsAttention { s.status = .running }
 

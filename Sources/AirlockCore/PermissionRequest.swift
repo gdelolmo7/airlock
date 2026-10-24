@@ -89,7 +89,7 @@ public struct PermissionRequest: Codable, Sendable, Hashable, Identifiable {
     public var waitingLine: String? {
         guard question != nil else { return nil }
         let count = questions.count
-        return count > 1 ? "Waiting for your answer · \(count) questions" : "Waiting for your answer"
+        return count > 1 ? String(localized: "Waiting for your answer · \(count) questions") : String(localized: "Waiting for your answer")
     }
 
     /// Whether "Always" belongs on this card.

@@ -47,6 +47,7 @@ public struct WaitPace: Equatable, Sendable {
     /// five seconds and fifty look the same. "Still" is that change.
     public static func still(_ words: String) -> String {
         guard let first = words.first else { return words }
-        return "Still " + first.lowercased() + words.dropFirst()
+        let lowered = first.lowercased() + words.dropFirst()
+        return String(localized: "Still \(lowered)")
     }
 }

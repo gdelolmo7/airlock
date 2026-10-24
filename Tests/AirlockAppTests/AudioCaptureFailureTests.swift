@@ -326,15 +326,79 @@ final class AudioCaptureFailureTests: XCTestCase {
         }
     }
 
+    // MARK: - A stop moments after the start
+
+    /// The stop an ⌥ shortcut makes, a tenth of a second after the start, is
+    /// the one that crashed the app inside Core Audio. These engines never
+    /// deliver a buffer, so a settled stop waits out the whole ceiling, says
+    /// so, and then lets the microphone go, once.
+    func testASettledStopWaitsOutTheCeilingWhenNoBufferComes() async throws {
+        let (capture, _, log) = makeCapture()
+        let began = Date()
+        let stream = try capture.start(analyzerFormat: analyzerFormat)
+        await capture.stopWhenSettled()
+
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(began), 0.125)
+        XCTAssertFalse(capture.isCapturing)
+        XCTAssertTrue(log.lines.contains {
+            $0.hasPrefix("  waited for the microphone to settle") && $0.hasSuffix("no buffer by the ceiling")
+        }, "\(log.lines)")
+        XCTAssertEqual(log.lines.filter { $0 == "  microphone stopped" }.count, 1, "\(log.lines)")
+        let ended = await ends(stream)
+        XCTAssertTrue(ended, "a settled stop must finish the stream too")
+    }
+
+    /// With nothing running there is nothing to wait for.
+    func testASettledStopWithNothingRunningReturnsAtOnce() async {
+        let (capture, _, log) = makeCapture(settleCeiling: 5)
+        let began = Date()
+        await capture.stopWhenSettled()
+        XCTAssertLessThan(Date().timeIntervalSince(began), 1)
+        XCTAssertFalse(log.lines.contains { $0.contains("settle") }, "\(log.lines)")
+    }
+
+    /// The rescue from a stalled hold stops at once, and a wait already under
+    /// way sees it rather than stopping a second time.
+    func testAPlainStopEndsTheWait() async throws {
+        let (capture, _, log) = makeCapture(settleCeiling: 5)
+        _ = try capture.start(analyzerFormat: analyzerFormat)
+        let waiting = Task { await capture.stopWhenSettled() }
+        try await Task.sleep(for: .milliseconds(30))
+
+        capture.stop()
+        let stopped = Date()
+        await waiting.value
+        XCTAssertLessThan(Date().timeIntervalSince(stopped), 1, "the wait did not notice the stop")
+        XCTAssertEqual(log.lines.filter { $0 == "  microphone stopped" }.count, 1, "\(log.lines)")
+        XCTAssertFalse(log.lines.contains { $0.contains("settle") }, "\(log.lines)")
+    }
+
+    /// A wait belongs to the hold it started in. Were a new hold to start
+    /// while it waits, the microphone it would stop is somebody else's.
+    func testAWaitNeverStopsANewerHold() async throws {
+        let (capture, _, _) = makeCapture(settleCeiling: 0.25)
+        _ = try capture.start(analyzerFormat: analyzerFormat)
+        let waiting = Task { await capture.stopWhenSettled() }
+        try await Task.sleep(for: .milliseconds(30))
+
+        _ = try capture.start(analyzerFormat: analyzerFormat)
+        await waiting.value
+        XCTAssertTrue(capture.isCapturing, "an older hold's wait stopped the newer hold's microphone")
+        capture.stop()
+    }
+
     // MARK: - Helpers
 
     /// `queued` are built in order, one per engine the capture asks for, and
-    /// plain engines after them.
-    private func makeCapture(_ queued: (() -> AVAudioEngine)...) -> (AudioCapture, Engines, Lines) {
+    /// plain engines after them. The settle ceiling is short by default: these
+    /// engines never deliver a buffer, so a settled stop always waits it out.
+    private func makeCapture(_ queued: (() -> AVAudioEngine)...,
+                             settleCeiling: TimeInterval = 0.125) -> (AudioCapture, Engines, Lines) {
         let engines = Engines()
         engines.queued = queued
         let log = Lines()
-        let capture = AudioCapture(makeEngine: { engines.make() }, log: { log.lines.append($0) })
+        let capture = AudioCapture(makeEngine: { engines.make() }, log: { log.lines.append($0) },
+                                   settleCeiling: settleCeiling)
         return (capture, engines, log)
     }
 

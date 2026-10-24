@@ -47,7 +47,7 @@ cd "$(dirname "$0")/.."
 # Notarization failed three times that way with `completedParts: []` — it
 # authenticates, opens the multipart upload, and transfers nothing — and worked
 # first time from Terminal.app.
-VERSION="${AIRLOCK_VERSION:-1.0.26}"
+VERSION="${AIRLOCK_VERSION:-1.1.0}"
 PROFILE="${AIRLOCK_NOTARY_PROFILE:-airlock}"
 OUT=output/package
 APP="$OUT/Airlock.app"
@@ -296,6 +296,33 @@ if [[ -f Configuration/sparkle-public-key.txt && -x "$APPCAST_TOOL" ]]; then
     && prefix_args=(--download-url-prefix "$AIRLOCK_DOWNLOAD_PREFIX")
   # Reads the private key from the keychain; it is never on disk or in argv.
   "$APPCAST_TOOL" "$OUT" "${prefix_args[@]}"
+  # The same notes in Spanish, beside the English, as a second description
+  # marked xml:lang="es". Sparkle shows the one that matches the app's
+  # language and the English one otherwise. generate_appcast knows only one
+  # notes file per archive, so it is added to the new item afterwards; the
+  # feed itself is not signed, only the DMG is.
+  NOTES_ES="$("$APP/Contents/MacOS/Airlock" --whats-new-html "$VERSION" --lang es)"
+  if [[ -n "$NOTES" && -n "$NOTES_ES" && "$NOTES_ES" != "$NOTES" ]]; then
+    NOTES_ES="$NOTES_ES" python3 - "$OUT/appcast.xml" "$VERSION" <<'PY'
+import os, re, sys
+path, version = sys.argv[1], sys.argv[2]
+feed = open(path, encoding="utf-8").read()
+notes = os.environ["NOTES_ES"].replace("]]>", "]]]]><![CDATA[>")
+item = re.search(r"<item>(?:(?!</item>).)*?<sparkle:shortVersionString>" + re.escape(version)
+                 + r"</sparkle:shortVersionString>(?:(?!</item>).)*?</item>", feed, re.S)
+if item and 'xml:lang="es"' not in item.group(0):
+    body = item.group(0)
+    end = body.find("</description>")
+    if end >= 0:
+        end += len("</description>")
+        indent = re.search(r"\n([ \t]*)<description", body)
+        pad = indent.group(1) if indent else "            "
+        body = body[:end] + "\n" + pad + '<description xml:lang="es"><![CDATA[' + notes + "]]></description>" + body[end:]
+        feed = feed[:item.start()] + body + feed[item.end():]
+        open(path, "w", encoding="utf-8").write(feed)
+        print("  ✓ Spanish release notes for " + version)
+PY
+  fi
   echo "  ✓ $OUT/appcast.xml"
   echo "    Upload the DMG and appcast.xml together. Sparkle checks the"
   echo "    signature in the appcast against the key in the app, so the host"

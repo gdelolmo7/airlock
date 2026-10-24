@@ -10,6 +10,8 @@ import AirlockCore
 //   AIRLOCK_LICENSE_KEY=<private> swift run LicenseTool issue you@example.com yearly --plan pro
 //   AIRLOCK_LICENSE_KEY=<private> swift run LicenseTool reissue <token> --plan pro
 //   swift run LicenseTool check <token>
+//   swift run LicenseTool call-lock-key
+//   AIRLOCK_CALL_LOCK_KEY=<private> swift run LicenseTool call-lock-pubkey
 //
 // THE PRIVATE KEY NEVER ENTERS THIS REPOSITORY. It arrives through the
 // environment so it cannot be committed by accident, cannot appear in `ps` the
@@ -180,6 +182,32 @@ case "check":
     case .invalid(let reason):
         fail("invalid (\(reason.rawValue))")
     }
+
+case "call-lock-key":
+    // The pair a Free call's locked part is sealed to: the public half goes
+    // in the app, the private half only in the licence server. Not the
+    // licence's key, and not interchangeable with it: this one opens, that
+    // one signs.
+    let key = Curve25519.KeyAgreement.PrivateKey()
+    print("""
+    PUBLIC  (commit to Configuration/call-lock-public-key.txt):
+    \(key.publicKey.rawRepresentation.base64EncodedString())
+
+    PRIVATE (the licence server's CALL_LOCK_PRIVATE_KEY — NEVER commit):
+    \(key.rawRepresentation.base64EncodedString())
+
+    Losing the private key leaves every call locked so far unopenable; new
+    calls lock to a new pair. Leaking it lets whoever holds it open a locked
+    call they also have the file of.
+    """)
+
+case "call-lock-pubkey":
+    guard let text = ProcessInfo.processInfo.environment["AIRLOCK_CALL_LOCK_KEY"],
+          let raw = Data(base64Encoded: text),
+          let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) else {
+        fail("set AIRLOCK_CALL_LOCK_KEY to the call lock's private key")
+    }
+    print(key.publicKey.rawRepresentation.base64EncodedString())
 
 default:
     fail("unknown command: \(command)")

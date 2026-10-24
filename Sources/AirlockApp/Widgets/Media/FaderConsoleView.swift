@@ -89,7 +89,7 @@ struct FaderConsoleView: View {
             id: "output",
             // The device is named once, in the card's header; the bar is just
             // how loud it is.
-            name: "Volume",
+            name: String(localized: "Volume"),
             value: Double(volume),
             isMuted: output.isMuted,
             isIdle: false,
@@ -117,7 +117,7 @@ struct FaderConsoleView: View {
             // one live control on it. The mute itself is remembered either way
             // (`AppVolumeModel.muted`), and the button is back the moment the
             // app is.
-            mute: slot.isIdle ? nil : (name: isMuted ? "Unmute" : "Mute",
+            mute: slot.isIdle ? nil : (name: isMuted ? String(localized: "Unmute") : String(localized: "Mute"),
                                        run: { mixer.toggleMute(slot.app) }),
             failure: AppVolumeModel.rowFailure(mixer.failures[bundleID]),
             set: { mixer.setGain(Float($0), for: slot.app) })
@@ -138,7 +138,8 @@ struct FaderConsoleView: View {
     /// the wrong label for what pressing it does.
     private var outputGlyphAction: (name: String, run: () -> Void)? {
         guard output.canMute else { return nil }
-        return (name: output.isMuted ? "Unmute" : "Mute", run: { output.toggleMute() })
+        return (name: output.isMuted ? String(localized: "Unmute") : String(localized: "Mute"),
+                run: { output.toggleMute() })
     }
 
     // MARK: - Console: faders side by side — the retained reversal
@@ -169,7 +170,7 @@ struct FaderConsoleView: View {
                     fader(value: Double(volume),
                           symbol: OutputMute.isSilent(volume: volume, isMuted: output.isMuted)
                               ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                          label: "Output",
+                          label: String(localized: "Output"),
                           isIdle: false,
                           glyphAction: outputGlyphAction) {
                         output.setVolume(Float($0))
@@ -305,7 +306,7 @@ struct FaderConsoleView: View {
         }
         .frame(width: Self.columnWidth)
         .opacity(isIdle ? 0.45 : 1)
-        .help(isIdle ? "\(label) stopped playing — its place is held for a moment" : label)
+        .help(isIdle ? String(localized: "\(label) stopped playing — its place is held for a moment") : label)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label) level")
         .accessibilityValue(isIdle ? "idle" : "\(Int((value * 100).rounded())) percent")
@@ -413,7 +414,8 @@ struct HiddenAppsNote: View {
 
     var body: some View {
         if hidden > 0 {
-            Text("+\(hidden) more app\(hidden == 1 ? "" : "s") playing")
+            Text(hidden == 1 ? "+1 more app playing" : "+\(hidden) more apps playing")
+
                 .font(Theme.chrome(10, .medium))
                 .foregroundStyle(Theme.textTertiary)
                 .padding(.leading, LevelRow.failureIndent)
@@ -489,12 +491,12 @@ struct LevelRow: View {
     /// The level with any mute first, by the output's rule for both — see
     /// `OutputMute.spokenLevel`.
     private var spokenValue: String {
-        source.isIdle ? "idle" : OutputMute.spokenLevel(volume: Float(source.value),
+        source.isIdle ? String(localized: "idle") : OutputMute.spokenLevel(volume: Float(source.value),
                                                          isMuted: source.isMuted)
     }
 
     private var tooltip: String {
-        source.isIdle ? "\(source.name) stopped playing — its place is held for a moment" : source.name
+        source.isIdle ? String(localized: "\(source.name) stopped playing — its place is held for a moment") : source.name
     }
 
     /// The mute button, or — with nothing to press — the same picture as a
@@ -592,8 +594,10 @@ struct LevelBar: View {
                         }
                     }
             )
-            .help(source.isIdle ? "\(source.name) stopped playing — its place is held for a moment"
-                                : "Slide to change \(source.name == "Volume" ? "the volume" : source.name + "'s volume")")
+            .help(source.isIdle ? String(localized: "\(source.name) stopped playing — its place is held for a moment")
+                                : source.id == "output" ? String(localized: "Slide to change the volume")
+                                : String(localized: "Slide to change \(source.name)'s volume"))
+
         }
         .frame(height: height)
     }

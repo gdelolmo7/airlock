@@ -30,8 +30,8 @@ struct MediaSectionView: View {
                 artwork: ArtworkView(url: state.artworkURL, size: MediaCardMetrics.artworkSize,
                                      source: state.player),
                 artworkLabel: state.artworkURL == nil
-                    ? "\(state.player.displayName) icon"
-                    : "Album artwork, \(state.player.displayName)",
+                    ? String(localized: "\(state.player.displayName) icon")
+                    : String(localized: "Album artwork, \(state.player.displayName)"),
                 timeline: timeline(state),
                 onOpen: { media.activatePlayer() },
                 onPrevious: { media.previous() },
@@ -141,7 +141,7 @@ struct HomeCardBackground: ViewModifier {
 /// than two cards that each invented a caption (owner, 2026-10-01).
 struct CardHeader<Trailing: View>: View {
     let symbol: String
-    let title: String
+    let title: LocalizedStringKey
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
@@ -163,7 +163,7 @@ struct CardHeader<Trailing: View>: View {
 }
 
 extension CardHeader where Trailing == EmptyView {
-    init(symbol: String, title: String) {
+    init(symbol: String, title: LocalizedStringKey) {
         self.init(symbol: symbol, title: title) { EmptyView() }
     }
 }
@@ -395,7 +395,8 @@ struct MediaTimelineRow: View {
                 // the start of something" — and there is no something.
                 Capsule().fill(Theme.rowStroke).frame(height: 4)
             }
-            Text(duration.map(MediaSectionView.clock) ?? "Live")
+            Text(duration.map(MediaSectionView.clock) ?? String(localized: "Live"))
+
                 .frame(minWidth: 30, alignment: .trailing)
         }
         .font(Theme.chrome(10, .medium))

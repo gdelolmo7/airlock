@@ -123,49 +123,4 @@ final class DictationRouteTests: XCTestCase {
     func testUnknownTypes() {
         XCTAssertEqual(DictationRoute.decide(.unknown), .type)
     }
-
-    // MARK: - Prompt gate
-
-    func testOnlyEmptyTextIsNotAQuestion() {
-        XCTAssertTrue(AssistantPrompt.isWorthAsking("why"))
-        XCTAssertFalse(AssistantPrompt.isWorthAsking(""))
-        XCTAssertTrue(AssistantPrompt.isWorthAsking("what's a monad"))
-    }
-}
-
-/// An echoed question occupies the answer's place on screen and says nothing.
-/// Measured live: "Okay, how does this work?" came back as "How does this work?".
-final class AssistantEchoTests: XCTestCase {
-    func testTheMeasuredEcho() {
-        XCTAssertTrue(AssistantPrompt.isEcho(question: "Okay, how does this work?",
-                                             answer: "How does this work?"))
-    }
-
-    func testVerbatimEcho() {
-        XCTAssertTrue(AssistantPrompt.isEcho(question: "what's a monad",
-                                             answer: "What's a monad?"))
-    }
-
-    /// A real answer reuses the question's words freely — that must not read as
-    /// an echo, or every well-formed reply gets thrown away.
-    func testRealAnswerIsNotAnEcho() {
-        XCTAssertFalse(AssistantPrompt.isEcho(
-            question: "what's the capital of France",
-            answer: "**Paris** is the capital of France."))
-        XCTAssertFalse(AssistantPrompt.isEcho(
-            question: "how does this work",
-            answer: "**How this works**  * **Input**: You speak into your Mac. "
-                + "* **Processing**: I interpret it and generate a response."))
-    }
-
-    /// A terse but genuine answer, built almost entirely from the question's own
-    /// words, still has to survive.
-    func testShortGenuineAnswerSurvives() {
-        XCTAssertFalse(AssistantPrompt.isEcho(question: "is Swift statically typed",
-                                              answer: "Yes, Swift is statically typed."))
-    }
-
-    func testEmptyAnswerCountsAsNoAnswer() {
-        XCTAssertTrue(AssistantPrompt.isEcho(question: "what's a monad", answer: "   "))
-    }
 }

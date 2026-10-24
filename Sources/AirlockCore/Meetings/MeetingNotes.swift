@@ -463,7 +463,7 @@ extension MeetingFiles {
         // Named by these notes when they name it, before the record is.
         var record = record
         if let named = notes?.title { record.topic = named }
-        let title = title(of: record)
+        let title = title(of: record, inFile: true)
         // The calendar's title is a name and keeps its capitals, as do a
         // recording's and the notes'; "Call in Zoom" is a description and
         // reads as one after "Notes:".
@@ -481,8 +481,10 @@ extension MeetingFiles {
         if let writtenFrom { lines += ["_\(writtenFrom)_", ""] }
         let words = NumberedTranscript(record).wordCount
 
+        let written = notes.flatMap { language(of: $0, record: record) }
+        let say = { (english: String) in headingWords(english, in: written) }
         if let notes, !notes.summary.isEmpty {
-            lines += ["## \(summaryHeading)", "", notes.summary, ""]
+            lines += ["## \(say(summaryHeading))", "", notes.summary, ""]
         } else if notes == nil {
             if words == 0 {
                 lines += ["Nothing was heard on this call, so there is nothing to summarise.", ""]
@@ -501,16 +503,16 @@ extension MeetingFiles {
             lines += notes.unwritten.flatMap { ["_\($0.sentence)_", ""] }
         }
         if !record.jots.isEmpty {
-            lines += ["## \(yourNotesHeading)", ""]
+            lines += ["## \(say(yourNotesHeading))", ""]
                 + record.jots.map { "- \(MeetingText.oneLine($0.text)) · \(clock($0.at))" } + [""]
         }
         if let notes {
-            lines += wordsSection(notes.words)
-            lines += section(todosHeading, notes.todos, box: true)
-            lines += section(decisionsHeading, notes.decisions)
-            lines += topicsSection(notes.topics)
-            lines += section(questionsHeading, notes.questions)
-            lines += section(keyPointsHeading, notes.keyPoints)
+            lines += wordsSection(notes.words, heading: say(wordsHeading))
+            lines += section(say(todosHeading), notes.todos, box: true)
+            lines += section(say(decisionsHeading), notes.decisions)
+            lines += topicsSection(notes.topics, heading: say(topicsHeading))
+            lines += section(say(questionsHeading), notes.questions)
+            lines += section(say(keyPointsHeading), notes.keyPoints)
         }
         let by: String
         if writer?.place == .online {
@@ -526,6 +528,35 @@ extension MeetingFiles {
                   + "No audio was kept. The summary is written by AI and can be wrong; "
                   + "check the transcript before relying on it._"]
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The page's section titles in Spanish, for notes written in Spanish.
+    /// Every other language gets the English ones. `MeetingPage.blocks` reads
+    /// either back as the English name, so nothing that looks a section up
+    /// needs to know which the file has.
+    static let spanishHeadings: [String: String] = [
+        summaryHeading: "Resumen", yourNotesHeading: "Tus notas", todosHeading: "Tareas",
+        decisionsHeading: "Decisiones", questionsHeading: "Preguntas abiertas",
+        keyPointsHeading: "Puntos clave", topicsHeading: "Temas", wordsHeading: "Revisa estas palabras",
+    ]
+
+    /// `english`, one of the headings above, as a page in `code` writes it.
+    public static func headingWords(_ english: String, in code: String?) -> String {
+        code == "es" ? spanishHeadings[english] ?? english : english
+    }
+
+    /// A section title read off a page, as the English name above, whichever
+    /// language the page was written in. Anything else as it is.
+    public static func canonicalHeading(_ text: String) -> String {
+        spanishHeadings.first { $0.value == text }?.key ?? text
+    }
+
+    /// The language the notes themselves are written in, read from their
+    /// words the same way the page's "you" is (`MeetingNaming`).
+    static func language(of notes: MeetingNotes, record: MeetingRecord) -> String? {
+        let prose = ([notes.summary] + (notes.todos + notes.decisions + notes.questions + notes.keyPoints).map(\.text)
+            + notes.topics.flatMap { [$0.title, $0.gist] + $0.points.map(\.text) }).joined(separator: "\n")
+        return CallLanguage.decide(engine: record.languages, reading: CallLanguage.reading(of: prose))?.code
     }
 
     /// Whether a notes page has notes on it: any of the headings the notes
@@ -716,7 +747,7 @@ extension MeetingFiles {
 
     /// "- **Mapa** — heard as “napa”, “mapá” · 2:15": what the notes took a
     /// word to be, and how the transcript has it (`MeetingPage.word`).
-    private static func wordsSection(_ words: [MeetingNotes.Word]) -> [String] {
+    private static func wordsSection(_ words: [MeetingNotes.Word], heading: String = wordsHeading) -> [String] {
         guard !words.isEmpty else { return [] }
         let list = words.map { word -> String in
             var line = "- **\(soft(word.best))** — \(MeetingPage.heardAs) "
@@ -724,15 +755,15 @@ extension MeetingFiles {
             if let at = word.at { line += " · \(clock(at))" }
             return line
         }
-        return ["## \(wordsHeading)", ""] + list + [""]
+        return ["## \(heading)", ""] + list + [""]
     }
 
     /// "## Topics", then for each "### 1. Price and plans · 4:05", its gist
     /// and its points: "- **Price:** 40 € a month · 4:10", with "✓ " before
     /// one that was decided (`MeetingPage.topic`, `MeetingPage.point`).
-    private static func topicsSection(_ topics: [MeetingNotes.Topic]) -> [String] {
+    private static func topicsSection(_ topics: [MeetingNotes.Topic], heading: String = topicsHeading) -> [String] {
         guard !topics.isEmpty else { return [] }
-        var lines = ["## \(topicsHeading)", ""]
+        var lines = ["## \(heading)", ""]
         for (index, topic) in topics.enumerated() {
             var heading = "### \(index + 1). \(soft(topic.title))"
             if let at = topic.at { heading += " · \(clock(at))" }

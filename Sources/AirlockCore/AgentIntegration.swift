@@ -90,14 +90,22 @@ public protocol AgentIntegration: Sendable {
 
     /// Serialize a decision into the agent's expected stdout bytes for the hook
     /// event that is blocking. Return `nil` to write nothing (fall back to the
-    /// agent's normal permission flow).
-    func directiveOutput(for directive: HookDirective, eventName: String?) -> Data?
+    /// agent's normal permission flow). `payload` is what the agent sent the
+    /// hook, for an answer that has to be written into the agent's own input.
+    func directiveOutput(for directive: HookDirective, eventName: String?, payload: Data) -> Data?
 
     /// Does this `ps` command line look like this agent's process? Used by the
     /// hook's parent-chain walk and by liveness re-checks (PID-reuse guard).
     func matchesProcess(command: String) -> Bool
 
     var installer: HookInstaller { get }
+}
+
+extension AgentIntegration {
+    /// A decision that needs nothing from the payload.
+    public func directiveOutput(for directive: HookDirective, eventName: String?) -> Data? {
+        directiveOutput(for: directive, eventName: eventName, payload: Data())
+    }
 }
 
 public extension AgentIntegration {

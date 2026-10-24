@@ -31,20 +31,18 @@ struct DictationPane: View {
     /// as on (`CloudNotesSetting.isOn`).
     @AppStorage(CloudNotesService.settingKey) private var notesOnline: Bool?
     @Environment(DictationModel.self) private var dictation
-    @Environment(AssistantModel.self) private var assistant
     /// Optional so the state gallery can draw the page without the window.
     @Environment(SettingsModel.self) private var settings: SettingsModel?
     /// Optional for the same reason.
     @Environment(LicenseModel.self) private var license: LicenseModel?
 
     @State private var editingCleanup = false
-    @State private var editingAnswers = false
     @State private var moreOptions: Bool
-    /// Whether the prompt has been asked for from here. The System Settings
-    /// route appears only after it, because macOS shows the dialog once per app
-    /// signature and offering both at once teaches people to skip the one that
-    /// works.
+    /// Whether Allow has been pressed here for Input Monitoring, and for
+    /// Accessibility. Allow opens the list in System Settings
+    /// (`PermissionSwitch`), so after it the row says what to do there.
     @State private var triedRequesting = false
+    @State private var triedAccessibility = false
     /// Every language a call can be heard in, dictation's own among them
     /// (`CallListeners`): asked when the page opens, unless given.
     @State private var callListeners: CallListeners
@@ -52,7 +50,7 @@ struct DictationPane: View {
 
     /// Rows that live behind "More options": a link to one opens them first,
     /// or it would scroll to a row that is not there.
-    static let anchorsInMoreOptions: Set<SettingsAnchor> = [.microphoneInput, .commandBar]
+    static let anchorsInMoreOptions: Set<SettingsAnchor> = [.microphoneInput]
 
     /// `callListeners`, when set, stands in for asking the Mac: the state
     /// gallery's pictures do not wait on it.
@@ -75,7 +73,7 @@ struct DictationPane: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
-                LookPageHeader(title: "Voice", subtitle: "Hold a key, talk, and your words are typed.",
+                LookPageHeader(title: String(localized: "Voice"), subtitle: String(localized: "Hold a key, talk, and your words are typed."),
                                learnMore: SettingsPane.voice.learnMore)
                     .padding(.horizontal, 4)
                     .padding(.bottom, 8)
@@ -93,7 +91,9 @@ struct DictationPane: View {
                 tidyRow
                 LookToggleRow("Pause music while I talk", isOn: Bindable(dictation).pausesMusic)
                     .settingsAnchor(.pauseMusic)
-                permissionRows
+                // Off, nothing is measured (the hold key isn't watched), so
+                // "All set" would be a guess; switching it on brings the rows.
+                if dictation.isEnabled { permissionRows }
                 LookMoreButton(isOpen: $moreOptions)
                     .padding(.top, 6)
                 if moreOptions {
@@ -101,9 +101,6 @@ struct DictationPane: View {
                         microphoneOptions
                         languageOptions
                         tidyOptions
-                        askingOptions
-                        actingOptions
-                        typingOptions
                         advancedOptions
                     }
                     .transition(.opacity)
@@ -135,9 +132,6 @@ struct DictationPane: View {
         .sheet(isPresented: $editingCleanup) {
             CleanupInstructionsSheet(dictation: dictation) { editingCleanup = false }
         }
-        .sheet(isPresented: $editingAnswers) {
-            AnswerInstructionsSheet(assistant: assistant) { editingAnswers = false }
-        }
     }
 
     private func openForReveal() {
@@ -148,12 +142,9 @@ struct DictationPane: View {
 
     // MARK: - The six rows
 
-    /// BOTH holds together, which is the whole point: the two keys are chosen
-    /// against each other, and the clash between them is the one failure on
-    /// this page that reads as a bug rather than a setting.
     @ViewBuilder private var keyRows: some View {
         LookRow("Hold to dictate") {
-            LookMenu(dictation.isEnabled ? dictation.holdKey.displayName : "Off") {
+            LookMenu(dictation.isEnabled ? dictation.holdKey.displayName : String(localized: "Off")) {
                 Picker("Hold to dictate", selection: dictateChoice) {
                     ForEach(HoldKeyMonitor.Key.allCases) { key in
                         Text(key.displayName).tag(HoldKeyMonitor.Key?.some(key))
@@ -166,27 +157,6 @@ struct DictationPane: View {
             }
         }
         .settingsAnchor(.holdToDictate)
-
-        LookRow("Hold to ask", subtitle: asksNow ? nil : "Ask a question and the answer shows in the notch") {
-            LookMenu(askChoice.wrappedValue?.displayName ?? "Off") {
-                Picker("Hold to ask", selection: askChoice) {
-                    ForEach(HoldKeyMonitor.Key.allCases) { key in
-                        Text(key.displayName).tag(HoldKeyMonitor.Key?.some(key))
-                    }
-                    Divider()
-                    Text("Off").tag(HoldKeyMonitor.Key?.none)
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-        }
-        .settingsAnchor(.holdToAsk)
-        .disabled(!dictation.isEnabled)
-
-        // Directly under the pair that causes it.
-        if dictation.isEnabled, asksNow, dictation.askKey == dictation.holdKey {
-            ProblemCard(sentence: "Pick different keys for the two holds. On the same key, asking loses and every hold types instead.")
-        }
     }
 
     /// Off is a key choice, not a second switch: "which key?" with "none" as
@@ -202,17 +172,6 @@ struct DictationPane: View {
                 } else {
                     dictation.isEnabled = false
                 }
-            })
-    }
-
-    private var asksNow: Bool { assistant.isEnabled && dictation.askKey != nil }
-
-    private var askChoice: Binding<HoldKeyMonitor.Key?> {
-        Binding(
-            get: { assistant.isEnabled ? dictation.askKey : nil },
-            set: { key in
-                dictation.askKey = key
-                if key != nil { assistant.isEnabled = true }
             })
     }
 
@@ -241,8 +200,8 @@ struct DictationPane: View {
     /// guessed: the recogniser transcribes in whatever language it is given.
     /// Not disabled with dictation: call notes listen without the hold key.
     private var callLanguageRow: some View {
-        LookRow("Language on calls", subtitle: "What call notes listen for") {
-            LookMenu(callLocale.isEmpty ? "Same as dictation" : displayName(callLocale)) {
+        LookRow("Language on calls", subtitle: String(localized: "What call notes listen for")) {
+            LookMenu(callLocale.isEmpty ? String(localized: "Same as dictation") : displayName(callLocale)) {
                 Picker("Language on calls", selection: $callLocale) {
                     Text("Same as dictation").tag("")
                     Divider()
@@ -268,7 +227,7 @@ struct DictationPane: View {
     /// under this one. Off, a call is only a call again.
     private var callNotesRow: some View {
         LookToggleRow("Call notes",
-                      subtitle: "Offers to take notes when a call starts. " + notesPlace.settingsLine,
+                      subtitle: String(localized: "Offers to take notes when a call starts. ") + notesPlace.settingsLine,
                       isOn: $callNotesOn)
             .settingsAnchor(.callNotes)
     }
@@ -287,7 +246,7 @@ struct DictationPane: View {
     /// The way back to calls already over. Here because this is where call
     /// notes are set up, and the island only offers a call as it ends.
     private var pastCallsRow: some View {
-        LookRow("Past calls", subtitle: "Every call's notes and transcript, on this Mac") {
+        LookRow("Past calls", subtitle: String(localized: "Every call's notes and transcript, on this Mac")) {
             LookButton("Open past calls") { settings?.onOpenPastCalls?() }
         }
         .settingsAnchor(.pastCalls)
@@ -304,10 +263,9 @@ struct DictationPane: View {
     private var notesOnlineTagRow: some View {
         let minutes = Int(PlanLimits.freeNotesListen / 60)
         return LookRow(CloudNotesSetting.title,
-                       subtitle: "The whole call, with notes written online by a better model. On Free: "
-                           + (dictation.cleanupAvailability == .deviceNotEligible
-                               ? "words and transcript for the first \(minutes) minutes, on your Mac."
-                               : "words, transcript and notes for the first \(minutes) minutes, on your Mac.")) {
+                       subtitle: dictation.cleanupAvailability == .deviceNotEligible
+                           ? String(localized: "The whole call, with notes written online by a better model. On Free: words and transcript for the first \(minutes) minutes, on your Mac.")
+                           : String(localized: "The whole call, with notes written online by a better model. On Free: words, transcript and notes for the first \(minutes) minutes, on your Mac.")) {
             PlanTagButton(.plus) { settings?.reveal(.plans) }
         }
         .settingsAnchor(.notesOnline)
@@ -356,20 +314,23 @@ struct DictationPane: View {
         CallVoiceDownload.shared.startIfWanted()
     }
 
-    private static let callVoicesLine = "Numbers the other side Person 1, Person 2\u{2026} by sound, on your Mac. "
-        + "Never names anyone, and remembers no voice after the call"
+    private var callVoicesLine: String {
+        guard !(CallVoiceModel.isInstalled || voiceDownload == .ready) else {
+            return String(localized: "Numbers the other side Person 1, Person 2\u{2026} by sound, on your Mac. Never names anyone, and remembers no voice after the call")
+        }
+        let megabytes = CallVoiceDownload.megabytes
+        return String(localized: "Numbers the other side Person 1, Person 2\u{2026} by sound, on your Mac. Never names anyone, and remembers no voice after the call. Its model, about \(megabytes) MB, downloads by itself once")
+    }
 
     private var callVoicesRow: some View {
         LookToggleRow("Tell voices apart",
-                      subtitle: Self.callVoicesLine + (CallVoiceModel.isInstalled || voiceDownload == .ready ? ""
-                          : ". Its model, about \(CallVoiceDownload.megabytes) MB, downloads by itself once"),
+                      subtitle: callVoicesLine,
                       isOn: $callVoicesOn)
     }
 
     private func callVoicesDownloadingRow(_ fraction: Double) -> some View {
         LookRow("Tell voices apart",
-                subtitle: "Getting the voice model ready: \(Int(fraction * 100))% of about "
-                    + "\(CallVoiceDownload.megabytes) MB, downloaded once from useairlock.app") {
+                subtitle: String(localized: "Getting the voice model ready: \(Int(fraction * 100))% of about \(CallVoiceDownload.megabytes) MB, downloaded once from useairlock.app")) {
             RecordingProgressBar(fraction: fraction)
                 .frame(width: 90)
         }
@@ -377,7 +338,7 @@ struct DictationPane: View {
 
     private var callVoicesFailedRow: some View {
         LookRow("Tell voices apart",
-                subtitle: "The voice model didn't download. Airlock tries again by itself within the hour") {
+                subtitle: String(localized: "The voice model didn't download. Airlock tries again by itself within the hour")) {
             LookButton("Try again") {
                 guard voiceDownload == nil else { return }
                 CallVoiceDownload.shared.startIfWanted(asked: true)
@@ -387,15 +348,14 @@ struct DictationPane: View {
 
     private var callVoicesTagRow: some View {
         LookRow("Tell voices apart",
-                subtitle: "Numbers the other side of a call Person 1, Person 2\u{2026} by sound, on your Mac. "
-                    + "On Free, everyone on the other side is \u{201C}Them\u{201D}.") {
+                subtitle: String(localized: "Numbers the other side of a call Person 1, Person 2\u{2026} by sound, on your Mac. On Free, everyone on the other side is \u{201C}Them\u{201D}.")) {
             PlanTagButton(.plus) { settings?.reveal(.plans) }
         }
     }
 
     @ViewBuilder private var tidyRow: some View {
         LookToggleRow("Tidy up what I said",
-                      subtitle: "Removes \u{201C}um\u{201D}s and fixes punctuation, on your Mac",
+                      subtitle: String(localized: "Removes \u{201C}um\u{201D}s and fixes punctuation, on your Mac"),
                       isOn: Bindable(dictation).cleansTranscript)
             .settingsAnchor(.cleanup)
         if let line = TranscriptCleanup.noModelLine(dictation.cleanupAvailability) {
@@ -423,11 +383,11 @@ struct DictationPane: View {
         let missing = missingPermissions
         LookRow("Permissions") {
             LookStatus(ok: missing == 0,
-                       text: missing == 0 ? "All set" : (missing == 1 ? "1 needs you" : "\(missing) need you"))
+                       text: missing == 0 ? String(localized: "All set") : (missing == 1 ? String(localized: "1 needs you") : String(localized: "\(missing) need you")))
         }
 
         if !microphoneReady {
-            LookRow("Microphone", subtitle: "So it can hear you") {
+            LookRow("Microphone", subtitle: String(localized: "So it can hear you")) {
                 if dictation.readiness.blocker == .microphoneDenied {
                     // A "no" is never asked again, so once it is turned off
                     // the way back is the switch in System Settings.
@@ -451,9 +411,13 @@ struct DictationPane: View {
         }
 
         if !dictation.readiness.canType {
-            LookRow("Accessibility", subtitle: "So it can type. Until then your words go to the clipboard") {
-                LookButton(PermissionPage.button) { PermissionPage.permission(.accessibility).open() }
+            LookRow("Accessibility", subtitle: String(localized: "So it can type. Until then your words go to the clipboard")) {
+                LookButton("Allow", prominent: true) {
+                    triedAccessibility = true
+                    PermissionSwitch.allowAccessibility()
+                }
             }
+            if triedAccessibility { LookNote(PermissionsPage.switchItOn) }
         }
 
         // Not while the hold key has a fault: the rows above already say it,
@@ -464,18 +428,10 @@ struct DictationPane: View {
     }
 
     @ViewBuilder private var inputMonitoringRow: some View {
-        LookRow("Input Monitoring", subtitle: "So it notices the key. Without it, holding it does nothing") {
-            HStack(spacing: 6) {
-                if triedRequesting {
-                    LookButton(PermissionPage.button) { PermissionPage.permission(.inputMonitoring).open() }
-                }
-                LookButton("Allow", prominent: true) { requestInputMonitoring() }
-            }
+        LookRow("Input Monitoring", subtitle: String(localized: "So it notices the key. Without it, holding it does nothing")) {
+            LookButton("Allow", prominent: true) { requestInputMonitoring() }
         }
-        if triedRequesting {
-            LookNote("macOS asks only once per app. Switch Airlock on under Input Monitoring "
-                     + "there, or add it with +. This page checks again when you come back.")
-        }
+        if triedRequesting { LookNote(PermissionsPage.switchItOn) }
     }
 
     /// The page's one list of permissions: the line above says how many
@@ -513,17 +469,16 @@ struct DictationPane: View {
         if case .unavailable = dictation.inputResolution {
             // The one failure worth interrupting for: a chosen device that has
             // gone. Dictation still works on the default, but silently.
-            ProblemCard(sentence: "The microphone you picked isn't connected — using the system default.")
+            ProblemCard(sentence: String(localized: "The microphone you picked isn't connected — using the system default."))
         }
-        LookNote("Worth setting if you have more than one. Your Mac may pick one you didn't "
-                 + "mean, like an iPhone in another room over Continuity.")
+        LookNote("Worth setting if you have more than one. Your Mac may pick one you didn't mean, like an iPhone in another room over Continuity.")
     }
 
     @ViewBuilder private var languageOptions: some View {
         LookGroupLabel("Language")
         LookRow("Also listen for") {
             LookMenu(dictation.secondaryLocaleIdentifier.isEmpty
-                     ? "Nothing else" : displayName(dictation.secondaryLocaleIdentifier)) {
+                     ? String(localized: "Nothing else") : displayName(dictation.secondaryLocaleIdentifier)) {
                 Picker("Also listen for", selection: Bindable(dictation).secondaryLocaleIdentifier) {
                     Text("Nothing else").tag("")
                     Divider()
@@ -537,9 +492,7 @@ struct DictationPane: View {
         }
         .disabled(!dictation.isEnabled)
         LookNote(localeNote)
-        LookNote("For when you switch between two languages as you speak. Airlock listens for both "
-                 + "and types whichever it understood better. Dictation takes a moment longer, and "
-                 + "your Mac downloads the language the first time you pick it.")
+        LookNote("For when you switch between two languages as you speak. Airlock listens for both and types whichever it understood better. Dictation takes a moment longer, and your Mac downloads the language the first time you pick it.")
         if callNotesOn { callLanguageOptions }
     }
 
@@ -548,7 +501,7 @@ struct DictationPane: View {
     @ViewBuilder private var callLanguageOptions: some View {
         if !callLocale.isEmpty {
             LookRow("Also listen for on calls") {
-                LookMenu(callSecondaryLocale.isEmpty ? "Nothing else" : displayName(callSecondaryLocale)) {
+                LookMenu(callSecondaryLocale.isEmpty ? String(localized: "Nothing else") : displayName(callSecondaryLocale)) {
                     Picker("Also listen for on calls", selection: $callSecondaryLocale) {
                         Text("Nothing else").tag("")
                         Divider()
@@ -572,109 +525,11 @@ struct DictationPane: View {
             // rarely, and ten lines of prompt would dwarf every other row.
             LookRow("How to tidy",
                     subtitle: dictation.cleanupInstructions == TranscriptCleanup.defaultInstructions
-                        ? "Standard" : "Changed by you") {
+                        ? String(localized: "Standard") : String(localized: "Changed by you")) {
                 LookButton("Edit…") { editingCleanup = true }
             }
         }
-        LookNote("Removes filler words, collapses self-corrections and fixes punctuation with "
-                 + "Apple's model on this Mac, so nothing is sent anywhere. It adds a beat before "
-                 + "the text appears, and types what you said as-is whenever the model is "
-                 + "unavailable or returns something it shouldn't.")
-    }
-
-    @ViewBuilder private var askingOptions: some View {
-        LookGroupLabel("Asking")
-        if let message = assistant.availability.message(feature: "answering") {
-            ProblemCard(sentence: message)
-        }
-        if assistant.isEnabled {
-            LookRow("How it answers",
-                    subtitle: assistant.instructions == AssistantPrompt.defaultInstructions
-                        ? "Standard" : "Changed by you") {
-                LookButton("Edit…") { editingAnswers = true }
-            }
-        }
-        // Said plainly rather than left to be discovered. The on-device model
-        // is small, and a user who thinks it is Claude will read every shallow
-        // answer as the app being broken.
-        LookNote("The ask key uses Apple's model on this Mac and shows the answer in the notch. "
-                 + "It's small: good for quick facts, definitions and rewording, weak on news, "
-                 + "maths and your code. Every answer has an \u{201C}Ask Claude Code\u{201D} button "
-                 + "for that reason.")
-    }
-
-    @ViewBuilder private var actingOptions: some View {
-        @Bindable var assistant = assistant
-        LookToggleRow("Let it do things, not just answer",
-                      subtitle: "It shows what it would do. Nothing happens until you approve",
-                      isOn: $assistant.actionsEnabled)
-            .disabled(!dictation.isEnabled || !assistant.isEnabled)
-        if assistant.actionsEnabled {
-            // Says the unflattering thing on purpose: instructions are
-            // recognised by their shape, and the rest is answered.
-            LookNote("It knows three: \u{201C}put the sound on the AirPods\u{201D}, \u{201C}copy that "
-                     + "terminal command again\u{201D} and \u{201C}tell Claude to run the tests\u{201D}. "
-                     + "It recognises them instantly, never turns a question into an action, and "
-                     + "answers anything else as before. Sending an instruction to an agent always asks.")
-        }
-        LookToggleRow("Ask the model when it doesn't recognise a phrase",
-                      subtitle: "A pause before answering, and the same card before anything happens",
-                      isOn: $assistant.modelFallbackEnabled)
-            .disabled(!assistant.actionsEnabled && !assistant.commandBarEnabled)
-        if assistant.modelFallbackEnabled {
-            ProblemCard(sentence: "Apple's on-device model often gets this wrong: it can act "
-                        + "on things you didn't mean as instructions, and turn questions into cards.")
-        }
-        // Its own switch: this is the one action whose vocabulary you wrote.
-        LookToggleRow("Let it run my Shortcuts",
-                      subtitle: "Say \u{201C}run my morning focus shortcut\u{201D}",
-                      isOn: $assistant.shortcutsEnabled)
-        if assistant.shortcutsEnabled {
-            LookNote("\(assistant.shortcutNames.count) found. A Shortcut always asks and never offers "
-                     + "Always: its steps can be edited later, and a rule would still allow it.")
-        }
-        // The phrases, editable in place.
-        LookGroupLabel("Phrases")
-        SiteAliasEditor()
-            .lookRowBox()
-    }
-
-    @ViewBuilder private var typingOptions: some View {
-        @Bindable var assistant = assistant
-        LookGroupLabel("Typing")
-        // Not nested under "Let it do things" and not disabled with dictation:
-        // this is the way in for people who never want to talk to their Mac.
-        LookToggleRow("Type at the notch too",
-                      subtitle: "A one-line bar that knows the same instructions",
-                      isOn: $assistant.commandBarEnabled)
-            .settingsAnchor(.commandBar)
-        if assistant.commandBarEnabled {
-            // Three, not a recorder: each is a scarce global chord, and a
-            // recorder mostly produces ones that are already taken.
-            LookRow("Shortcut") {
-                LookMenu(Self.chordName(assistant.commandBarHotkey)) {
-                    Picker("Shortcut", selection: $assistant.commandBarHotkey) {
-                        ForEach(Self.chords, id: \.self) { chord in
-                            Text(Self.chordName(chord)).tag(chord)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                }
-            }
-            LookNote("Typing can't write a rule: the bar shows Do it and No but never Always. "
-                     + "A rule you already have still applies.")
-        }
-        if let error = assistant.commandBarHotkeyError {
-            ProblemCard(sentence: error)
-        }
-        // A chord built on a hold key opens the microphone on the way down.
-        if assistant.commandBarEnabled,
-           let clash = CommandBarChord.collision(chord: assistant.commandBarHotkey,
-                                                 holdKey: dictation.holdKey,
-                                                 askKey: dictation.askKey) {
-            ProblemCard(sentence: clash)
-        }
+        LookNote("Removes filler words, collapses self-corrections and fixes punctuation with Apple's model on this Mac, so nothing is sent anywhere. It adds a beat before the text appears, and types what you said as-is whenever the model is unavailable or returns something it shouldn't.")
     }
 
     @ViewBuilder private var advancedOptions: some View {
@@ -706,8 +561,8 @@ struct DictationPane: View {
     }
 
     private var microphoneName: String {
-        guard !dictation.inputDeviceUID.isEmpty else { return "System default" }
-        return dictation.availableInputs.first { $0.uid == dictation.inputDeviceUID }?.name ?? "System default"
+        guard !dictation.inputDeviceUID.isEmpty else { return String(localized: "System default") }
+        return dictation.availableInputs.first { $0.uid == dictation.inputDeviceUID }?.name ?? String(localized: "System default")
     }
 
     private var localeIDs: [String] {
@@ -725,7 +580,8 @@ struct DictationPane: View {
     private func callLanguageName(_ identifier: String) -> String {
         let downloads = callListeners.dictationOnly.contains(identifier)
             && !callListeners.installedDictation.contains(identifier)
-        return displayName(identifier) + (downloads ? " · one-time download" : "")
+        let name = displayName(identifier)
+        return downloads ? String(localized: "\(name) · one-time download") : name
     }
 
     private func prepareCallModel(_ identifier: String) {
@@ -740,36 +596,32 @@ struct DictationPane: View {
 
     private func requestInputMonitoring() {
         triedRequesting = true
-        dictation.requestInputMonitoring()
+        PermissionSwitch.allowInputMonitoring(dictation)
     }
 
     private var localeNote: String {
         guard dictation.localeIdentifier.isEmpty else {
-            return "Dictation listens for \(displayName(dictation.localeIdentifier))."
+            return String(localized: "Dictation listens for \(displayName(dictation.localeIdentifier)).")
         }
         // The language's name, never the raw code ("en_ES" meant nothing to
         // anyone who did not already know what it was).
-        return "Your Mac is set to \(displayName(Locale.current.identifier)), so that is what "
-            + "dictation listens for. If you speak another language, pick it above: the region "
-            + "your Mac is set to says nothing about which language you talk in."
+        return String(localized: "Your Mac is set to \(displayName(Locale.current.identifier)), so that is what dictation listens for. If you speak another language, pick it above: the region your Mac is set to says nothing about which language you talk in.")
     }
 
     private var callLanguageNote: String {
         guard !callLocale.isEmpty else {
-            return "Call notes listen for the same languages as dictation. If your calls are in "
-                + "another language, pick it under Language on calls."
+            return String(localized: "Call notes listen for the same languages as dictation. If your calls are in another language, pick it under Language on calls.")
         }
         let picked = [callLocale, callSecondaryLocale].filter { !$0.isEmpty }
         let names = picked.map(displayName)
-        var note = "Call notes listen for \(names.joined(separator: " and ")), and the notes are "
-            + "written in the language the call was in. If the call moves into another language "
-            + "your Mac knows, the notes follow it."
+        var note = names.count == 2
+            ? String(localized: "Call notes listen for \(names[0]) and \(names[1]), and the notes are written in the language the call was in. If the call moves into another language your Mac knows, the notes follow it.")
+            : String(localized: "Call notes listen for \(names[0]), and the notes are written in the language the call was in. If the call moves into another language your Mac knows, the notes follow it.")
         // Without a language it reads beside one it can't, the notes writer
         // has nothing to write from (`MeetingNotesSource`).
         if let unread = picked.first(where: { !CallNotesWriter.canRead($0) }),
            picked.allSatisfy({ !CallNotesWriter.canRead($0) }) {
-            note += " Apple's notes writer can't read \(languageName(unread)) yet: add a second "
-                + "language it reads, and the notes are written from that listening."
+            note += " " + String(localized: "Apple's notes writer can't read \(languageName(unread)) yet: add a second language it reads, and the notes are written from that listening.")
         }
         return note
     }
@@ -778,17 +630,6 @@ struct DictationPane: View {
     private func languageName(_ identifier: String) -> String {
         let code = Locale(identifier: identifier).language.languageCode?.identifier ?? identifier
         return Locale.current.localizedString(forLanguageCode: code) ?? displayName(identifier)
-    }
-
-    static let chords: [GlobalHotkey.Binding] = [.optionSpace, .commandShiftSpace, .commandShiftK]
-
-    static func chordName(_ chord: GlobalHotkey.Binding) -> String {
-        switch chord {
-        case .optionSpace: return "⌥Space"
-        case .commandShiftSpace: return "⇧⌘Space"
-        case .commandShiftK: return "⇧⌘K"
-        default: return "\(chord)"
-        }
     }
 
     /// Every picker on this page names languages through here. The Mac's
@@ -801,56 +642,21 @@ struct DictationPane: View {
 
 /// A longer explanation, set as small text inside "More options".
 struct LookNote: View {
-    let text: String
+    let text: Text
 
-    init(_ text: String) { self.text = text }
+    init(_ text: LocalizedStringKey) { self.text = Text(text) }
+
+    @_disfavoredOverload
+    init<S: StringProtocol>(_ text: S) { self.text = Text(text) }
 
     var body: some View {
-        Text(text)
+        text
             .font(Theme.chrome(11))
             .foregroundStyle(Theme.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
             .padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// What the ask key's model is told before your question. Was an inline
-/// editor under a disclosure; a sheet now, like the tidying instructions.
-private struct AnswerInstructionsSheet: View {
-    let assistant: AssistantModel
-    var onDone: () -> Void
-
-    var body: some View {
-        @Bindable var assistant = assistant
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("How to answer your questions")
-                .font(.headline)
-            Text("Given to Apple's model on this Mac before each question you ask.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            TextEditor(text: $assistant.instructions)
-                .font(.callout.monospaced())
-                .frame(width: 380, height: 220)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(.quaternary, lineWidth: 1)
-                }
-
-            HStack {
-                Button("Back to default") {
-                    assistant.instructions = AssistantPrompt.defaultInstructions
-                }
-                .disabled(assistant.instructions == AssistantPrompt.defaultInstructions)
-                Spacer()
-                Button("Done", action: onDone)
-                    .keyboardShortcut(.defaultAction)
-            }
-            .frame(width: 380)
-        }
-        .padding(20)
     }
 }
 
