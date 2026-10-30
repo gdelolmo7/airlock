@@ -69,6 +69,9 @@ final class TrayModel {
     /// tile straight back. Removing an item and watching it reappear reads as a
     /// click that missed — and on a drag out, as the file not having left.
     private(set) var departing: [String] = []
+    /// Which tiles are selected, keyed by `TrayItem.id`. Finder's rules, in
+    /// Core where they are tested.
+    private(set) var selection = ShelfSelection()
 
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored var onNavigateAway: (() -> Void)?
@@ -162,6 +165,7 @@ final class TrayModel {
 
         guard next != items else { return }
         items = next
+        selection.keep(only: next.map(\.id))
         onChange?()
         measureDirectories()
     }
@@ -890,6 +894,11 @@ final class TrayModel {
         recycle([item.url])
     }
 
+    func remove(_ items: [TrayItem]) {
+        guard !items.isEmpty else { return }
+        recycle(items.map(\.url))
+    }
+
     func clear() {
         guard !items.isEmpty else { return }
         recycle(items.map(\.url))
@@ -910,10 +919,56 @@ final class TrayModel {
                 guard let self else { return }
                 let landed = Set(names)
                 self.departing.removeAll { landed.contains($0) }
-                if let error { self.lastError = Self.couldNotTrash(error) }
+                // A file that has already gone has left the shelf, which is all
+                // this was for: that is not a problem to report.
+                if let error, urls.contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+                    self.lastError = Self.couldNotTrash(error)
+                }
                 self.reload()
             }
         }
+    }
+
+    // MARK: - Selection
+
+    private var order: [String] { items.map(\.id) }
+
+    func press(_ item: TrayItem, modifier: ShelfSelection.Modifier) {
+        selection.press(item.id, in: order, modifier: modifier)
+    }
+
+    func released(_ item: TrayItem, modifier: ShelfSelection.Modifier) {
+        selection.released(item.id, modifier: modifier)
+    }
+
+    func clearSelection() {
+        guard !selection.selected.isEmpty else { return }
+        selection.clear()
+    }
+
+    /// A box dragged over the shelf touches `ids`; see `ShelfSelection.boxed`.
+    func boxed(_ ids: Set<String>, startingFrom before: Set<String>,
+               modifier: ShelfSelection.Modifier) {
+        var next = selection
+        next.boxed(ids, startingFrom: before, in: order, modifier: modifier)
+        // Every pointer move lands here, and most change nothing.
+        if next != selection { selection = next }
+    }
+
+    /// The files a drag from `item` carries: the whole selection when `item`
+    /// is in it, with `item` first.
+    func dragged(from item: TrayItem) -> [TrayItem] {
+        items(for: selection.dragged(from: item.id, in: order))
+    }
+
+    /// The files a menu opened on `item` acts on.
+    func targets(for item: TrayItem) -> [TrayItem] {
+        items(for: selection.targets(for: item.id, in: order))
+    }
+
+    private func items(for ids: [String]) -> [TrayItem] {
+        let byID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return ids.compactMap { byID[$0] }
     }
 
     func beganDragOut() {
@@ -933,20 +988,59 @@ final class TrayModel {
     /// The rule itself is `TrayDragOutcome.decide`, in Core, where it can be
     /// tested. This half is only the two things it needs from the filesystem:
     /// whether the file is still there, and the Trash.
-    func finishedDragOut(_ item: TrayItem, operation: TrayDragOperation) {
-        let outcome = TrayDragOutcome.decide(
-            operation: operation,
-            sourceExists: FileManager.default.fileExists(atPath: item.url.path))
-        switch outcome {
-        case .keep:
-            break
-        case .trash:
-            // Through `remove`, so a file that left by drag is recoverable from
-            // exactly where a file removed by the x is.
-            remove(item)
-        case .vanished:
-            reload()
+    ///
+    /// The file is NOT looked at when the drag ends. Finder answers `move` and
+    /// then does the move itself, a few milliseconds later, so a check made at
+    /// once finds the file still here, and the Trash step that follows races
+    /// Finder for it. Finder usually won, and the shelf said "That couldn't be
+    /// moved to the Trash. It's no longer where it was." about a drop that
+    /// worked. Had the Trash won, Finder's move would have failed instead.
+    ///
+    /// Several files dragged together share one answer, and each is checked on
+    /// its own: a destination may take some and refuse others.
+    func finishedDragOut(_ urls: [URL], operation: TrayDragOperation) {
+        // Every answer but move and delete keeps the file, whatever is on disk,
+        // so only those two wait.
+        guard !urls.isEmpty,
+              TrayDragOutcome.decide(operation: operation, sourceExists: true) != .keep else { return }
+        let names = urls.map(\.lastPathComponent)
+        departing.append(contentsOf: names)
+        reload()
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.destinationSettle)
+            let stillHere = await BlockingWork.run { urls.filter { Self.existsOnceReleased($0) } }
+            guard let self else { return }
+            let leaving = Set(names)
+            self.departing.removeAll { leaving.contains($0) }
+            // The operation was already found to be move or delete, so a file
+            // still here is one the destination copied and expects us to let go.
+            if stillHere.isEmpty {
+                self.reload()
+            } else {
+                // Through `recycle`, so a file that left by drag is recoverable
+                // from exactly where a file removed by the x is.
+                self.recycle(stillHere)
+            }
         }
+    }
+
+    /// Long enough for a destination to start its own file work after the drag
+    /// ends. Finder took 15 to 20 ms on the Mac where the race was seen.
+    private static let destinationSettle = Duration.milliseconds(500)
+
+    /// Whether the file is still on the shelf once nobody is moving it.
+    ///
+    /// Finder holds a coordinated write on a file for as long as it moves it, a
+    /// cross-volume copy included, so asking for one of our own waits that out.
+    /// If coordination itself fails, the plain answer is the best there is.
+    nonisolated static func existsOnceReleased(_ url: URL) -> Bool {
+        var exists = false
+        var failure: NSError?
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            writingItemAt: url, options: .forDeleting, error: &failure) { settled in
+            exists = FileManager.default.fileExists(atPath: settled.path)
+        }
+        return failure == nil ? exists : FileManager.default.fileExists(atPath: url.path)
     }
 
     // MARK: - Navigation
@@ -999,6 +1093,12 @@ final class TrayModel {
         send([item.url], describedAs: item.name)
     }
 
+    func airDrop(_ items: [TrayItem]) {
+        guard let first = items.first else { return }
+        guard items.count > 1 else { return airDrop(first) }
+        send(items.map(\.url), describedAs: String(localized: "these files"))
+    }
+
     @discardableResult
     private func send(_ urls: [URL], describedAs description: String) -> Bool {
         guard let service = NSSharingService(named: .sendViaAirDrop),
@@ -1026,8 +1126,27 @@ final class TrayModel {
     }
 
     func reveal(_ item: TrayItem) {
-        NSWorkspace.shared.activateFileViewerSelecting([item.url])
+        reveal([item])
+    }
+
+    func reveal(_ items: [TrayItem]) {
+        guard !items.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
         onNavigateAway?()
+    }
+
+    /// Each file in whatever owns its type, as a double-click on a Finder
+    /// selection does. One that will not open says so and the rest still do.
+    func open(_ items: [TrayItem]) {
+        var opened = false
+        for item in items {
+            if NSWorkspace.shared.open(item.url) {
+                opened = true
+            } else {
+                lastError = Self.couldNotOpen(item.name)
+            }
+        }
+        if opened { onNavigateAway?() }
     }
 
     /// Take whatever is selected in Finder, without a drag.

@@ -304,7 +304,9 @@ final class PlansPageTests: XCTestCase {
     /// The lists are the website's, and their numbers are the ones enforced.
     func testWhatEachPlanAdds() {
         let plus = PlanCatalog.features(.plus)
-        XCTAssertEqual(plus.count, 7)
+        XCTAssertEqual(plus.count, 8)
+        XCTAssertTrue(plus.contains { $0.title == "Window layouts" },
+                      "Plus lists window layouts, which Free sees and cannot use")
         XCTAssertTrue(plus.contains { $0.title == "Drop box extras" },
                       "Plus lists what the drop box keeps from Free (PlanLimits.dropBoxExtras)")
         XCTAssertTrue(plus.contains { $0.title == "Who said what" },

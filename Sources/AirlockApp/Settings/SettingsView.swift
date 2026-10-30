@@ -232,7 +232,9 @@ private struct GeneralPane: View {
 
             NotchScreenSection(followsMainDisplay: $model.followsMainDisplay,
                                showsOnExternalWhenClosed: $model.showsOnExternalWhenClosed,
-                               canSeeFullScreen: TypeService.isTrusted)
+                               canSeeFullScreen: TypeService.isTrusted,
+                               hidesWhenIdle: NotchScreen.target?.standInCutout != nil
+                                   ? $model.hidesIdleStandIn : nil)
 
             LookRow("Sounds") {
                 LookMenu(soundsName) {
@@ -285,6 +287,10 @@ struct NotchScreenSection: View {
     @Binding var showsOnExternalWhenClosed: Bool
     /// Whether Accessibility is granted — full screen is read through it.
     var canSeeFullScreen: Bool
+    /// "Only show it when something's happening". Nil where the island sits
+    /// over a real notch, which is black hardware either way, so the row is
+    /// not drawn there.
+    var hidesWhenIdle: Binding<Bool>? = nil
 
     /// Without Accessibility, `FullScreenFront` cannot see a full-screen
     /// window, so the notch stays over it — and nothing said why.
@@ -313,6 +319,13 @@ struct NotchScreenSection: View {
             if !showsOnExternalWhenClosed {
                 ProblemCard(sentence: Self.lidClosedHidesTheNotch)
             }
+        }
+        if let hidesWhenIdle {
+            LookToggleRow("Only show the notch when something's happening",
+                          subtitle: hidesWhenIdle.wrappedValue
+                              ? String(localized: "Hidden until you dictate, a call starts, an agent needs you or you move the pointer to the top")
+                              : String(localized: "Always in the middle of the menu bar"),
+                          isOn: hidesWhenIdle)
         }
         if !canSeeFullScreen {
             ProblemCard(sentence: Self.fullScreenNeedsAccessibility, button: String(localized: "Turn it on"),
@@ -348,6 +361,8 @@ private struct NotchPane: View {
             WidgetRows()
             LookGroupLabel("Keep awake")
             KeepAwakeSection(controls: controls)
+            LookGroupLabel("Window layouts")
+            WindowLayoutsSection(layouts: .shared)
         } more: {
             NotchLookNotes()
             WidgetNotes()

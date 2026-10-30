@@ -173,30 +173,82 @@ final class LiveTranscriptWindowController {
     private var panel: NSPanel?
 
     static let width: CGFloat = 360
-    /// The gap to the screen's edge and the menu bar.
-    static let margin: CGFloat = 16
 
     init(live: CallNotesLive, actions: LiveTranscriptActions) {
         self.live = live
         self.actions = actions
     }
 
-    var isShown: Bool { panel?.isVisible == true }
+    /// Counts each open and close, so a slide that is overtaken by the
+    /// next one leaves the window as the next one wants it.
+    private var turn = 0
+    private var closing = false
 
+    var isShown: Bool { panel?.isVisible == true && !closing }
+
+    /// How far the window travels as it comes in from the screen's right
+    /// edge and goes back to it, and how long that takes: short and plain,
+    /// a sidebar opening rather than a show.
+    static let slide: CGFloat = 28
+    static let slideTime: TimeInterval = 0.2
+
+    /// On screen at once, every time: the window comes in from the right
+    /// with a light first frame, the call's last lines, and the rest fill
+    /// in behind them once it is there (`LiveTranscriptView.waitsAFrame`).
+    /// Each time it opens it goes back down the right of the island's
+    /// screen, the width the person left it, so a spot from another display
+    /// or a moved Dock never hides it.
     func show() {
-        if panel == nil {
-            let panel = Self.makePanel(LiveTranscriptView(live: live, actions: actions))
-            Self.place(panel, on: NotchScreen.notched)
-            // Where the person last put it, from then on.
-            panel.setFrameAutosaveName("airlock.liveTranscript")
-            self.panel = panel
+        let panel = panel ?? Self.makePanel(LiveTranscriptView(live: live, actions: actions, waitsAFrame: true))
+        let opening = !panel.isVisible || closing
+        if !panel.isVisible {
+            Self.place(panel, on: NotchScreen.notched, width: self.panel == nil ? Self.width : panel.frame.width)
         }
-        panel?.orderFrontRegardless()
+        self.panel = panel
+        turn += 1
+        closing = false
+        guard opening else {
+            panel.orderFrontRegardless()
+            return
+        }
+        let rest = Self.frame(in: (panel.screen ?? NotchScreen.notched).visibleFrame, width: panel.frame.width)
+        if !panel.isVisible {
+            panel.alphaValue = 0
+            panel.setFrame(Self.reduceMotion ? rest : rest.offsetBy(dx: Self.slide, dy: 0), display: false)
+        }
+        panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.slideTime
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(rest, display: true)
+        }
     }
 
+    /// Back out to the right edge, fading, then off screen.
     func close() {
-        panel?.orderOut(nil)
+        guard let panel, panel.isVisible, !closing else { return }
+        turn += 1
+        closing = true
+        let mine = turn
+        let out = Self.reduceMotion ? panel.frame : panel.frame.offsetBy(dx: Self.slide, dy: 0)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.slideTime
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+            panel.animator().setFrame(out, display: true)
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.turn == mine else { return }
+                self.closing = false
+                panel.orderOut(nil)
+                panel.alphaValue = 1
+            }
+        }
     }
+
+    /// Reduce Motion: the window fades in and out where it rests.
+    private static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
     /// The window, sized and laid out, not yet on screen.
     static func makePanel(_ view: LiveTranscriptView) -> NSPanel {
@@ -222,19 +274,22 @@ final class LiveTranscriptWindowController {
         panel.backgroundColor = NSColor(CallsLook.sidebar)
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.minSize = NSSize(width: 300, height: 320)
-        let hosting = NSHostingView(rootView: view)
+        let hosting = FirstClickHostingView(rootView: view)
         panel.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         return panel
     }
 
-    /// Down the right of the screen the island is on, under the menu bar.
-    static func place(_ panel: NSWindow, on screen: NSScreen) {
-        let visible = screen.visibleFrame
-        let height = min(680, visible.height - margin * 2)
-        panel.setFrame(NSRect(x: visible.maxX - width - margin, y: visible.maxY - height - margin,
-                              width: width, height: height).integral,
-                       display: false)
+    /// Down the right of the screen the island is on, from under the menu
+    /// bar to the bottom (or the Dock), like a side panel beside the call.
+    static func place(_ panel: NSWindow, on screen: NSScreen, width: CGFloat = width) {
+        panel.setFrame(frame(in: screen.visibleFrame, width: max(width, panel.minSize.width)), display: false)
+    }
+
+    /// The window's frame in `visible`, a screen's room under its menu bar.
+    nonisolated static func frame(in visible: NSRect, width: CGFloat) -> NSRect {
+        let width = min(width, visible.width)
+        return NSRect(x: visible.maxX - width, y: visible.minY, width: width, height: visible.height).integral
     }
 }
 
@@ -243,6 +298,13 @@ final class LiveTranscriptWindowController {
 private final class LiveTranscriptPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+}
+
+/// The window never takes the keyboard as it opens, so without this the
+/// first click on Pause or Close only makes it the key window and does
+/// nothing else.
+private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// The colours of the side window that the notes window has no name for.
@@ -292,12 +354,23 @@ struct LiveTranscriptView: View {
     var scrolledAwayFor: Int?
     /// The voice being named, in the box over the window's foot.
     @State private var naming: Int?
+    /// The window's first frame holds only the call's last lines
+    /// (`firstLines`), and the rest come in above them a frame later, so a
+    /// long call never holds the window back from opening and it opens on
+    /// words. The state gallery draws the whole transcript.
+    @State private var waiting: Bool
 
-    init(live: CallNotesLive, actions: LiveTranscriptActions, scrolledAwayFor: Int? = nil, naming: Int? = nil) {
+    /// What the first frame shows: more than the window holds, so the rest
+    /// come in out of sight.
+    static let firstLines = 12
+
+    init(live: CallNotesLive, actions: LiveTranscriptActions, scrolledAwayFor: Int? = nil, naming: Int? = nil,
+         waitsAFrame: Bool = false) {
         self.live = live
         self.actions = actions
         self.scrolledAwayFor = scrolledAwayFor
         _naming = State(initialValue: naming)
+        _waiting = State(initialValue: waitsAFrame)
     }
 
     var body: some View {
@@ -310,7 +383,7 @@ struct LiveTranscriptView: View {
                                     hearing: stage.isLive ? CallLive.speaking(live.hearing, paused: stage == .paused,
                                                                                 in: record)
                                                           : [],
-                                    scrolledAwayFor: scrolledAwayFor,
+                                    scrolledAwayFor: scrolledAwayFor, tail: waiting ? Self.firstLines : nil,
                                     canName: actions.canName, name: { naming = $0 })
                     .frame(maxHeight: .infinity)
                 if let named {
@@ -330,17 +403,38 @@ struct LiveTranscriptView: View {
                         .padding([.horizontal, .bottom], 12)
                 }
             } else {
-                Text("No call is being written down.")
-                    .font(Theme.chrome(12.5))
-                    .foregroundStyle(LiveLook.faint)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Before the call's first record is handed over: the window
+                // only opens from a call, so it is on its way.
+                LiveTranscriptGetting()
             }
+        }
+        // Once the window has come in (`LiveTranscriptWindowController.slide`),
+        // so laying out a long call never stutters it.
+        .task {
+            guard waiting else { return }
+            try? await Task.sleep(for: .milliseconds(260))
+            waiting = false
         }
         .background(CallsLook.sidebar)
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
         // Another call is nobody's to name from here.
         .onChange(of: live.folder) { naming = nil }
+    }
+}
+
+/// "Getting the transcript…" while the window waits for the call.
+struct LiveTranscriptGetting: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Getting the transcript…")
+                .font(Theme.chrome(12.5))
+                .foregroundStyle(LiveLook.faint)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -477,12 +571,15 @@ private struct LiveTranscriptLines: View {
     /// Being said now (`CallLive.speaking`).
     let hearing: [CallLive.Hearing]
     let scrolledAwayFor: Int?
+    /// Only the last this many lines, for the window's first frame.
+    var tail: Int?
     /// Whether a voice can be named now, and naming it.
     let canName: @MainActor (Int) -> Bool
     let name: (Int) -> Void
 
     var body: some View {
-        let entries = MeetingTimeline.shown(of: record)
+        let all = MeetingTimeline.shown(of: record)
+        let entries = tail.map { Array(all.suffix($0)) } ?? all
         let people = CallPeople.people(of: record)
         let carried = hearing.first { CallLive.continues($0, after: entries, startedAt: record.startedAt) }
         let others = hearing.filter { $0 != carried }
@@ -520,6 +617,9 @@ private struct LiveTranscriptLines: View {
         // into view under the last line.
         .followsNewest(said: CallLive.spokenCount(entries), enabled: true, ground: ground,
                        scrolledAwayFor: scrolledAwayFor)
+        // The whole call after its last lines is a new list, opened on its
+        // newest line, rather than the same list scrolling down to it.
+        .id(tail == nil)
     }
 }
 

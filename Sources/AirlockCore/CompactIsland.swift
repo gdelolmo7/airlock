@@ -689,6 +689,17 @@ public enum CompactIsland {
         return .empty
     }
 
+    /// **Whether the compact island is showing a meeting right now** — the
+    /// minutes (or "now") on the trailing side, or the calendar glyph that keeps
+    /// the leading side under a critical battery. Opening the panel by hand
+    /// while this is true lands on the tab with the calendar (the owner,
+    /// 2026-10-29): the island said "meeting", so the panel should too.
+    /// Read off the resolved slots rather than `meetingSoon`, so a meeting the
+    /// ladder has outranked (a gate, a file in hand) never moves the tab.
+    public static func showsMeeting(_ i: CompactIslandInput) -> Bool {
+        trailing(i) == .meetingCountdown || leading(i) == .meetingIcon
+    }
+
     /// Whether the island is on screen at all, as `IslandPresentation.resolve`'s
     /// `hasContent`. Here rather than hand-written at the controller because two
     /// copies of this reasoning is precisely how the trailing slot's comment

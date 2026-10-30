@@ -200,4 +200,16 @@ public enum TopEdgeReveal {
               pointer.y >= screen.minY, pointer.y <= screen.maxY else { return false }
         return screen.maxY - pointer.y <= (was ? keep : reach)
     }
+
+    /// Whether a hover keeps the island up where it cannot rest: only while
+    /// the pointer is still in the same band a reveal keeps. `HoverArbiter`
+    /// can report a hover after the pointer has left without moving through
+    /// the exit, and on its own word the island stayed over a full-screen
+    /// film with the pointer nowhere near it.
+    ///
+    /// A peek or an open panel is not this: those are holds, and they keep
+    /// the island expanded however far below the band the panel reaches.
+    public static func hoverKeeps(hovering: Bool, pointer: CGPoint, screen: CGRect) -> Bool {
+        hovering && isRevealed(was: true, pointer: pointer, screen: screen)
+    }
 }

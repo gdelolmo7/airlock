@@ -138,6 +138,12 @@ final class SettingsModel {
             NotchDisplayPolicy.followsMainDisplay = followsMainDisplay
         }
     }
+    var hidesIdleStandIn = NotchDisplayPolicy.hidesIdleStandIn {
+        didSet {
+            guard hidesIdleStandIn != oldValue else { return }
+            NotchDisplayPolicy.hidesIdleStandIn = hidesIdleStandIn
+        }
+    }
     var showsOnExternalWhenClosed = NotchDisplayPolicy.showsOnExternalWhenClosed {
         didSet {
             guard showsOnExternalWhenClosed != oldValue else { return }

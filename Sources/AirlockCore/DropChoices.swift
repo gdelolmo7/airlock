@@ -191,7 +191,7 @@ public enum DropChoice: Hashable, Sendable {
             return many ? String(localized: "Make \(count) copies with no sound")
                 : String(localized: "Make a copy with no sound")
         case .writeItOut:
-            return String(localized: "Write out what's said, as a text file beside it")
+            return String(localized: "Write out what's said, to paste anywhere")
         case .notesFromIt:
             return String(localized: "Get notes from it, the way a call gets them")
         case .nameInOrder:
@@ -260,7 +260,7 @@ public enum DropChoice: Hashable, Sendable {
             return many ? String(localized: "Making \(count) copies with no sound on the shelf")
                 : String(localized: "Making a copy with no sound on the shelf")
         case .writeItOut:
-            return String(localized: "Writing it out, on the shelf soon")
+            return String(localized: "Listening, then the words are yours to paste")
         case .notesFromIt:
             return String(localized: "Getting notes from it, in Calls")
         case .nameInOrder:
@@ -455,7 +455,7 @@ public enum DropNames {
             } ?? []
         case .pages, .splitPages:
             desired = sources.map { String(localized: "\(base($0)) pages") }
-        case .copyText, .notesFromIt:
+        case .copyText, .writeItOut, .notesFromIt:
             desired = []
         case .nameInOrder:
             let stem = sources.first.map(base) ?? String(localized: "File")
@@ -489,7 +489,6 @@ public enum DropNames {
         case .cutOut: return String(localized: "\(base) (no background)")
         case .noLocation: return String(localized: "\(base) (no location)")
         case .noSound: return String(localized: "\(base) (no sound)")
-        case .writeItOut: return String(localized: "\(base) (written out)")
         case .soundOnly: return String(localized: "\(base) (sound)")
         default: return base
         }
@@ -499,7 +498,7 @@ public enum DropNames {
     static func fileExtension(_ choice: DropChoice) -> String? {
         switch choice {
         case .picture(let format): return format.fileExtension
-        case .textFile, .writeItOut: return "txt"
+        case .textFile: return "txt"
         case .mp4: return "mp4"
         case .gif: return "gif"
         case .soundOnly: return "m4a"

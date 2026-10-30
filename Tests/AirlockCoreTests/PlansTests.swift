@@ -41,7 +41,7 @@ final class PlansTests: XCTestCase {
     func testWhatIsLostGoingToFree() {
         let free = PlanSnapshot.free.limits
         let limits: [PlanLimits.Difference] = [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes,
-                                               .voicesTogether, .dropBoxBasics]
+                                               .voicesTogether, .dropBoxBasics, .windowsStayPut]
         XCTAssertEqual(plus.limits.lost(goingTo: free), limits + [.notesOnTheMac])
         XCTAssertEqual(pro.limits.lost(goingTo: free), limits + [.notesOnTheMac])
         XCTAssertEqual(trial.limits.lost(goingTo: free), limits, "a trial never wrote notes online")
@@ -57,11 +57,13 @@ final class PlansTests: XCTestCase {
         XCTAssertEqual(free.notesListenFor, 30 * 60)
         XCTAssertFalse(free.tellsVoicesApart)
         XCTAssertFalse(PlanSnapshot(plan: .free, isPaid: true).limits.tellsVoicesApart)
+        XCTAssertFalse(free.movesWindows)
         for paid in [plus, pro, trial, PlanSnapshot(plan: .pro, isPaid: false)] {
             XCTAssertNil(paid.limits.clipboardShows)
             XCTAssertFalse(paid.limits.oneAgentAtATime)
             XCTAssertNil(paid.limits.notesListenFor)
             XCTAssertTrue(paid.limits.tellsVoicesApart, "on the Mac, so it goes by the plan alone")
+            XCTAssertTrue(paid.limits.movesWindows)
         }
     }
 
@@ -75,7 +77,7 @@ final class PlansTests: XCTestCase {
         XCTAssertEqual(PlanLimits.Difference.voicesTogether.sentence(macWritesNotes: true),
                        "Everyone on the other side of a call is \u{201C}Them\u{201D}. Telling voices apart comes with Plus.")
         for change in [PlanLimits.Difference.shorterClipboard, .oneAgentAtATime, .shorterCallNotes,
-                       .voicesTogether] {
+                       .voicesTogether, .windowsStayPut] {
             XCTAssertFalse(change.symbol.isEmpty)
         }
     }
@@ -182,12 +184,12 @@ final class PlansTests: XCTestCase {
                                                     before: PlanBefore(plan: trial, ending: .trial, endedOn: ended),
                                                     seen: false))
         XCTAssertEqual(afterTrial.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether,
-                                             .dropBoxBasics])
+                                             .dropBoxBasics, .windowsStayPut])
         let afterPro = try XCTUnwrap(FreeCard.due(entitlement: .free,
                                                   before: PlanBefore(plan: pro, ending: .subscription, endedOn: ended),
                                                   seen: false))
         XCTAssertEqual(afterPro.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether,
-                                           .dropBoxBasics, .notesOnTheMac])
+                                           .dropBoxBasics, .windowsStayPut, .notesOnTheMac])
     }
 
     private func message(_ before: PlanBefore, now: Date) -> String {

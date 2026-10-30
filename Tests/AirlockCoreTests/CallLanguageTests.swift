@@ -8,6 +8,37 @@ final class CallLanguageTests: XCTestCase {
 
     /// Nothing picked for calls is what every call did before there was a
     /// choice: dictation's two languages.
+    // MARK: - A recording heard again
+
+    func testSpanishWordsFromAnEnglishHearingAreHeardAgainInSpanish() {
+        // What an English recogniser made of a Spanish voice message.
+        let words = "E se me a corridor, una nova servicio, que meterlo dentro, ablia que guitar "
+            + "la respuesta, venti cuatro horas, se tiene que llamar a servicios especiales"
+        let reading = CallLanguage.reading(of: words)
+        XCTAssertEqual(CallLanguage.hearAgain(heardIn: "en_US", reading: reading, known: ["en", "es", "pt", "it"]),
+                       reading.top?.code)
+        XCTAssertNotEqual(reading.top?.code, "en")
+    }
+
+    func testWordsInTheLanguageHeardStand() {
+        let reading = CallLanguage.Reading(hypotheses: ["es": 0.95], characters: 300)
+        XCTAssertNil(CallLanguage.hearAgain(heardIn: "es_ES", reading: reading, known: ["en", "es"]))
+    }
+
+    func testAFewWordsOrAWeakLeanStand() {
+        XCTAssertNil(CallLanguage.hearAgain(heardIn: "en_US",
+                                            reading: .init(hypotheses: ["es": 0.95], characters: 12),
+                                            known: ["en", "es"]))
+        XCTAssertNil(CallLanguage.hearAgain(heardIn: "en_US",
+                                            reading: .init(hypotheses: ["es": 0.4, "pt": 0.3], characters: 300),
+                                            known: ["en", "es"]))
+    }
+
+    func testALanguageThisMacCannotHearStands() {
+        let reading = CallLanguage.Reading(hypotheses: ["eu": 0.9], characters: 300)
+        XCTAssertNil(CallLanguage.hearAgain(heardIn: "en_US", reading: reading, known: ["en", "es"]))
+    }
+
     func testNothingPickedForCallsFollowsDictation() {
         let wanted = CallLanguage.wanted(callPrimary: "", callSecondary: "",
                                          dictationPrimary: "es_ES", dictationSecondary: "en_US")

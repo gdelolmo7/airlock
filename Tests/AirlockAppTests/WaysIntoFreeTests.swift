@@ -90,7 +90,7 @@ final class WaysIntoFreeTests: XCTestCase {
         let card = try XCTUnwrap(model.freeCard)
         XCTAssertEqual(card.before.ending, .trial)
         XCTAssertEqual(card.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether,
-                                      .dropBoxBasics])
+                                      .dropBoxBasics, .windowsStayPut])
         XCTAssertTrue(card.message(now: Date()).hasPrefix("Your trial ended on"))
     }
 
@@ -124,7 +124,7 @@ final class WaysIntoFreeTests: XCTestCase {
         let card = try XCTUnwrap(model.freeCard)
         XCTAssertEqual(card.before.plan.plan, .pro)
         XCTAssertEqual(card.changes, [.shorterClipboard, .oneAgentAtATime, .shorterCallNotes, .voicesTogether,
-                                      .dropBoxBasics, .notesOnTheMac])
+                                      .dropBoxBasics, .windowsStayPut, .notesOnTheMac])
         XCTAssertTrue(card.message(now: Date()).hasPrefix("Your Pro subscription ended on"),
                       card.message(now: Date()))
     }

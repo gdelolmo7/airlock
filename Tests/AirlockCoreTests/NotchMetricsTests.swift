@@ -200,4 +200,16 @@ final class VirtualCutoutTests: XCTestCase {
             XCTAssertFalse(TopEdgeReveal.isRevealed(was: true, pointer: pointer, screen: builtIn))
         }
     }
+
+    /// The island stayed over a full-screen film with the pointer mid-screen,
+    /// because the hover arbiter still reported a hover from before.
+    func testALeftoverHoverDoesNotKeepItWithThePointerGone() {
+        XCTAssertFalse(TopEdgeReveal.hoverKeeps(hovering: true, pointer: CGPoint(x: 756, y: 400), screen: builtIn))
+    }
+
+    func testAHoverOnTheIslandKeepsIt() {
+        XCTAssertTrue(TopEdgeReveal.hoverKeeps(hovering: true, pointer: CGPoint(x: 756, y: 960), screen: builtIn))
+        XCTAssertFalse(TopEdgeReveal.hoverKeeps(hovering: false, pointer: CGPoint(x: 756, y: 960), screen: builtIn),
+                       "no hover, no keep: the top edge is its own reason")
+    }
 }

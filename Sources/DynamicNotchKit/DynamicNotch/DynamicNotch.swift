@@ -77,6 +77,11 @@ public final class DynamicNotch<Expanded, CompactLeading, CompactTrailing>: Obse
     /// `.clear` and draw your own ground to make translucency possible.
     @Published public var backgroundStyle: AnyShapeStyle = AnyShapeStyle(.black)
 
+    /// agentic-notch: how the expanded content comes and goes inside the
+    /// shape. Nil keeps upstream's blur, squash and fade. Published so a host
+    /// can choose it without editing the kit's animation values.
+    @Published public var contentTransition: AnyTransition?
+
     /// agentic-notch (LOCAL MODIFICATION): which screen the kit rebuilds its
     /// window on when nobody hands it one — that is, on a display change.
     ///

@@ -183,7 +183,8 @@ struct NotchView<Expanded, CompactLeading, CompactTrailing>: View where Expanded
         HStack(spacing: 0) {
             if dynamicNotch.state == .expanded {
                 dynamicNotch.expandedContent
-                    .transition(.blur(intensity: 10).combined(with: .scale(y: 0.6, anchor: .top)).combined(with: .opacity))
+                    .transition(dynamicNotch.contentTransition
+                        ?? .blur(intensity: 10).combined(with: .scale(y: 0.6, anchor: .top)).combined(with: .opacity))
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: dynamicNotch.notchSize.height) }

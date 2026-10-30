@@ -72,10 +72,11 @@ public enum TrayDragOutcome: Equatable, Sendable {
     /// Trash, which is where `TrayModel.remove` puts it — so a wrong answer
     /// here is still one drag back out of the Trash.
     ///
-    /// `sourceExists` is sampled after the drag ends, because a destination that
-    /// answers `move` may have done the file work itself (Finder does). Trying
-    /// to trash a file that is already gone would put an error on the shelf
-    /// about a drop that worked perfectly.
+    /// `sourceExists` is sampled once the destination has finished with the
+    /// file, not when the drag ends, because a destination that answers `move`
+    /// may do the file work itself (Finder does), a moment after the drag is
+    /// over. Trying to trash a file that is gone, or going, would put an error
+    /// on the shelf about a drop that worked perfectly.
     public static func decide(operation: TrayDragOperation,
                               sourceExists: Bool) -> TrayDragOutcome {
         guard operation == .move || operation == .delete else { return .keep }

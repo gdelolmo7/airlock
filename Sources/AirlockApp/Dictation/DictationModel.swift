@@ -513,6 +513,13 @@ final class DictationModel {
     /// `recoverFromStall`. A teardown that finally returns compares the number
     /// it started with and stays out of the way if the world has moved on.
     @ObservationIgnored private var holdGeneration = 0
+    /// When the finish now running began, nil when none is. A key-down in
+    /// that window finds the microphone already stopped and `isListening`
+    /// still true, which is what a stall looks like too.
+    @ObservationIgnored private var finishStartedAt: Date?
+    /// How long a finish may run before a new hold treats it as wedged: the
+    /// longest `session.finish` wait plus room for the microphone to settle.
+    private static let finishBound: TimeInterval = 12
     @ObservationIgnored private var resolvedLocale: Locale?
     @ObservationIgnored private var resolvedSecondaryLocale: Locale?
     @ObservationIgnored private var analyzerFormat: AVAudioFormat?
@@ -812,8 +819,19 @@ final class DictationModel {
                 dictationLog("  ignoring — a hold is already running")
                 return
             }
-            dictationLog("  hold arrived on a stalled hold — resetting")
-            recoverFromStall()
+            // Except while the last hold is still being written down, which
+            // looks the same from here: microphone off, flag still set.
+            // Pressing again right after speaking is what people do, and
+            // resetting then threw away the words still finishing AND left
+            // the new hold sharing a session the old finish went on to clear.
+            // The chain already runs this start after that finish, so it waits.
+            if let since = finishStartedAt,
+               Date().timeIntervalSince(since) < Self.finishBound {
+                dictationLog("  last hold still finishing — this one starts after it")
+            } else {
+                dictationLog("  hold arrived on a stalled hold — resetting")
+                recoverFromStall()
+            }
         }
         // A fresh hold answers the last one. Leaving the notice up under a live
         // microphone would be reporting silence while listening.
@@ -861,8 +879,11 @@ final class DictationModel {
             handle(.cancel)
             return true
         }
-        let heardWords = !session.transcript.display
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let heardWords = HoldInterruption.soundsLikeTalking(
+            heardWords: !session.transcript.display
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            heldFor: gesture.startedAt.map { Date().timeIntervalSince($0) } ?? 0,
+            peak: capture.peakLevel)
         switch interruptions.note(input, heardWords: heardWords) {
         case .carryOn:
             dictationLog("\(key) \(input.rawValue) — still listening")
@@ -871,7 +892,9 @@ final class DictationModel {
             dictationLog("\(key) \(input.rawValue) after words — still listening; they'll be copied, not typed")
             return false
         case .discard:
-            dictationLog("\(key) CANCELLED — \(input.rawValue) before any words")
+            dictationLog("\(key) CANCELLED — \(input.rawValue) before any words "
+                         + "(held \(String(format: "%.1f", gesture.startedAt.map { Date().timeIntervalSince($0) } ?? 0))s, "
+                         + "peak \(String(format: "%.3f", capture.peakLevel)))")
             handle(.cancel)
             return true
         }
@@ -1000,6 +1023,8 @@ final class DictationModel {
     private func finishListening(_ reason: HoldGesture.Finish,
                                  interruptions: HoldInterruptions) async {
         let generation = holdGeneration
+        finishStartedAt = Date()
+        defer { if generation == holdGeneration { finishStartedAt = nil } }
         stopTimers()
         // MUST come first: `finalizeAndFinishThroughEndOfInput` waits on the
         // input sequence ending, so finishing the session against a live stream
@@ -1361,6 +1386,7 @@ final class DictationModel {
         stopTimers()
         capture.stop()
         holdGeneration &+= 1
+        finishStartedAt = nil
         chain = nil
         isListening = false
         liveText = ""

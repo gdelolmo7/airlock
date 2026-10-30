@@ -22,20 +22,20 @@ final class NamedMotionTests: XCTestCase {
         XCTAssertLessThan(Motion.close.duration(reduceMotion: true), Motion.open.duration(reduceMotion: true))
     }
 
-    /// A panel bouncing on its way out, or a tab that wobbles, is noise.
-    func testCloseAndSwapNeverOvershoot() {
+    /// The panel opening or closing with a bounce, or a tab that wobbles, is
+    /// noise: the owner kept "no bounce" (2026-10-28).
+    func testOpenCloseAndSwapNeverOvershoot() {
+        XCTAssertLessThanOrEqual(peak(.open, reduceMotion: false), 1.0005)
         XCTAssertLessThanOrEqual(peak(.close, reduceMotion: false), 1.0005)
         XCTAssertLessThanOrEqual(peak(.swap, reduceMotion: false), 1.0005)
     }
 
-    /// Open has a little life; Confirm is the one that settles visibly. Both
-    /// small: a gate's buttons must not still be travelling under the pointer.
-    func testOpenAndConfirmOvershootALittle() {
-        let open = peak(.open, reduceMotion: false)
-        XCTAssertGreaterThan(open, 1.005)
-        XCTAssertLessThan(open, 1.05)
-        XCTAssertGreaterThan(peak(.confirm, reduceMotion: false), open)
-        XCTAssertLessThan(peak(.confirm, reduceMotion: false), 1.2)
+    /// Confirm is the one that settles visibly, and only a little: a gate's
+    /// buttons must not still be travelling under the pointer.
+    func testConfirmOvershootsALittle() {
+        let confirm = peak(.confirm, reduceMotion: false)
+        XCTAssertGreaterThan(confirm, 1.005)
+        XCTAssertLessThan(confirm, 1.2)
     }
 
     func testEveryOneComesToRest() {

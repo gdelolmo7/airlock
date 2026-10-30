@@ -93,7 +93,8 @@ final class GlobalHotkey {
         }
 
         /// Every letter and digit, because the recorder accepts any of them and
-        /// a chord it cannot name would show as "?".
+        /// a chord it cannot name would show as "?". The arrows, Return and
+        /// Delete for the window layouts, whose shortcuts are made of them.
         private static let keyNames: [UInt32: String] = {
             let letters: [(Int, String)] = [
                 (kVK_ANSI_A, "A"), (kVK_ANSI_B, "B"), (kVK_ANSI_C, "C"), (kVK_ANSI_D, "D"),
@@ -106,6 +107,8 @@ final class GlobalHotkey {
                 (kVK_ANSI_0, "0"), (kVK_ANSI_1, "1"), (kVK_ANSI_2, "2"), (kVK_ANSI_3, "3"),
                 (kVK_ANSI_4, "4"), (kVK_ANSI_5, "5"), (kVK_ANSI_6, "6"), (kVK_ANSI_7, "7"),
                 (kVK_ANSI_8, "8"), (kVK_ANSI_9, "9"), (kVK_Space, String(localized: "Space")),
+                (kVK_LeftArrow, "←"), (kVK_RightArrow, "→"), (kVK_UpArrow, "↑"), (kVK_DownArrow, "↓"),
+                (kVK_Return, "↩"), (kVK_Delete, "⌫"),
             ]
             return Dictionary(uniqueKeysWithValues: letters.map { (UInt32($0.0), $0.1) })
         }()

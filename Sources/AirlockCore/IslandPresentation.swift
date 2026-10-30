@@ -143,6 +143,27 @@ public enum IslandPresentation: Comparable, Sendable, CaseIterable {
         return .hidden
     }
 
+    /// Whether the island may rest on its display right now: the menu bar
+    /// shows (`VirtualCutout.canRest`, folded with full screen by the caller),
+    /// and, where the person chose to keep a stand-in out of sight when idle,
+    /// something is happening (`hasContent`, the drivers).
+    ///
+    /// The choice only reaches a stand-in. Over a camera housing the island
+    /// rests on black hardware and hiding it would clear nothing, so the switch
+    /// is not even offered there.
+    ///
+    /// Folding it into `canRest` rather than adding a branch to `resolve` is
+    /// the point: a hold, an unanswered gate, the linger and the pointer at the
+    /// top edge then bring it up exactly as they do over a full-screen app,
+    /// with no second copy of those rules to drift.
+    public static func mayRest(menuBarShows: Bool,
+                               onStandIn: Bool,
+                               hidesWhenIdle: Bool,
+                               hasContent: Bool) -> Bool {
+        guard menuBarShows else { return false }
+        return !(onStandIn && hidesWhenIdle) || hasContent
+    }
+
     /// When the island should be re-evaluated because its linger runs out, or
     /// nil when nothing is lingering — it may rest, or it still has a reason.
     ///

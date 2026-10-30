@@ -20,9 +20,10 @@ enum NotchMotion {
     ///
     /// This replaced "nil with Reduce Motion off" — the kit's own `.bouncy`
     /// opening, `.smooth` closing and `.snappy` conversion, three springs
-    /// nobody here chose. C1 is the decision to choose them: one Open, one
-    /// Close, and the bounce on Open small enough that a gate's Approve is
-    /// not still travelling under a pointer already on its way to it.
+    /// nobody here chose. C1 chose one Open and one Close; since 2026-10-28
+    /// neither overshoots (the owner compared four styles on a test build
+    /// and kept "no bounce"), so a gate's Approve is never still travelling
+    /// under a pointer already on its way to it.
     ///
     /// Under Reduce Motion both are the calm version, so the panel arrives
     /// without overshoot. (The kit still scales the panel out of the notch:
@@ -41,6 +42,10 @@ enum NotchMotion {
             skipIntermediateHides: true
         )
     }
+
+    /// The content inside the shape fades with it, and nothing more: the
+    /// kit's own blur and squash were the last of the bounce (2026-10-28).
+    static var contentTransition: AnyTransition { .opacity }
 }
 
 // MARK: - The five named motions
@@ -83,15 +88,13 @@ enum Motion: String, CaseIterable, Sendable {
         }
     }
 
-    /// 1 settles without overshoot; lower bounces. Only Open and Confirm are
-    /// allowed any: the island arriving and a thing landing are the two
-    /// moments with weight. Close and Swap never overshoot — a panel that
-    /// bounces on its way out, or a tab that wobbles, is noise.
+    /// 1 settles without overshoot; lower bounces. Only Confirm is allowed
+    /// any: a thing landing is the one moment with weight. Open, Close and
+    /// Swap never overshoot — the owner kept "no bounce" for the panel on
+    /// 2026-10-28, and a tab that wobbles is noise.
     var damping: Double {
         switch self {
-        case .open: 0.8
-        case .close, .nudge: 1
-        case .swap: 0.9
+        case .open, .close, .swap, .nudge: 1
         case .confirm: 0.55
         }
     }

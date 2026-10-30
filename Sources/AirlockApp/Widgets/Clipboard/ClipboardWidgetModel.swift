@@ -369,9 +369,11 @@ final class ClipboardWidgetModel {
     ///
     /// Asked of the classifier like any copy, so a person who added Airlock to
     /// the apps to ignore is listened to.
-    func keepOwnCopy(_ text: String) {
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+    ///
+    /// `formatted` goes on beside the text, as HTML and RTF, for apps that
+    /// paste formatting; the history keeps the text.
+    func keepOwnCopy(_ text: String, formatted: AirlockCopy.Formatted? = nil) {
+        AirlockCopy.write(text, formatted: formatted, to: pasteboard)
         lastChangeCount = pasteboard.changeCount
         guard isEnabled else { return }
         let airlock = NSRunningApplication.current
@@ -879,9 +881,49 @@ enum AirlockCopy {
         if let history {
             history.keepOwnCopy(text)
         } else {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            write(text, formatted: nil, to: .general)
         }
+    }
+
+    /// Markdown onto the clipboard as itself and formatted: the plain text
+    /// stays Markdown, and HTML and RTF beside it make Mail, Pages and Google
+    /// Docs paste headings, bullets and bold rather than the marks.
+    static func putMarkdown(_ markdown: String) {
+        let formatted = Formatted(markdown: markdown)
+        if let history {
+            history.keepOwnCopy(markdown, formatted: formatted)
+        } else {
+            write(markdown, formatted: formatted, to: .general)
+        }
+    }
+
+    /// The same words as HTML and, read from it, RTF.
+    struct Formatted {
+        let html: String
+        let rtf: Data?
+
+        init(markdown: String) {
+            html = MarkdownCopy.htmlPage(from: markdown)
+            // AppKit's HTML reader drops a list's bottom margin, so in the RTF
+            // a list ran straight into the next heading. A line break after
+            // each list stands in for it there; the HTML keeps its margins.
+            let spaced = html.replacingOccurrences(of: "</ul>", with: "</ul><br>")
+            let read = try? NSAttributedString(
+                data: Data(spaced.utf8),
+                options: [.documentType: NSAttributedString.DocumentType.html,
+                          .characterEncoding: String.Encoding.utf8.rawValue],
+                documentAttributes: nil)
+            rtf = read.flatMap { try? $0.data(from: NSRange(location: 0, length: $0.length),
+                                              documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) }
+        }
+    }
+
+    static func write(_ text: String, formatted: Formatted?, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        guard let formatted else { return }
+        pasteboard.setString(formatted.html, forType: .html)
+        if let rtf = formatted.rtf { pasteboard.setData(rtf, forType: .rtf) }
     }
 }
 

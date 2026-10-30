@@ -865,7 +865,7 @@ final class MeetingNotesModel {
         guard case let .ready(name, _) = flow.phase,
               let page = store.notesPage(in: store.root.appendingPathComponent(name, isDirectory: true))
         else { return }
-        AirlockCopy.put(page)
+        AirlockCopy.putMarkdown(page)
         log("copy: notes")
     }
 

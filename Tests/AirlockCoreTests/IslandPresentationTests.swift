@@ -317,4 +317,45 @@ final class IslandWithoutAStripTests: XCTestCase {
         last.record(holds: [], awaitingOwner: false, now: t0.addingTimeInterval(5))
         XCTAssertNil(last.date)
     }
+
+    // MARK: - Hidden while idle on a stand-in
+
+    /// The choice only clears a stand-in. Over a camera housing the island
+    /// keeps resting, whatever the setting says.
+    func testHidingWhileIdleOnlyReachesAStandIn() {
+        XCTAssertTrue(IslandPresentation.mayRest(menuBarShows: true, onStandIn: false,
+                                                 hidesWhenIdle: true, hasContent: false))
+        XCTAssertFalse(IslandPresentation.mayRest(menuBarShows: true, onStandIn: true,
+                                                  hidesWhenIdle: true, hasContent: false))
+        XCTAssertTrue(IslandPresentation.mayRest(menuBarShows: true, onStandIn: true,
+                                                 hidesWhenIdle: false, hasContent: false))
+    }
+
+    /// Something happening (a call, music, an agent at work) brings it back to
+    /// rest; a hidden menu bar still wins over everything.
+    func testSomethingHappeningLetsItRestAgain() {
+        XCTAssertTrue(IslandPresentation.mayRest(menuBarShows: true, onStandIn: true,
+                                                 hidesWhenIdle: true, hasContent: true))
+        XCTAssertFalse(IslandPresentation.mayRest(menuBarShows: false, onStandIn: true,
+                                                  hidesWhenIdle: true, hasContent: true))
+        XCTAssertFalse(IslandPresentation.mayRest(menuBarShows: false, onStandIn: false,
+                                                  hidesWhenIdle: false, hasContent: true))
+    }
+
+    /// Hidden while idle, the island still comes up for what needs the owner,
+    /// for a hold such as dictation, and for the pointer at the top.
+    func testHiddenWhileIdleStillComesUpWhenNeeded() {
+        let rest = IslandPresentation.mayRest(menuBarShows: true, onStandIn: true,
+                                              hidesWhenIdle: true, hasContent: false)
+        XCTAssertEqual(IslandPresentation.resolve(hasTargetScreen: true, canRest: rest,
+                                                  holds: [], hasContent: false), .hidden)
+        XCTAssertEqual(IslandPresentation.resolve(hasTargetScreen: true, canRest: rest,
+                                                  holds: .dictating, hasContent: false), .expanded)
+        XCTAssertEqual(IslandPresentation.resolve(hasTargetScreen: true, canRest: rest,
+                                                  holds: [], hasContent: false,
+                                                  awaitingOwner: true), .compact)
+        XCTAssertEqual(IslandPresentation.resolve(hasTargetScreen: true, canRest: rest,
+                                                  holds: [], hasContent: false,
+                                                  pointerAtTop: true), .compact)
+    }
 }

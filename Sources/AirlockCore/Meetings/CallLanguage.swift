@@ -148,6 +148,28 @@ public enum CallLanguage {
         return Reading(hypotheses: hypotheses, characters: text.count)
     }
 
+    /// Characters a recording's words need before their language is
+    /// trusted to send it back for a second hearing: a sentence or two.
+    public static let enoughToHearAgain = 40
+
+    /// The language a recording should be heard again in, by code ("es"),
+    /// or nil when the first hearing stands.
+    ///
+    /// A recogniser set to English that is played Spanish still writes
+    /// words, English-looking ones that read as Spanish, Portuguese or
+    /// Italian to `NLLanguageRecognizer`. So the words' own language, when
+    /// they lean clearly to one this Mac can listen in that is not the one
+    /// heard, is worth a second hearing; the recogniser's confidence then
+    /// decides between the two (`TranscriptRace`), since a wrong guess here
+    /// scores worse in its own language than the first take did.
+    public static func hearAgain(heardIn identifier: String, reading: Reading,
+                                 known: Set<String>) -> String? {
+        guard reading.characters >= enoughToHearAgain, let top = reading.top,
+              top.probability >= leansEnough, top.code != code(of: identifier),
+              known.contains(top.code) else { return nil }
+        return top.code
+    }
+
     /// The whole check for one call, as the summariser runs it.
     public struct Check: Equatable, Sendable {
         /// The recogniser's languages as the record has them: the one each

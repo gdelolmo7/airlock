@@ -31,6 +31,15 @@ struct TraySectionView: View {
     @Environment(NotchUIState.self) private var uiState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shelfHeight: CGFloat?
+    /// Where each tile sits in `boxSpace`, for the selection box to test.
+    @State private var tileFrames: [String: CGRect] = [:]
+    /// The selection box being dragged, and what was selected when it started.
+    @State private var box: CGRect?
+    @State private var boxBefore: Set<String> = []
+
+    /// The shelf's own frame, padding included, so a box can start in the
+    /// margin around the tiles as well as between them.
+    static let boxSpace = "shelf.box"
 
     /// One signal for both routes now. The shelf used to carry its own
     /// `.onDrop` and OR its `isTargeted` in beside this, which meant two drop
@@ -147,6 +156,35 @@ struct TraySectionView: View {
         .frame(maxWidth: .infinity, minHeight: TrayRailMetrics.shelfContentMinimum,
                alignment: .leading)
         .padding(8)
+        // A click between tiles clears the selection and a drag there draws
+        // a box that selects what it touches, as on the Finder desktop. Tiles
+        // take their own presses in the drag layer, so only the gaps reach it.
+        .background {
+            if !isEmptyShelf && rejection == nil {
+                ShelfBoxLayer(
+                    onBegin: { boxBefore = tray.selection.selected },
+                    onChange: { rect, modifier in
+                        box = rect
+                        let touched = tileFrames.filter { $0.value.intersects(rect) }.keys
+                        tray.boxed(Set(touched), startingFrom: boxBefore, modifier: modifier)
+                    },
+                    onEnd: { box = nil },
+                    onClick: { tray.clearSelection() })
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if let box {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Theme.running.opacity(0.15))
+                    .overlay(RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .strokeBorder(Theme.running.opacity(0.8), lineWidth: 1))
+                    .frame(width: box.width, height: box.height)
+                    .offset(x: box.minX, y: box.minY)
+                    .allowsHitTesting(false)
+            }
+        }
+        .coordinateSpace(name: Self.boxSpace)
+        .onPreferenceChange(TileFramesKey.self) { frames in tileFrames = frames }
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(isDropTarget ? accent.opacity(0.14) : Theme.rowFill)
@@ -634,11 +672,13 @@ private struct TrayTileView: View {
     @State private var isIcon = false
     @State private var isHovering = false
 
+    private var isSelected: Bool { tray.selection.contains(item.id) }
+
     var body: some View {
         VStack(spacing: 4) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(0.05))
+                    .fill(Color.white.opacity(isSelected ? 0.16 : 0.05))
                 if let thumbnail {
                     Image(nsImage: thumbnail)
                         .resizable()
@@ -648,6 +688,14 @@ private struct TrayTileView: View {
                 }
             }
             .frame(height: 56)
+            // Drawn over the picture, not around the tile, the way Finder marks
+            // a selected icon: the box and the name, nothing else.
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Theme.running, lineWidth: 1.5)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 0) {
                 // Two lines, the way Finder names an icon: one line cut long
@@ -655,9 +703,19 @@ private struct TrayTileView: View {
                 // on every tile, so a row of tiles keeps one baseline.
                 Text(item.name)
                     .font(Theme.chrome(10))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                     .lineLimit(2, reservesSpace: true)
                     .truncationMode(.middle)
+                    // Inset on every tile, selected or not, so the highlight
+                    // has room around the words without the name moving.
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Theme.running.opacity(0.35))
+                        }
+                    }
                 // Both of these lived ONLY in the tooltip, which is to say they
                 // lived nowhere: a shelf is a staging area and "which of these
                 // two exports is the big one" is the question it exists to
@@ -666,10 +724,15 @@ private struct TrayTileView: View {
                     .font(Theme.chrome(9))
                     .foregroundStyle(Theme.textTertiary)
                     .lineLimit(1)
+                    .padding(.horizontal, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contentShape(Rectangle())
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: TileFramesKey.self,
+                                   value: [item.id: proxy.frame(in: .named(TraySectionView.boxSpace))])
+        })
         // The drag out, and the double-click that opens the file, both live in
         // this layer now. `.onDrag` cannot say whether the drop happened — it
         // returns an item provider and stops talking — and a shelf tile is a
@@ -704,13 +767,15 @@ private struct TrayTileView: View {
             // Open leads because it is what a double-click does, and a context
             // menu whose first item is not the default action teaches the wrong
             // default.
-            Button("Open") { tray.open(item) }
-            Button("Reveal in Finder") { tray.reveal(item) }
-            Button("AirDrop…") { tray.airDrop(item) }
+            // On every selected tile when this one is among them, as in Finder;
+            // a right-click on a tile outside the selection is about that tile.
+            Button("Open") { tray.open(tray.targets(for: item)) }
+            Button("Reveal in Finder") { tray.reveal(tray.targets(for: item)) }
+            Button("AirDrop…") { tray.airDrop(tray.targets(for: item)) }
             Divider()
             // Stays, corner affordance or not: the pointer route is the fast
             // one, this is the one you can find.
-            Button("Remove") { tray.remove(item) }
+            Button("Remove") { tray.remove(tray.targets(for: item)) }
         }
         // The name is already drawn under the tile, so the tooltip carries what
         // the tile cannot show instead of repeating it.
@@ -721,7 +786,7 @@ private struct TrayTileView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(item.name), \(item.isDirectory ? "folder" : "file")")
         .accessibilityValue(TrayTileDetails.parts(for: item).joined(separator: ", "))
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { tray.open(item) }
         // The corner affordance appears under the pointer and the context menu
         // needs one too, so without this the only way to empty the shelf a file
@@ -732,18 +797,21 @@ private struct TrayTileView: View {
 
     /// The AppKit drag source, sized to the whole tile and invisible.
     ///
-    /// `onOpen` is here rather than on a SwiftUI tap gesture because this layer
-    /// takes the press that could become a drag, so it is the only thing in a
-    /// position to see the second click of a double-click.
+    /// Selecting and opening are here rather than on SwiftUI tap gestures
+    /// because this layer takes the press that could become a drag, so it is
+    /// the only thing in a position to see the click at all.
     private var dragSource: some View {
         TrayTileDragSource(
             url: item.url,
             // The tile has already rendered a preview or the file's own icon;
             // the drag carries the same picture rather than a second one.
             image: thumbnail,
+            onPress: { modifier in tray.press(item, modifier: modifier) },
+            onRelease: { modifier in tray.released(item, modifier: modifier) },
+            dragged: { tray.dragged(from: item).map(\.url) },
             onBegin: { tray.beganDragOut() },
-            onOpen: { tray.open(item) },
-            onEnd: { operation in tray.finishedDragOut(item, operation: operation) })
+            onOpen: { tray.open(tray.targets(for: item)) },
+            onEnd: { urls, operation in tray.finishedDragOut(urls, operation: operation) })
             // Said out loud rather than inherited: an `NSView` with no intrinsic
             // size is at the mercy of whatever SwiftUI proposes, and a drag
             // layer laid out at zero is a tile that cannot be dragged at all.
@@ -826,9 +894,12 @@ private struct TrayTileView: View {
 private struct TrayTileDragSource: NSViewRepresentable {
     let url: URL
     let image: NSImage?
+    let onPress: (ShelfSelection.Modifier) -> Void
+    let onRelease: (ShelfSelection.Modifier) -> Void
+    let dragged: () -> [URL]
     let onBegin: () -> Void
     let onOpen: () -> Void
-    let onEnd: (TrayDragOperation) -> Void
+    let onEnd: ([URL], TrayDragOperation) -> Void
 
     func makeNSView(context: Context) -> TrayDragOutLayer {
         let layer = TrayDragOutLayer()
@@ -846,6 +917,9 @@ private struct TrayTileDragSource: NSViewRepresentable {
     private func apply(to layer: TrayDragOutLayer) {
         layer.url = url
         layer.image = image
+        layer.onPress = onPress
+        layer.onRelease = onRelease
+        layer.dragged = dragged
         layer.onBegin = onBegin
         layer.onOpen = onOpen
         layer.onEnd = onEnd
@@ -864,14 +938,38 @@ final class TrayDragOutLayer: NSView, NSDraggingSource {
     /// Matches the preview `.onDrag` used to carry.
     private static let previewSide: CGFloat = 64
 
+    /// Spacing between the pictures of a drag of several files, so they read
+    /// as a stack under the pointer.
+    private static let stackOffset: CGFloat = 4
+
     var url: URL?
     var image: NSImage?
+    var onPress: (ShelfSelection.Modifier) -> Void = { _ in }
+    var onRelease: (ShelfSelection.Modifier) -> Void = { _ in }
+    /// The files a drag from here carries, this tile's first.
+    var dragged: () -> [URL] = { [] }
     var onBegin: () -> Void = {}
     var onOpen: () -> Void = {}
-    var onEnd: (TrayDragOperation) -> Void = { _ in }
+    var onEnd: ([URL], TrayDragOperation) -> Void = { _, _ in }
 
     /// The mouse-down that has not yet become a drag or a click.
     private var press: NSEvent?
+    /// What the drag in flight carries, kept for the moment it ends: the
+    /// selection may change before the destination answers.
+    private var inFlight: [URL] = []
+
+    /// The notch panel is almost never the key window, and a view that refuses
+    /// the first click there spends it on making the panel key. That is the
+    /// press a drag was starting from, so the first drag out of the shelf used
+    /// to do nothing at all.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private static func modifier(of event: NSEvent) -> ShelfSelection.Modifier {
+        let flags = event.modifierFlags
+        if flags.contains(.command) { return .toggle }
+        if flags.contains(.shift) { return .extend }
+        return .none
+    }
 
     /// This layer covers the whole tile, so what it does NOT take is the whole
     /// design.
@@ -902,8 +1000,11 @@ final class TrayDragOutLayer: NSView, NSDraggingSource {
                width: Self.removeAffordanceSide, height: Self.removeAffordanceSide)
     }
 
+    /// Selecting happens on the press, as in Finder, so the tile lights up
+    /// before the pointer has moved and a drag carries what is lit.
     override func mouseDown(with event: NSEvent) {
         press = event
+        if event.clickCount == 1 { onPress(Self.modifier(of: event)) }
     }
 
     /// Once this view has taken the mouse-down, AppKit routes the rest of the
@@ -921,19 +1022,32 @@ final class TrayDragOutLayer: NSView, NSDraggingSource {
     /// A press that never moved. Two of them in a row is the gesture that opens
     /// the file in Finder, so it is the gesture that opens it here.
     override func mouseUp(with event: NSEvent) {
+        let wasClick = press != nil
         press = nil
-        guard event.clickCount == 2 else { return }
-        onOpen()
+        if event.clickCount == 2 {
+            onOpen()
+        } else if wasClick, event.clickCount == 1 {
+            onRelease(Self.modifier(of: event))
+        }
     }
 
     private func beginDrag(from event: NSEvent) {
         guard let url else { return }
-        let preview = image ?? NSWorkspace.shared.icon(forFile: url.path)
-        let dragged = NSDraggingItem(pasteboardWriter: url as NSURL)
-        dragged.setDraggingFrame(previewFrame(around: convert(event.locationInWindow, from: nil),
-                                              for: preview),
-                                 contents: preview)
-        let session = beginDraggingSession(with: [dragged], event: event, source: self)
+        let urls = dragged()
+        inFlight = urls.isEmpty ? [url] : urls
+        let point = convert(event.locationInWindow, from: nil)
+        let items = inFlight.enumerated().map { index, file -> NSDraggingItem in
+            // This tile's own picture leads; the others carry their file's icon,
+            // which is what Finder shows for the rest of a stack.
+            let preview = (file == url ? image : nil) ?? NSWorkspace.shared.icon(forFile: file.path)
+            let offset = CGFloat(index) * Self.stackOffset
+            let item = NSDraggingItem(pasteboardWriter: file as NSURL)
+            item.setDraggingFrame(previewFrame(around: NSPoint(x: point.x + offset, y: point.y - offset),
+                                               for: preview),
+                                  contents: preview)
+            return item
+        }
+        let session = beginDraggingSession(with: items, event: event, source: self)
         // A drag that comes to nothing flies back to the tile, which is now the
         // truthful animation: the file is still there.
         session.animatesToStartingPositionsOnCancelOrFail = true
@@ -995,7 +1109,9 @@ final class TrayDragOutLayer: NSView, NSDraggingSource {
     /// The answer this whole file exists to hear.
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint,
                          operation: NSDragOperation) {
-        onEnd(TrayDragOperation(rawValue: operation.rawValue))
+        let urls = inFlight
+        inFlight = []
+        onEnd(urls, TrayDragOperation(rawValue: operation.rawValue))
     }
 }
 
@@ -1036,6 +1152,87 @@ private struct TrayIngestingTileView: View {
         .help("Adding \(name)…")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(name), adding")
+    }
+}
+
+/// Presses on the empty part of the shelf: a click, or a selection box.
+///
+/// AppKit rather than a SwiftUI gesture for the same reason as the tiles'
+/// drag layer: the notch panel is rarely key, and only a view that accepts
+/// the first mouse gets the press that starts the box.
+private struct ShelfBoxLayer: NSViewRepresentable {
+    var onBegin: () -> Void
+    var onChange: (CGRect, ShelfSelection.Modifier) -> Void
+    var onEnd: () -> Void
+    var onClick: () -> Void
+
+    func makeNSView(context: Context) -> ShelfBoxView { apply(to: ShelfBoxView()) }
+
+    func updateNSView(_ view: ShelfBoxView, context: Context) { _ = apply(to: view) }
+
+    private func apply(to view: ShelfBoxView) -> ShelfBoxView {
+        view.onBegin = onBegin
+        view.onChange = onChange
+        view.onEnd = onEnd
+        view.onClick = onClick
+        return view
+    }
+}
+
+final class ShelfBoxView: NSView {
+    private static let dragThreshold: CGFloat = 3
+
+    var onBegin: () -> Void = {}
+    var onChange: (CGRect, ShelfSelection.Modifier) -> Void = { _, _ in }
+    var onEnd: () -> Void = {}
+    var onClick: () -> Void = {}
+
+    private var start: NSPoint?
+    private var modifier: ShelfSelection.Modifier = .none
+    private var isBoxing = false
+
+    /// Top-left origin, so a point here is a point in the shelf's SwiftUI space.
+    override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        start = convert(event.locationInWindow, from: nil)
+        let flags = event.modifierFlags
+        modifier = flags.contains(.command) ? .toggle : flags.contains(.shift) ? .extend : .none
+        isBoxing = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if !isBoxing {
+            guard hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold else { return }
+            isBoxing = true
+            onBegin()
+        }
+        // Held to the shelf, so the box never draws outside its own panel.
+        let x = min(max(point.x, bounds.minX), bounds.maxX)
+        let y = min(max(point.y, bounds.minY), bounds.maxY)
+        let rect = CGRect(x: min(start.x, x), y: min(start.y, y),
+                          width: abs(x - start.x), height: abs(y - start.y))
+        onChange(rect, modifier)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { start = nil; isBoxing = false }
+        guard start != nil else { return }
+        if isBoxing {
+            onEnd()
+        } else if modifier == .none {
+            onClick()
+        }
+    }
+}
+
+private struct TileFramesKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 

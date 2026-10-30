@@ -41,6 +41,8 @@ enum DropWork {
             }
         case .copyText:
             return await copyText(inputs)
+        case .writeItOut:
+            return await writeOut(inputs)
         default:
             return await each(inputs, choice: choice, names: names, tray: tray)
         }
@@ -113,9 +115,6 @@ enum DropWork {
             try await DropMediaWork.m4a(url(input), at: destination)
         case (.audio(let format), .audio):
             try await DropMediaWork.pcm(url(input), as: format, at: destination)
-        case (.writeItOut, .audio):
-            let words = try await DropMediaWork.writtenOut(url(input))
-            try plainText(words, at: destination)
         case (.nameInOrder, _):
             try FileManager.default.copyItem(at: url(input), to: destination)
         default:
@@ -152,6 +151,30 @@ enum DropWork {
             failures.append(.init(name: first.name, reason: DropWorkResult.noWords))
         }
         return DropWorkResult(choice: .copyText, made: 0, failures: failures,
+                              text: parts.isEmpty ? nil : parts.joined(separator: "\n\n"))
+    }
+
+    /// What is said in every recording dragged, for the clipboard, in drag
+    /// order and a blank line apart. One that can't be heard leaves the
+    /// others' words.
+    private static func writeOut(_ inputs: [PictureInput]) async -> DropWorkResult {
+        var parts: [String] = []
+        var failures: [TrayIngestResult.Failure] = []
+        for input in inputs {
+            do {
+                guard case .audio = kind(of: input) else { throw Failure.unreadable }
+                let words = try await DropMediaWork.writtenOut(url(input))
+                let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { parts.append(trimmed) }
+            } catch {
+                log.error("drop box: write it out gave nothing: \(String(describing: error), privacy: .public)")
+                failures.append(.init(name: input.name, reason: reason(error)))
+            }
+        }
+        if parts.isEmpty, failures.isEmpty, let first = inputs.first {
+            failures.append(.init(name: first.name, reason: DropWorkResult.noSpeech))
+        }
+        return DropWorkResult(choice: .writeItOut, made: 0, failures: failures,
                               text: parts.isEmpty ? nil : parts.joined(separator: "\n\n"))
     }
 

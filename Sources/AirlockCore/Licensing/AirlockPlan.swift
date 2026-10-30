@@ -79,6 +79,11 @@ public struct PlanLimits: Equatable, Sendable {
     /// one keeps the file on the shelf.
     public let dropBoxExtras: Bool
 
+    /// Whether windows are put in place: dragged to the notch, by the
+    /// shortcuts and from the menu bar's menu. Free sees the strip and the
+    /// rows with a Plus tag, and nothing moves.
+    public let movesWindows: Bool
+
     /// What Free keeps of the clipboard.
     public static let freeClipboard = 100
     /// How long Free's call notes listen.
@@ -86,13 +91,14 @@ public struct PlanLimits: Equatable, Sendable {
 
     public init(writesNotesOnline: Bool, clipboardShows: Int? = nil,
                 oneAgentAtATime: Bool = false, notesListenFor: TimeInterval? = nil,
-                tellsVoicesApart: Bool = true, dropBoxExtras: Bool = true) {
+                tellsVoicesApart: Bool = true, dropBoxExtras: Bool = true, movesWindows: Bool = true) {
         self.writesNotesOnline = writesNotesOnline
         self.clipboardShows = clipboardShows
         self.oneAgentAtATime = oneAgentAtATime
         self.notesListenFor = notesListenFor
         self.tellsVoicesApart = tellsVoicesApart
         self.dropBoxExtras = dropBoxExtras
+        self.movesWindows = movesWindows
     }
 
     /// One thing a plan does that another does not, in words for people.
@@ -110,6 +116,10 @@ public struct PlanLimits: Equatable, Sendable {
         /// The drop box makes no WebP copies and removes no backgrounds. Said, like
         /// `voicesTogether`, as what Plus adds.
         case dropBoxBasics
+        /// Windows are not put in place from the notch or the keyboard. Said,
+        /// like `voicesTogether`, as what Plus adds: no public build had it
+        /// on Free.
+        case windowsStayPut
         /// Notes were written online and are now written on the Mac.
         case notesOnTheMac
 
@@ -128,6 +138,8 @@ public struct PlanLimits: Equatable, Sendable {
                 String(localized: "Everyone on the other side of a call is \u{201C}Them\u{201D}. Telling voices apart comes with Plus.")
             case .dropBoxBasics:
                 String(localized: "The drop box makes no WebP copies and removes no backgrounds. Both come with Plus.")
+            case .windowsStayPut:
+                String(localized: "Windows aren't put in place from the notch or the keyboard. Window layouts come with Plus.")
             case .notesOnTheMac:
                 macWritesNotes
                     ? String(localized: "Call notes are written on this Mac, not online.")
@@ -143,6 +155,7 @@ public struct PlanLimits: Equatable, Sendable {
             case .shorterCallNotes: "timer"
             case .voicesTogether: "person.2"
             case .dropBoxBasics: "tray.and.arrow.down"
+            case .windowsStayPut: "rectangle.split.2x1"
             case .notesOnTheMac: "text.bubble"
             }
         }
@@ -161,6 +174,7 @@ public struct PlanLimits: Equatable, Sendable {
         }
         if tellsVoicesApart, !smaller.tellsVoicesApart { lost.append(.voicesTogether) }
         if dropBoxExtras, !smaller.dropBoxExtras { lost.append(.dropBoxBasics) }
+        if movesWindows, !smaller.movesWindows { lost.append(.windowsStayPut) }
         if writesNotesOnline, !smaller.writesNotesOnline { lost.append(.notesOnTheMac) }
         return lost
     }
@@ -193,7 +207,8 @@ public struct PlanSnapshot: Codable, Equatable, Sendable {
                           oneAgentAtATime: free,
                           notesListenFor: free ? PlanLimits.freeNotesListen : nil,
                           tellsVoicesApart: !free,
-                          dropBoxExtras: !free)
+                          dropBoxExtras: !free,
+                          movesWindows: !free)
     }
 
     /// The plan a task that started on `startedOn` runs under now: never less
@@ -228,6 +243,6 @@ public enum PlanSetupNote {
 
     /// What Plus adds over them, and its smaller price.
     static var plus: String {
-        String(localized: "Plus covers whole calls, writes the notes online, tells voices apart and answers every agent, from \(License.Period.monthly.price).")
+        String(localized: "Plus covers whole calls, writes the notes online, tells voices apart, puts windows in place and answers every agent, from \(License.Period.monthly.price).")
     }
 }

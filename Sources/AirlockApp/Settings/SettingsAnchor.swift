@@ -17,6 +17,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     case surface, panelWidth, textSize, usageLimits, batteryPercentage
     case widgets, reactiveWave, perAppVolume
     case keepAwakeAgents, keepAwakeCutoff, keepAwakeScreen, keepAwakeShortcut
+    case windowLayouts, windowLayoutShortcuts
     case agentsSwitch, calendars, shelf
     // Voice
     case holdToDictate, microphoneInput, language, callNotes, callLanguages, pastCalls, notesOnline,
@@ -39,6 +40,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .surface, .panelWidth, .textSize, .usageLimits, .batteryPercentage,
              .widgets, .reactiveWave, .perAppVolume,
              .keepAwakeAgents, .keepAwakeCutoff, .keepAwakeScreen, .keepAwakeShortcut,
+             .windowLayouts, .windowLayoutShortcuts,
              .agentsSwitch, .calendars, .shelf: return .appearance
         case .holdToDictate, .microphoneInput, .language, .callNotes, .callLanguages, .pastCalls,
              .notesOnline, .tellVoicesApart, .knownWords, .cleanup, .pauseMusic: return .voice
@@ -74,6 +76,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .keepAwakeShortcut: return String(localized: "Keep awake: keyboard shortcut")
         case .agentsSwitch: return String(localized: "AI agents")
         case .calendars: return String(localized: "Calendars")
+        case .windowLayouts: return String(localized: "Drag a window to the notch")
+        case .windowLayoutShortcuts: return String(localized: "Window layouts: keyboard shortcuts")
         case .shelf: return String(localized: "Shelf")
         case .holdToDictate: return String(localized: "Hold a key to dictate")
         case .microphoneInput: return String(localized: "Microphone")
@@ -135,6 +139,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .keepAwakeShortcut: return ["awake", "sleep", "shortcut", "hotkey", "key"]
         case .agentsSwitch: return ["agents", "claude", "codex", "developer", "hooks", "connect"]
         case .calendars: return ["calendar", "events", "meetings"]
+        case .windowLayouts: return ["window", "layout", "tile", "tiling", "snap", "half", "third", "split", "resize", "arrange"]
+        case .windowLayoutShortcuts: return ["window", "layout", "tile", "snap", "shortcut", "hotkey", "key"]
         case .shelf: return ["shelf", "tray", "files", "drop", "folder"]
         case .holdToDictate: return ["dictation", "dictate", "voice", "speech", "talk", "hold", "key"]
         case .microphoneInput: return ["microphone", "mic", "input", "device", "headset"]
@@ -200,6 +206,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .keepAwakeShortcut: return ["despierto", "reposo", "atajo", "tecla"]
         case .agentsSwitch: return ["agentes", "claude", "codex", "desarrollador", "conectar"]
         case .calendars: return ["calendario", "eventos", "reuniones"]
+        case .windowLayouts: return ["ventana", "ventanas", "mosaico", "mitad", "tercio", "dividir", "organizar", "tamano"]
+        case .windowLayoutShortcuts: return ["ventana", "ventanas", "mosaico", "atajo", "tecla"]
         case .shelf: return ["estante", "bandeja", "archivos", "soltar", "carpeta"]
         case .holdToDictate: return ["dictado", "dictar", "voz", "hablar", "mantener", "tecla"]
         case .microphoneInput: return ["microfono", "entrada", "dispositivo", "auriculares", "cascos"]

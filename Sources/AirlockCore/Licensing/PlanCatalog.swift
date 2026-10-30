@@ -126,6 +126,9 @@ public enum PlanCatalog {
                     Feature(symbol: "wand.and.rays", title: String(localized: "Drop box extras"),
                             detail: String(localized: "Remove backgrounds, make WebP copies"),
                             line: String(localized: "Drop box: remove backgrounds, make WebP copies")),
+                    Feature(symbol: "rectangle.split.2x1", title: String(localized: "Window layouts"),
+                            detail: String(localized: "Drag a window to the notch to place it"),
+                            line: String(localized: "Window layouts: halves, thirds or the whole screen")),
                     Feature(symbol: "terminal", title: String(localized: "Every agent"),
                             detail: String(localized: "Answer all of them from the notch"),
                             line: String(localized: "Answer every agent from the notch"))]

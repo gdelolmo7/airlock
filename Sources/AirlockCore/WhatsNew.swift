@@ -54,6 +54,12 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.2.0", title: String(localized: "Windows in place, and a better Shelf"), items: [
+            Item("rectangle.split.2x2", String(localized: "With Plus, drag a window to the notch or rest on its green button to snap it to a half or quarter.")),
+            Item("tray.2", String(localized: "Select files on the Shelf as in Finder, or drag a box over several, then drag them out together.")),
+            Item("doc.on.clipboard", String(localized: "Write it out puts what you said on the clipboard. Copied call notes paste neatly anywhere.")),
+            Item("sparkles", String(localized: "The notch opens without a bounce and hides only over full-screen video. Dictation keeps up on M1.")),
+        ]),
         Notes(version: "1.1.0", title: String(localized: "In Spanish, with a drop box"), items: [
             Item("globe", String(localized: "Airlock speaks Spanish now. It follows your Mac's language, or choose one in Settings › General.")),
             Item("tray.and.arrow.down", String(localized: "Drop a file on the notch to keep it, AirDrop it or change its format. Plus also removes backgrounds.")),

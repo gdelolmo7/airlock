@@ -81,6 +81,13 @@ enum GalleryLiveTranscript {
                          ground: .window, width: GalleryMeetings.size.width) {
                 calls(.transcript, inPerson: true, hearing: [(.them, "Perfect. Last thing, the website still")])
             },
+            GalleryState("K73a", area, "Side window: opened before the transcript is there, getting it",
+                         ground: .window, width: side.width) {
+                LiveTranscriptGetting()
+                    .frame(width: side.width, height: side.height)
+                    .background(CallsLook.sidebar)
+                    .environment(\.colorScheme, .dark)
+            },
             GalleryState("K73", area, "Side window: two people told apart while the meeting goes on, Person 2 being named",
                          ground: .window, width: side.width) {
                 window(record(inPerson: true, twoPeople: true), naming: 2)

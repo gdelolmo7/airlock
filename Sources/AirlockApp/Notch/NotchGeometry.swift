@@ -54,6 +54,20 @@ enum NotchHost {
 enum NotchDisplayPolicy {
     static let externalWhenClosedKey = "notch.showOnExternalWhenLidClosed"
     static let followsMainKey = "notch.followsMainDisplay"
+    static let hidesIdleStandInKey = "notch.hidesIdleStandIn"
+
+    /// On a display without a notch, keep the island out of sight while
+    /// nothing is happening. Off by default: the island resting where the
+    /// notch would be is the product, and this is for people who want the
+    /// menu bar clear. See `IslandPresentation.mayRest` for what still
+    /// brings it up.
+    static var hidesIdleStandIn: Bool {
+        get { UserDefaults.standard.bool(forKey: hidesIdleStandInKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: hidesIdleStandInKey)
+            NotificationCenter.default.post(name: .notchDisplayPolicyDidChange, object: nil)
+        }
+    }
 
     /// The island lives on the main display — the one System Settings →
     /// Displays calls main, `NSScreen.screens.first` — even when that is a

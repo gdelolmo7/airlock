@@ -27,8 +27,6 @@ final class DropNamesTests: XCTestCase {
                        ["Beach (no background).png"], "a picture with no background needs see-through pixels")
         XCTAssertEqual(DropNames.names(for: ["Clip.mov"], choice: .noSound, existing: []),
                        ["Clip (no sound).mov"])
-        XCTAssertEqual(DropNames.names(for: ["Memo.mp3"], choice: .writeItOut, existing: []),
-                       ["Memo (written out).txt"])
     }
 
     /// A smaller WebP comes back a JPG: this Mac can't write WebP.
@@ -52,6 +50,8 @@ final class DropNamesTests: XCTestCase {
 
     func testNothingIsNamedForWhatMakesNoFile() {
         XCTAssertEqual(DropNames.names(for: ["Scan.png"], choice: .copyText, existing: []), [])
+        XCTAssertEqual(DropNames.names(for: ["Memo.mp3"], choice: .writeItOut, existing: []), [],
+                       "what's said goes to the clipboard")
         XCTAssertEqual(DropNames.names(for: ["Memo.m4a"], choice: .notesFromIt, existing: []), [])
     }
 

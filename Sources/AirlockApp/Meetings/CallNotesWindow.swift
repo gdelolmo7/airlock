@@ -570,10 +570,10 @@ final class CallNotesLibrary {
         let text: String
         switch tab {
         case .notes: text = call.page ?? ""
-        case .transcript: text = Self.plainTranscript(of: call.record)
+        case .transcript: text = Self.markdownTranscript(of: call.record)
         }
         guard !text.isEmpty else { return }
-        AirlockCopy.put(text)
+        AirlockCopy.putMarkdown(text)
         let done = Copied(call: call.id, tab: tab)
         copied = done
         AccessibilityNotification.Announcement(String(localized: "Copied")).post()
@@ -595,20 +595,26 @@ final class CallNotesLibrary {
     }
 
     /// What Copy puts on the clipboard from the Transcript tab: what the tab
-    /// shows, typed notes, pauses and changes of language included, as plain
-    /// text, with the same times of day.
-    static func plainTranscript(of record: MeetingRecord, calendar: Calendar = .current) -> String {
+    /// shows, typed notes, pauses and changes of language included, as
+    /// Markdown, with the same times of day. Who spoke is in bold with the
+    /// time beside it, and pauses and changes of language are in italics, as
+    /// the tab draws them. What was said is escaped, so a star in it stays
+    /// a star.
+    static func markdownTranscript(of record: MeetingRecord, calendar: Calendar = .current) -> String {
         let time = { (seconds: TimeInterval) in CallsCard.time(seconds, into: record.startedAt, calendar: calendar) }
+        let said = { (who: String, at: TimeInterval, text: String) in
+            "**\(MarkdownCopy.escaped(who))** · \(time(at))\n\(MarkdownCopy.escaped(text))"
+        }
         return MeetingTimeline.entries(of: record).map { entry in
             switch entry {
             case .speech(let turn, _):
-                "\(record.label(for: turn)) · \(time(turn.start))\n\(turn.text)"
+                said(record.label(for: turn), turn.start, turn.text)
             case .jot(let jot):
-                "\(String(localized: "Your note")) · \(time(jot.at))\n\(jot.text)"
+                said(String(localized: "Your note"), jot.at, jot.text)
             case .pause(let pause):
-                MeetingTimeline.pauseLabel(pause, clock: time)
+                "_\(MeetingTimeline.pauseLabel(pause, clock: time))_"
             case .language(let listening):
-                MeetingTimeline.languageLabel(listening, clock: time)
+                "_\(MeetingTimeline.languageLabel(listening, clock: time))_"
             }
         }
         .joined(separator: "\n\n")

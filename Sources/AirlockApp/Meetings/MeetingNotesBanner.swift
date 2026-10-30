@@ -802,21 +802,21 @@ private struct NotesIconButton: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        Image(systemName: symbol)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(ink)
-            .frame(width: 28, height: 28)
-            .background(shape.fill(fill))
-            .overlay(shape.strokeBorder(edge, lineWidth: 1))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: action)
-            .onHover { inside in
-                withAnimation(MotionEffect.pointer) { hovered = inside }
-            }
-            .clickable()
-            .accessibilityLabel(label)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { action() }
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(ink)
+                .frame(width: 28, height: 28)
+                .background(shape.fill(fill))
+                .overlay(shape.strokeBorder(edge, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(SinksWhenPressed())
+        .onHover { inside in
+            withAnimation(MotionEffect.pointer) { hovered = inside }
+        }
+        .clickable()
+        .accessibilityLabel(label)
     }
 
     private var ink: Color {
@@ -838,6 +838,19 @@ private struct NotesIconButton: View {
         case .prominent: Color.white.opacity(0.2)
         case .plain: Color.white.opacity(0.1)
         }
+    }
+}
+
+/// Held down, the button sinks a little, so the click is answered before
+/// whatever it does has come. A plain button's own press, not a drag
+/// watcher: one of those was left holding the press when the island closed
+/// under it, and the next click went to letting it go.
+private struct SinksWhenPressed: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(MotionEffect.pointer, value: configuration.isPressed)
     }
 }
 

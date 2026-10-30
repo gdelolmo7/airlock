@@ -4,6 +4,7 @@ import Foundation
 import ImageIO
 import Speech
 import UniformTypeIdentifiers
+import os
 
 /// The drop box's work on films and sound, with AVFoundation, and writing out
 /// what is said in a recording with the Mac's own speech model. Nothing is
@@ -133,32 +134,87 @@ enum DropMediaWork {
         }
     }
 
-    /// What is said in a recording, in this Mac's language, as plain text a
-    /// paragraph per pause.
+    /// What is said in a recording, as plain text a paragraph per pause,
+    /// in the language it is spoken in.
+    ///
+    /// Apple's recogniser cannot tell a language by ear, so the recording is
+    /// heard in the call languages (dictation's when none are picked) and
+    /// the recogniser's own confidence picks the take (`TranscriptRace`).
+    /// When the words of that take read as another language this Mac knows,
+    /// as a Spanish voice message heard in English does, it is heard again
+    /// in that one and the two races again (`CallLanguage.hearAgain`).
     static func writtenOut(_ url: URL) async throws -> String {
-        guard let locale = await SpeechSession.resolvedLocale() else { throw DropWork.Failure.noSpeech }
-        await SpeechSession.prepareModel(for: locale)
+        guard let (picked, _, listeners) = await MeetingNotesModel.speechSetup(
+            settings: .standard, log: { line in log.info("drop box: \(line, privacy: .public)") })
+        else { throw DropWork.Failure.noSpeech }
+        let primary = picked[0].identifier
+        var takes = try await heard(url, by: picked)
+        guard var best = TranscriptRace.winner(among: takes.map(\.candidate), primary: primary) else {
+            throw DropWork.Failure.noSpeech
+        }
+        let reading = CallLanguage.reading(of: best.text)
+        if let code = CallLanguage.hearAgain(heardIn: best.localeIdentifier, reading: reading,
+                                             known: listeners.codes),
+           let again = await CallListening.resolved(Locale(identifier: code)),
+           !picked.contains(again), await CallListening.prepare(again) {
+            takes += try await heard(url, by: [again])
+            // The first hearing keeps the tie: the words' language is a
+            // guess, the recogniser's confidence is a measurement.
+            best = TranscriptRace.winner(among: takes.map(\.candidate), primary: best.localeIdentifier) ?? best
+            log.info("drop box: heard again in \(again.identifier, privacy: .public), \(takes.map { "\($0.candidate.localeIdentifier) \(String(format: "%.2f", $0.candidate.confidence))" }.joined(separator: " · "), privacy: .public) → \(best.localeIdentifier, privacy: .public)")
+        }
+        guard let lines = takes.first(where: { $0.candidate.localeIdentifier == best.localeIdentifier })?.lines,
+              !lines.isEmpty else { throw DropWork.Failure.noSpeech }
+        return lines.joined(separator: "\n\n")
+    }
+
+    private static let log = Logger(subsystem: "com.airlock.app", category: "shelf")
+
+    /// One recogniser's hearing of a recording: its lines and its score.
+    private struct Take {
+        var candidate: TranscriptRace.Candidate
+        var lines: [String]
+    }
+
+    /// The recording heard by each of `listeners` at once, on one analyzer.
+    private static func heard(_ url: URL, by listeners: [CallLanguageFollow.Listener]) async throws -> [Take] {
         let file: AVAudioFile
         do { file = try AVAudioFile(forReading: url) } catch { throw DropWork.Failure.unreadable }
-        let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [],
-                                            attributeOptions: [])
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
-        let collect = Task {
-            var lines: [String] = []
-            for try await result in transcriber.results where result.isFinal {
-                let line = String(result.text.characters).trimmingCharacters(in: .whitespaces)
-                if !line.isEmpty { lines.append(line) }
+        let modules = listeners.map { CallListening.module(for: $0) }
+        let analyzer = SpeechAnalyzer(modules: modules)
+        let collecting = zip(listeners, modules).map { listener, module in
+            Task { () throws -> Take in
+                var lines: [String] = []
+                var weighted = 0.0
+                var scored = 0
+                func keep(_ text: AttributedString) {
+                    let line = String(text.characters).trimmingCharacters(in: .whitespaces)
+                    guard !line.isEmpty else { return }
+                    lines.append(line)
+                    let score = CallListening.confidence(of: text)
+                    weighted += score.weighted
+                    scored += score.scored
+                }
+                if let speech = module as? SpeechTranscriber {
+                    for try await result in speech.results where result.isFinal { keep(result.text) }
+                } else if let dictation = module as? DictationTranscriber {
+                    for try await result in dictation.results where result.isFinal { keep(result.text) }
+                }
+                let confidence = scored > 0 ? weighted / Double(scored) : 0
+                return Take(candidate: .init(localeIdentifier: listener.identifier,
+                                             text: lines.joined(separator: " "),
+                                             confidence: CallLanguageFollow.lifted(confidence, listener.module)),
+                            lines: lines)
             }
-            return lines
         }
         if let end = try await analyzer.analyzeSequence(from: file) {
             try await analyzer.finalizeAndFinish(through: end)
         } else {
             await analyzer.cancelAndFinishNow()
         }
-        let lines = try await collect.value
-        guard !lines.isEmpty else { throw DropWork.Failure.noSpeech }
-        return lines.joined(separator: "\n\n")
+        var takes: [Take] = []
+        for task in collecting { takes.append(try await task.value) }
+        return takes
     }
 
     // MARK: -

@@ -303,6 +303,9 @@ final class NotchController {
     private var stickyExpand = false
     /// Peek while the pointer is on the island; falls back on exit.
     private var hoverExpand = false
+    /// The next open is a tap or a peek, the person's own hand. Read once, on
+    /// the pass that opens the panel, then cleared: see `CompactIsland.showsMeeting`.
+    private var openingByHand = false
     /// Set by an explicit collapse under the cursor; cleared on pointer exit.
     private var hoverSuppressed = false
     /// Opened by the clipboard hotkey. Deliberately NOT `stickyExpand`: a tap
@@ -335,9 +338,20 @@ final class NotchController {
     /// The pointer is at the top edge of a display whose menu bar is hidden —
     /// see `TopEdgeReveal` and `watchTopEdge`.
     private var topEdgeRevealed = false
-    /// The app in front has a full-screen window on the island's display —
-    /// see `FullScreenFront`, and `refreshFullScreen` for when it is asked.
+    /// The app in front is playing a video in a full-screen window on the
+    /// island's display, so the island hides — see `FullScreenFront` and
+    /// `VideoInFront`, and `refreshFullScreen` for when it is asked. A
+    /// full-screen window with no video (an editor) keeps the island.
     private var frontIsFullScreen = false
+    /// Re-asks every few seconds while the front window is full screen,
+    /// since a video starting or pausing posts nothing.
+    private var videoWatch: Task<Void, Never>?
+    private var lastFullScreenReading = ""
+    /// A hover the arbiter still reports keeps the island up where it cannot
+    /// rest only while the pointer is really up there — see
+    /// `TopEdgeReveal.hoverKeeps`. Remembered so a move across the line
+    /// re-applies.
+    private var hoverKeepsTop = false
     private var activationTask: Task<Void, Never>?
     /// The main-thread stall logger, only while the trace is on.
     private var stallTimer: Timer?
@@ -460,6 +474,7 @@ final class NotchController {
         self.registry = registry
         let pin: () -> Void = { [weak self] in
             self?.stickyExpand = true
+            self?.openingByHand = true
             self?.apply()
         }
         let collapse: () -> Void = { [weak self] in
@@ -566,17 +581,25 @@ final class NotchController {
             // the notch itself produced nothing at all. An earlier comment here
             // asserted the opposite, which is how the bug survived a revert.
             //
-            // The two members that remain have the same hole in the middle of
-            // them and are kept anyway, labelled rather than claimed:
-            //   `.keepVisible`    holds the panel open under the pointer. Only
-            //                     reachable on the shoulders and over the
-            //                     EXPANDED panel — which is where it is needed,
-            //                     since the expanded panel is the thing you can
-            //                     be reading when it decides to hide.
+            // The one member that remains has the same hole in the middle of
+            // it and is kept anyway, labelled rather than claimed:
             //   `.increaseShadow` lifts the island's shadow on hover, same
             //                     reachability: live on the shoulders, absent
             //                     over the cutout.
-            hoverBehavior: [.keepVisible, .increaseShadow],
+            //
+            // NOT `.keepVisible`, and it must not come back. It makes the kit's
+            // `hide()` wait, 0.1s at a time, for as long as the kit's own
+            // `isHovering` is true — and that flag only clears on a SwiftUI
+            // `.onHover` exit, which can be missed. Then `hide()` never
+            // returns, and since `transition(to:)` awaits each kit call in
+            // turn, every show and hide after it queues behind it: one hide
+            // took 727s (2026-10-28), the island sitting over a full-screen
+            // film the whole time while this controller logged it hidden.
+            // Keeping the panel up under the pointer is `resolve`'s job
+            // already — the `.peeked` hold keeps it expanded, `hoverKeepsTop`
+            // keeps it compact, both checked against where the pointer really
+            // is — so the kit's copy only ever added the hang.
+            hoverBehavior: [.increaseShadow],
             style: .auto,
             expanded: {
                 withEveryModel(NotchExpandedContent(onCollapse: collapse,
@@ -839,6 +862,7 @@ final class NotchController {
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             growing: growing
         )
+        notch?.contentTransition = NotchMotion.contentTransition
     }
 
     /// Reduce Motion is a system switch someone flips *because* something on
@@ -1789,11 +1813,42 @@ final class NotchController {
         // Airlock in front means the island was clicked, not that the film
         // ended; keep the last answer.
         guard !FullScreenFront.frontIsUs else { return }
-        let now = NotchScreen.target.map(FullScreenFront.isFullScreen(on:)) ?? false
+        let full = NotchScreen.target.map(FullScreenFront.isFullScreen(on:)) ?? false
+        watchVideo(full)
+        // Only a video hides it (the owner, 2026-10-26): over a full-screen
+        // editor the island stays.
+        let video = FullScreenFront.playsVideo()
+        let now = full && video
+        // Which half failed, and by which reading of "full screen".
+        let reading = "trusted=\(AXIsProcessTrusted()) full=\(full) video=\(video) "
+            + "front=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "-")"
+        if reading != lastFullScreenReading {
+            lastFullScreenReading = reading
+            HoverTrace.note("full screen check: \(reading)")
+        }
         guard now != frontIsFullScreen else { return }
         frontIsFullScreen = now
-        HoverTrace.note("full screen in front: \(now)")
+        HoverTrace.note("full-screen video in front: \(now)")
         apply()
+    }
+
+    /// Asks again every two seconds while the front window is full screen: a
+    /// video pausing, ending or starting there changes nothing Airlock is told
+    /// about. One Accessibility read and one power-lock list per look.
+    private func watchVideo(_ full: Bool) {
+        guard full else {
+            videoWatch?.cancel()
+            videoWatch = nil
+            return
+        }
+        guard videoWatch == nil else { return }
+        videoWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.refreshFullScreen()
+            }
+        }
     }
 
     /// Logs every stretch the main thread could not answer a 100ms timer for
@@ -1846,12 +1901,22 @@ final class NotchController {
 
     private func pointerMoved() {
         guard let frame = NotchScreen.target?.frame else { return }
-        let revealed = TopEdgeReveal.isRevealed(was: topEdgeRevealed,
-                                                pointer: NSEvent.mouseLocation, screen: frame)
-        guard revealed != topEdgeRevealed else { return }
+        let pointer = NSEvent.mouseLocation
+        let revealed = TopEdgeReveal.isRevealed(was: topEdgeRevealed, pointer: pointer, screen: frame)
+        let keeps = TopEdgeReveal.hoverKeeps(hovering: hoverOnIsland, pointer: pointer, screen: frame)
+        guard revealed != topEdgeRevealed || keeps != hoverKeepsTop else { return }
+        if revealed != topEdgeRevealed {
+            HoverTrace.note("top edge: \(revealed ? "revealed" : "left")")
+        }
         topEdgeRevealed = revealed
-        HoverTrace.note("top edge: \(revealed ? "revealed" : "left")")
         apply()
+    }
+
+    /// The arbiter says the pointer is on a drawn island. It can say so after
+    /// the pointer has gone (`HoverArbiter.isHovering` keeps an exit it
+    /// swallowed), which is why `hoverKeeps` checks where the pointer is.
+    private var hoverOnIsland: Bool {
+        hover.isHovering && applied != nil && applied != .hidden
     }
 
     // MARK: - File in hand
@@ -2058,6 +2123,7 @@ final class NotchController {
                         continue
                     case .peek:
                         self.hoverExpand = true
+                        self.openingByHand = true
                         self.apply()
                         return
                     }
@@ -2371,6 +2437,16 @@ final class NotchController {
                                               tray: tray, output: audioOutput,
                                               sound: sound, controls: systemControls,
                                               ui: uiState)
+        // Opened by hand while the island says "meeting": land where the
+        // meeting is. Never over a gate (it already took the panel to Agents),
+        // and only on the opening pass, so a tab picked afterwards stays picked.
+        if openingByHand {
+            openingByHand = false
+            if applied != .expanded, attention == 0, CompactIsland.showsMeeting(island),
+               registry.visibleTabs().contains(.dashboard) {
+                uiState.selectedTab = .dashboard
+            }
+        }
         // The rule itself is `IslandPresentation` (Core, tested) — it is a
         // user-set product contract rather than an implementation detail, and
         // the test that matters says content alone never expands. Nothing in
@@ -2401,9 +2477,15 @@ final class NotchController {
         // Where the island may REST. Always over a camera housing; on a monitor
         // with the lid shut, only while that screen's menu bar shows — see
         // `VirtualCutout.canRest`. Anything waiting on the owner brings it up
-        // regardless, and a gate or a question is exactly that.
+        // regardless, and a gate or a question is exactly that. On a stand-in
+        // the person may also have asked for it to stay hidden while idle
+        // (`NotchDisplayPolicy.hidesIdleStandIn`).
         let target = NotchScreen.target
-        let canRest = (target?.islandCanRest ?? false) && !frontIsFullScreen
+        let canRest = IslandPresentation.mayRest(
+            menuBarShows: (target?.islandCanRest ?? false) && !frontIsFullScreen,
+            onStandIn: target?.standInCutout != nil,
+            hidesWhenIdle: NotchDisplayPolicy.hidesIdleStandIn,
+            hasContent: showing)
         let awaitingOwner = attention > 0
         watchTopEdge(canRest ? nil : target)
         // Only the top edge BRINGS it back. Being on the island then KEEPS it,
@@ -2411,8 +2493,15 @@ final class NotchController {
         // under a hidden island is the whole notch strip, and letting that
         // count made a pass a centimetre below the top bring the island over
         // a full-screen video (2026-10-05).
-        let pointerAtTop = !canRest
-            && (topEdgeRevealed || (hover.isHovering && applied != nil && applied != .hidden))
+        //
+        // And the hover only while the pointer is really up there: the arbiter
+        // can go on reporting one after an exit it never saw, and that kept
+        // the island over a full-screen film with the pointer in the middle of
+        // the screen (2026-10-26).
+        hoverKeepsTop = target.map {
+            TopEdgeReveal.hoverKeeps(hovering: hoverOnIsland, pointer: NSEvent.mouseLocation, screen: $0.frame)
+        } ?? false
+        let pointerAtTop = !canRest && (topEdgeRevealed || hoverKeepsTop)
         // The WALL clock, not `island.now`: that one only moves while a
         // transient window is open (see the top of this function), so a linger
         // measured on it would never run out.

@@ -37,6 +37,26 @@ public enum HoldInterruption: String, Equatable, Sendable, CaseIterable {
         case discard
     }
 
+    /// How long the second half of a chord follows the first. ⌃C, ⌥⌫ and
+    /// ⌃-click come within a moment of the modifier going down; a key after
+    /// this, with a voice on the microphone, comes from somebody talking.
+    public static let chordWindow: TimeInterval = 1.5
+    /// A peak above room noise and below anyone speaking at the Mac. Chosen,
+    /// not measured on many microphones: it only has to tell a silent hold
+    /// from a spoken one.
+    public static let voiceLevel: Float = 0.02
+
+    /// Whether the hold should count as dictation when something interrupts
+    /// it. Words are the best sign, but the recogniser is a beat behind the
+    /// voice, and on a slower Mac more than a beat: a key pressed two
+    /// seconds into a sentence used to land before the first word and throw
+    /// the whole hold away, with no message. Its words now go to the
+    /// clipboard, which is the safe side for a key that was a shortcut after
+    /// all.
+    public static func soundsLikeTalking(heardWords: Bool, heldFor: TimeInterval, peak: Float) -> Bool {
+        heardWords || (heldFor >= chordWindow && peak >= voiceLevel)
+    }
+
     public func verdict(heardWords: Bool) -> Verdict {
         switch self {
         case .scroll:

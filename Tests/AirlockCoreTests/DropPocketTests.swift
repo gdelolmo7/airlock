@@ -221,6 +221,8 @@ final class DropPocketTests: XCTestCase {
         let words = DropPocketNote.finished(DropWorkResult(choice: .copyText, made: 0, failures: [], text: "hi"))
         XCTAssertEqual(words.line, "Copied, ready to paste")
         XCTAssertEqual(words.work, .finished)
+        let said = DropPocketNote.finished(DropWorkResult(choice: .writeItOut, made: 0, failures: [], text: "hola"))
+        XCTAssertEqual(said.line, "Copied, ready to paste", "what's said goes to the clipboard, not the shelf")
         XCTAssertEqual(DropPocketNote.finished(DropWorkResult(choice: .onePDF, made: 1, failures: [])).line,
                        "Done, it's on the shelf")
         XCTAssertEqual(DropPocketNote.finished(DropWorkResult(choice: .mp4, made: 3, failures: [])).line,

@@ -199,16 +199,6 @@
         }
       }
     },
-    "%@ (written out)" : {
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ (transcripción)"
-          }
-        }
-      }
-    },
     "%@ It's in System Settings, under Apple Intelligence & Siri." : {
       "localizations" : {
         "es" : {
@@ -4095,6 +4085,16 @@
         }
       }
     },
+    "Always in the middle of the menu bar" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siempre en el centro de la barra de menús"
+          }
+        }
+      }
+    },
     "Always on" : {
       "localizations" : {
         "es" : {
@@ -5169,6 +5169,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ambos abren la página de tu suscripción en el navegador. Nada de lo que has creado se borra nunca."
+          }
+        }
+      }
+    },
+    "Bottom half" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mitad inferior"
+          }
+        }
+      }
+    },
+    "Bottom left quarter" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuarto inferior izquierdo"
+          }
+        }
+      }
+    },
+    "Bottom right quarter" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuarto inferior derecho"
           }
         }
       }
@@ -7343,6 +7373,16 @@
         }
       }
     },
+    "With Plus, drag a window to the notch or rest on its green button to snap it to a half or quarter." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Con Plus, arrastra una ventana al notch o pausa en su botón verde para llevarla a una mitad o un cuarto."
+          }
+        }
+      }
+    },
     "Drag any file onto the notch to drop it on the shelf." : {
       "localizations" : {
         "es" : {
@@ -8549,6 +8589,16 @@
         }
       }
     },
+    "Getting the transcript…" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparando la transcripción…"
+          }
+        }
+      }
+    },
     "Getting the voice model ready: %lld%% of about %lld MB, downloaded once from useairlock.app" : {
       "localizations" : {
         "en" : {
@@ -8957,6 +9007,16 @@
         }
       }
     },
+    "Hidden until you dictate, a call starts, an agent needs you or you move the pointer to the top" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oculto hasta que dictes, empiece una llamada, un agente te necesite o lleves el puntero arriba"
+          }
+        }
+      }
+    },
     "Hide" : {
       "localizations" : {
         "es" : {
@@ -9119,6 +9179,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mantén pulsada una tecla, habla y tus palabras se escriben."
+          }
+        }
+      }
+    },
+    "Hold the pointer on a window's green button to pick where it goes" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deja el puntero sobre el botón verde de una ventana para elegir dónde va"
           }
         }
       }
@@ -10445,6 +10515,16 @@
         }
       }
     },
+    "Listening, then the words are yours to paste" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escuchando; luego podrás pegar las palabras"
+          }
+        }
+      }
+    },
     "Listening…" : {
       "localizations" : {
         "es" : {
@@ -11663,16 +11743,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No hay calendarios marcados, así que aquí no puede aparecer ninguna reunión."
-          }
-        }
-      }
-    },
-    "No call is being written down." : {
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No se está tomando nota de ninguna llamada."
           }
         }
       }
@@ -13119,6 +13189,16 @@
         }
       }
     },
+    "Only show the notch when something's happening" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar el notch solo cuando pasa algo"
+          }
+        }
+      }
+    },
     "Only sound moving to this device" : {
       "localizations" : {
         "es" : {
@@ -14223,6 +14303,16 @@
         }
       }
     },
+    "Pick a half, a quarter, a third or the whole screen, and it goes there" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige una mitad, un cuarto, un tercio o la pantalla entera, y la ventana va ahí"
+          }
+        }
+      }
+    },
     "Pick a recording to get notes from. The file stays where it is, and nothing leaves your Mac." : {
       "localizations" : {
         "es" : {
@@ -14443,12 +14533,12 @@
         }
       }
     },
-    "Plus covers whole calls, writes the notes online, tells voices apart and answers every agent, from %@." : {
+    "Plus covers whole calls, writes the notes online, tells voices apart, puts windows in place and answers every agent, from %@." : {
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Plus cubre llamadas enteras, escribe las notas online, distingue voces y responde a cualquier agente, desde %@."
+            "value" : "Plus cubre llamadas enteras, escribe las notas online, distingue voces, coloca ventanas y responde a cualquier agente, desde %@."
           }
         }
       }
@@ -15389,6 +15479,16 @@
         }
       }
     },
+    "Rest on the green button" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausa en el botón verde"
+          }
+        }
+      }
+    },
     "Restart" : {
       "localizations" : {
         "es" : {
@@ -15995,6 +16095,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seleccionar todo"
+          }
+        }
+      }
+    },
+    "Select files on the Shelf as in Finder, or drag a box over several, then drag them out together." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecciona archivos del Estante como en Finder, o arrastra un recuadro sobre varios, y sácalos juntos."
           }
         }
       }
@@ -17897,6 +18007,16 @@
         }
       }
     },
+    "The notch opens without a bounce and hides only over full-screen video. Dictation keeps up on M1." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El notch se abre sin rebote y solo se oculta sobre vídeo a pantalla completa. El dictado no falla en M1."
+          }
+        }
+      }
+    },
     "The PDF couldn't be made. %@" : {
       "localizations" : {
         "es" : {
@@ -19315,6 +19435,36 @@
         }
       }
     },
+    "Top half" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mitad superior"
+          }
+        }
+      }
+    },
+    "Top left quarter" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuarto superior izquierdo"
+          }
+        }
+      }
+    },
+    "Top right quarter" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuarto superior derecho"
+          }
+        }
+      }
+    },
     "Topics" : {
       "localizations" : {
         "es" : {
@@ -20681,6 +20831,16 @@
         }
       }
     },
+    "Windows in place, and a better Shelf" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ventanas en su sitio y un Estante mejor"
+          }
+        }
+      }
+    },
     "With Airlock closed, your agents behave exactly as they do now." : {
       "localizations" : {
         "es" : {
@@ -20951,6 +21111,16 @@
         }
       }
     },
+    "Write it out puts what you said on the clipboard. Copied call notes paste neatly anywhere." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transcribir deja lo que dijiste en el portapapeles. Las notas de llamada copiadas se pegan bien en todas partes."
+          }
+        }
+      }
+    },
     "Write notes online" : {
       "localizations" : {
         "es" : {
@@ -20961,12 +21131,12 @@
         }
       }
     },
-    "Write out what's said, as a text file beside it" : {
+    "Write out what's said, to paste anywhere" : {
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transcribir lo que se dice en un archivo de texto al lado"
+            "value" : "Transcribir lo que se dice, para pegarlo donde quieras"
           }
         }
       }
@@ -21079,16 +21249,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Escribiendo:"
-          }
-        }
-      }
-    },
-    "Writing it out, on the shelf soon" : {
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Transcribiendo; pronto estará en el estante"
           }
         }
       }
@@ -24996,6 +25156,287 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "⌥ Opción"
+          }
+        }
+      }
+    },
+    "Don't show this again" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No volver a mostrar"
+          }
+        }
+      }
+    },
+    "Centre" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Centrar"
+          }
+        }
+      }
+    },
+    "Window Layouts" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar ventanas"
+          }
+        }
+      }
+    },
+    "Allow Accessibility to Move Windows…" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permitir Accesibilidad para mover ventanas…"
+          }
+        }
+      }
+    },
+    "Window Layout Settings…" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes para colocar ventanas…"
+          }
+        }
+      }
+    },
+    "Put it back" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Devolverla a su sitio"
+          }
+        }
+      }
+    },
+    "Left half" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mitad izquierda"
+          }
+        }
+      }
+    },
+    "Right half" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mitad derecha"
+          }
+        }
+      }
+    },
+    "Left third" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tercio izquierdo"
+          }
+        }
+      }
+    },
+    "Middle third" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tercio central"
+          }
+        }
+      }
+    },
+    "Right third" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tercio derecho"
+          }
+        }
+      }
+    },
+    "Left two thirds" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dos tercios a la izquierda"
+          }
+        }
+      }
+    },
+    "Right two thirds" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dos tercios a la derecha"
+          }
+        }
+      }
+    },
+    "Whole screen" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pantalla entera"
+          }
+        }
+      }
+    },
+    "%@ is already used for %@." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ ya se usa para «%2$@»."
+          }
+        }
+      }
+    },
+    "Drag a window to the notch" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrastrar una ventana al notch"
+          }
+        }
+      }
+    },
+    "Pick a half, a third or the whole screen, and it goes there" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige una mitad, un tercio o la pantalla entera, y la ventana va ahí"
+          }
+        }
+      }
+    },
+    "Windows can't be moved until Airlock has the Accessibility permission." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las ventanas no se pueden mover hasta que Airlock tenga el permiso de Accesibilidad."
+          }
+        }
+      }
+    },
+    "Keyboard shortcuts" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atajos de teclado"
+          }
+        }
+      }
+    },
+    "Move the window in front from any app" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mueven la ventana de delante desde cualquier app"
+          }
+        }
+      }
+    },
+    "Window layouts: keyboard shortcuts" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar ventanas: atajos de teclado"
+          }
+        }
+      }
+    },
+    "Window layouts" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar ventanas"
+          }
+        }
+      }
+    },
+    "Windows aren't put in place from the notch or the keyboard. Window layouts come with Plus." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las ventanas no se colocan desde el notch ni con el teclado. Colocar ventanas viene con Plus."
+          }
+        }
+      }
+    },
+    "Drag a window to the notch to place it" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrastra una ventana al notch para colocarla"
+          }
+        }
+      }
+    },
+    "Window layouts: halves, thirds or the whole screen" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar ventanas: mitades, tercios o la pantalla entera"
+          }
+        }
+      }
+    },
+    "%@ · Comes with Plus" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Viene con Plus"
+          }
+        }
+      }
+    },
+    "Put windows in place" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar ventanas"
+          }
+        }
+      }
+    },
+    "On Free, the strip shows where a window would go, and it stays put. Plus moves it, and adds the keyboard shortcuts." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En Free, la tira muestra dónde iría la ventana, pero no se mueve. Plus la mueve y añade los atajos de teclado."
           }
         }
       }

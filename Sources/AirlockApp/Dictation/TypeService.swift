@@ -42,6 +42,12 @@ enum TypeService {
             // layout.
             down.keyboardSetUnicodeString(stringLength: units.count, unicodeString: &units)
             up.keyboardSetUnicodeString(stringLength: units.count, unicodeString: &units)
+            // The source is the live session state, so a modifier held right
+            // now (the hold key, down again for the next dictation) would
+            // ride along and turn the text into ⌃-letters, which a text field
+            // reads as editing commands. Plain text carries none.
+            down.flags = []
+            up.flags = []
             down.post(tap: .cgAnnotatedSessionEventTap)
             up.post(tap: .cgAnnotatedSessionEventTap)
 

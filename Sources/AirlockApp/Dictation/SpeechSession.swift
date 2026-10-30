@@ -124,12 +124,29 @@ final class SpeechSession {
     /// each start rather than once ever — measured at 0.55s warm against 2.9s
     /// cold. Failure is not fatal: `analyzerFormat` is what decides whether we
     /// can proceed.
+    ///
+    /// Logged, because a model still downloading or one that failed to was
+    /// invisible: every hold until then said the language was unavailable,
+    /// and the log had nothing to tell that apart from a Mac without it.
     static func prepareModel(for locale: Locale) async {
+        let id = locale.identifier
         let probe = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
-        if let request = try? await AssetInventory.assetInstallationRequest(supporting: [probe]) {
-            try? await request.downloadAndInstall()
+        do {
+            if let request = try await AssetInventory.assetInstallationRequest(supporting: [probe]) {
+                let started = Date()
+                dictationLog("speech model \(id): downloading…")
+                try await request.downloadAndInstall()
+                dictationLog("speech model \(id): installed in "
+                             + String(format: "%.1f", Date().timeIntervalSince(started)) + "s")
+            }
+        } catch {
+            dictationLog("speech model \(id): download FAILED — \(error.localizedDescription)")
         }
-        _ = try? await AssetInventory.reserve(locale: locale)
+        do {
+            _ = try await AssetInventory.reserve(locale: locale)
+        } catch {
+            dictationLog("speech model \(id): reserve failed — \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Lifecycle

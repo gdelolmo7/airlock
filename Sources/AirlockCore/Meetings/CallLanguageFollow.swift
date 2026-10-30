@@ -493,7 +493,7 @@ public enum CallLanguageFollow {
                        confidence: scored > 0 ? weighted / scored : nil)
     }
 
-    static func lifted(_ confidence: Double, _ module: Module) -> Double {
+    public static func lifted(_ confidence: Double, _ module: Module) -> Double {
         module == .dictation ? confidence + dictationLift : confidence
     }
 

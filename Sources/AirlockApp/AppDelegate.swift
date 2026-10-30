@@ -43,6 +43,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The limits last passed on by `watchPlanLimits`.
     private var planLimits: PlanLimits?
     private var systemControls: SystemControlsModel?
+    /// Drag a window up to the notch to pick where it goes.
+    private var windowDrag: WindowDragToNotch?
+    private var windowButtonHover: WindowButtonHover?
+    /// The "Window Layouts" submenu's filler, kept here because a menu holds
+    /// its delegate weakly.
+    private lazy var windowLayoutsMenu = WindowLayoutsMenu(
+        model: .shared,
+        openSettings: { [weak self] in self?.appWindow?.show(anchor: .windowLayouts) },
+        openPlans: { [weak self] in self?.license?.showPlans(from: "window_layouts") })
     private var tally: UsageTallyStore?
 
     /// `airlock://activate?key=…` coming back from a finished checkout.
@@ -269,6 +278,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.systemControls = systemControls
         systemControls.start()
 
+        // Window layouts: the shortcuts (off unless chosen), the strip that
+        // drops out of the notch for a window dragged up to it, the grid on a
+        // window's green button, and a row in the menu bar's menu
+        // (`makeStatusMenu`).
+        WindowLayoutModel.shared.plan = { [weak license] in license?.entitlement.limits }
+        WindowLayoutModel.shared.start()
+        let windowDrag = WindowDragToNotch(model: .shared)
+        self.windowDrag = windowDrag
+        windowDrag.start()
+        let windowButtonHover = WindowButtonHover(model: .shared)
+        self.windowButtonHover = windowButtonHover
+        windowButtonHover.start()
+
         WidgetArrangement.applyDashboardLayoutOnce()
         WidgetArrangement.applyHomeSoundLayoutOnce()
         var widgets: [any NotchWidget] = [
@@ -462,6 +484,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // After the windows exist, so "Open Settings" has something to open —
         // and before onboarding, which a migrated install will not see anyway.
         presentPermissionNoticeIfNeeded()
+        // Before setup can finish, so only a copy set up on an older build
+        // starts with Home's tips closed.
+        KeyMapTips.shared.settle(setUpAlready: OnboardingModel.hasCompletedSetup)
         let firstRun = presentOnboardingIfNeeded(settingsModel)
         let whatsNew = presentWhatsNewIfNeeded(isFirstRun: firstRun)
         let usageQuestion = presentUsageQuestionIfNeeded(panelTaken: firstRun || whatsNew)
@@ -816,6 +841,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // New Tab in every app on this Mac. ⌘, and ⌘Q below are the exception
         // because `installMainMenu` claims them properly.
         menu.addItem(makeItem(String(localized: "Show / Hide Panel"), #selector(togglePanel), ""))
+        // Every layout and its shortcut, for the window in front. Above
+        // Settings so the call rows keep their place right after it; shown
+        // only while window layouts are on (`menuNeedsUpdate`).
+        let layouts = NSMenuItem(title: String(localized: "Window Layouts"), action: nil, keyEquivalent: "")
+        layouts.submenu = windowLayoutsMenu.makeMenu()
+        layouts.tag = Self.windowLayoutsMenuTag
+        menu.addItem(layouts)
         menu.addItem(makeItem(String(localized: "Settings…"), #selector(openSettings), ","))
         // Every call's notes, whenever, not only the one the island offers
         // as it ends. Shown only while call notes are on (`menuNeedsUpdate`).
@@ -909,6 +941,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.title = reading ? String(localized: "Reading a Recording…") : String(localized: "Add Recording…")
     }
 
+    /// Marks "Window Layouts", for `menuNeedsUpdate`.
+    static let windowLayoutsMenuTag = 6
+
     /// Marks "Upgrade to Plus…", for `menuNeedsUpdate`.
     static let upgradeMenuTag = 5
 
@@ -937,6 +972,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model?.oneAgentAtATime = limits.oneAgentAtATime
         if !first {
             clipboardWidget?.planDidChange()
+            WindowLayoutModel.shared.planDidChange()
             Task { await CallUnlockService.shared.look() }
         }
         if limits.tellsVoicesApart, !Self.isDemoMode { CallVoiceDownload.shared.startSoon() }
@@ -1144,5 +1180,6 @@ extension AppDelegate: NSMenuDelegate {
         Self.showHandNotes(in: menu, as: notesOn ? model?.meetings.handButton : nil)
         Self.showAddRecording(in: menu, when: notesOn, reading: model?.meetings.recordings.isBusy ?? false)
         Self.showUpgrade(in: menu, onFree: license?.entitlement.plan == .free)
+        menu.items.first { $0.tag == Self.windowLayoutsMenuTag }?.isHidden = !WindowLayoutModel.shared.isEnabled
     }
 }

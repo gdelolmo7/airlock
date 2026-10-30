@@ -68,4 +68,18 @@ final class HoldInterruptionTests: XCTestCase {
         XCTAssertTrue(hold.copiesInstead)
         XCTAssertTrue(hold.scrolled)
     }
+
+    /// A shortcut comes quickly, and before any voice: still a chord.
+    func testAQuickChordIsStillAChord() {
+        XCTAssertFalse(HoldInterruption.soundsLikeTalking(heardWords: false, heldFor: 0.3, peak: 0.2))
+        XCTAssertFalse(HoldInterruption.soundsLikeTalking(heardWords: false, heldFor: 3, peak: 0.004),
+                       "held a while in a quiet room is not talking")
+    }
+
+    /// A slower Mac's recogniser is late: two seconds of voice and no words
+    /// yet is somebody talking, so a key keeps the hold and copies its words.
+    func testAVoiceBeforeTheFirstWordCountsAsTalking() {
+        XCTAssertTrue(HoldInterruption.soundsLikeTalking(heardWords: false, heldFor: 2, peak: 0.1))
+        XCTAssertTrue(HoldInterruption.soundsLikeTalking(heardWords: true, heldFor: 0.2, peak: 0))
+    }
 }
