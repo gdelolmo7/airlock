@@ -5,7 +5,9 @@ import Foundation
 /// The notes list a word the transcript may have heard wrong ("Mapa, heard
 /// as “napa”"). "Use Mapa" puts it in place of every way it was heard, in
 /// the notes and in the transcript, and takes the line off the list; "Leave
-/// it" only takes the line off. Pure: the store reads and writes the files.
+/// it" only takes the line off. "Type it" is "Use" with a word the person
+/// typed in place of the guess (`listed`). Pure: the store reads and
+/// writes the files.
 public enum MeetingWordCheck {
     /// `text` with each of `heard`, as a whole word, read as `best`. Case and
     /// accents don't count in finding it ("Napa", "napá"); `best` goes in as
@@ -52,11 +54,23 @@ public enum MeetingWordCheck {
         return nil
     }
 
-    /// `page` with `best`'s line gone from "Check these words", and the
-    /// heading too once it has no line left. With `use`, every one of
-    /// `heard` in the rest of the page reads `best`, except in the person's
-    /// own notes, which stay as they typed them.
-    public static func answer(_ page: String, best: String, heard: [String], use: Bool) -> String {
+    /// The forms to read as `best`: the ones heard, and the guess on the
+    /// list when the person typed another word, since the notes already
+    /// wrote the guess.
+    public static func forms(_ heard: [String], listed: String?, best: String) -> [String] {
+        guard let listed, listed != best else { return heard }
+        return heard + [listed]
+    }
+
+    /// `page` with the line of `listed` (or `best`, when nothing else was
+    /// typed) gone from "Check these words", and the heading too once it
+    /// has no line left. With `use`, every one of `heard`, and the guess,
+    /// in the rest of the page reads `best`, except in the person's own
+    /// notes, which stay as they typed them.
+    public static func answer(_ page: String, best: String, heard: [String], use: Bool,
+                              listed: String? = nil) -> String {
+        let heard = forms(heard, listed: listed, best: best)
+        let listed = listed ?? best
         let lines = page.components(separatedBy: "\n")
         var kept: [String] = []
         var section: String?
@@ -82,7 +96,7 @@ public enum MeetingWordCheck {
             }
             if section == MeetingFiles.wordsHeading, wordsAt != nil {
                 if let word = word(in: trimmed) {
-                    if same(word.best, best) { continue }
+                    if same(word.best, listed) { continue }
                     wordsLeft += 1
                 }
                 kept.append(line)

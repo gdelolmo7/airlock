@@ -179,11 +179,13 @@ final class CallNotesLibrary {
     /// to the call's folder; the app sends it through the notes model.
     @ObservationIgnored var checkWord: (@MainActor (URL, WordAnswer) -> Void)?
 
-    /// "Use Mapa" (`use`) or "Leave it" for one word on the list.
+    /// "Use Mapa" (`use`) or "Leave it" for one word on the list. A word
+    /// typed in place of the guess is `best`, the guess `listed`.
     struct WordAnswer: Equatable, Sendable {
         let best: String
         let heard: [String]
         let use: Bool
+        var listed: String?
     }
     /// Nil draws no "Add a recording" and takes no drops.
     @ObservationIgnored var recordings: Recordings?
@@ -547,15 +549,19 @@ final class CallNotesLibrary {
         let preview = store.root.path == "/var/empty"
         if let index = calls.firstIndex(where: { $0.id == call.id }), let page = call.page {
             var record = call.record
-            if answer.use { MeetingWordCheck.use(answer.best, for: answer.heard, in: &record) }
+            if answer.use {
+                let forms = MeetingWordCheck.forms(answer.heard, listed: answer.listed, best: answer.best)
+                MeetingWordCheck.use(answer.best, for: forms, in: &record)
+            }
             calls[index] = Call(folder: call.folder, record: record, page: MeetingWordCheck.answer(
-                page, best: answer.best, heard: answer.heard, use: answer.use))
+                page, best: answer.best, heard: answer.heard, use: answer.use, listed: answer.listed))
         }
         guard !preview else { return }
         if let checkWord {
             checkWord(call.folder, answer)
         } else {
-            _ = try? store.checkWord(answer.best, heard: answer.heard, use: answer.use, in: call.folder)
+            _ = try? store.checkWord(answer.best, heard: answer.heard, use: answer.use,
+                                     listed: answer.listed, in: call.folder)
         }
         reload(selecting: nil)
     }
@@ -1938,24 +1944,80 @@ private struct CallNotesWordRow: View {
     }
 }
 
-/// "Use Mapa" and "Leave it", for a call the window shows.
-private struct CallNotesWordButtons: View {
+/// "Use Mapa", "Type it" and "Leave it", for a call the window shows.
+/// "Type it" opens a field with the guess in it, to write the word right.
+struct CallNotesWordButtons: View {
     @Environment(CallNotesLibrary.self) private var library
     let call: CallNotesLibrary.Call
     let best: String
     let heard: [String]
 
+    /// What the field says; nil while it is closed.
+    @State private var typing: String?
+    @FocusState private var focused: Bool
+
+    /// `typing` opens the field from the start, for a picture of it.
+    init(call: CallNotesLibrary.Call, best: String, heard: [String], typing: String? = nil) {
+        self.call = call
+        self.best = best
+        self.heard = heard
+        _typing = State(initialValue: typing)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            CallNotesOfferButton("Use “\(best)”", tone: .light) {
-                library.check(call, .init(best: best, heard: heard, use: true))
+        if let typing {
+            field(typing)
+        } else {
+            HStack(spacing: 8) {
+                CallNotesOfferButton("Use “\(best)”", tone: .light) {
+                    library.check(call, .init(best: best, heard: heard, use: true))
+                }
+                .help("Write “\(best)” everywhere it was heard, in the notes and the transcript")
+                CallNotesOfferButton("Type it") {
+                    typing = best
+                    focused = true
+                }
+                .help("Write the word yourself, when “\(best)” is wrong too")
+                CallNotesOfferButton("Leave it") {
+                    library.check(call, .init(best: best, heard: heard, use: false))
+                }
+                .help("Take it off this list and change nothing")
             }
-            .help("Write “\(best)” everywhere it was heard, in the notes and the transcript")
-            CallNotesOfferButton("Leave it") {
-                library.check(call, .init(best: best, heard: heard, use: false))
-            }
-            .help("Take it off this list and change nothing")
         }
+    }
+
+    private func field(_ text: String) -> some View {
+        let word = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        return HStack(spacing: 8) {
+            TextField("The right word", text: Binding(get: { typing ?? "" }, set: { typing = $0 }),
+                      prompt: Text(""))
+                .textFieldStyle(.plain)
+                .font(Theme.chrome(13))
+                .foregroundStyle(Theme.textPrimary)
+                .focused($focused)
+                .onSubmit { use(word) }
+                .onExitCommand { typing = nil }
+                .padding(.horizontal, 10)
+                .frame(width: 220, height: 28)
+                .background(shape.fill(Color.white.opacity(0.06)))
+                .overlay(shape.strokeBorder(focused ? Theme.running.opacity(0.75) : Color.white.opacity(0.1),
+                                            lineWidth: 1))
+            CallNotesOfferButton("Use", tone: .light) { use(word) }
+                .disabled(word.isEmpty)
+                .opacity(word.isEmpty ? 0.5 : 1)
+                .help("Write this word everywhere it was heard, in the notes and the transcript")
+            CallNotesOfferButton("Cancel") { typing = nil }
+        }
+        .onAppear { focused = true }
+    }
+
+    /// The typed word in place of every way it was heard and of the guess.
+    private func use(_ word: String) {
+        guard !word.isEmpty else { return }
+        typing = nil
+        let listed = word == best ? nil : best
+        library.check(call, .init(best: word, heard: heard, use: true, listed: listed))
     }
 }
 

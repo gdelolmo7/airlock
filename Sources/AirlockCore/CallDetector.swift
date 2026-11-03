@@ -29,13 +29,31 @@ public struct OngoingCall: Codable, Equatable, Sendable {
     /// says so (a Meet tab). Set by the app, which can read window titles;
     /// the detector only ever sees which app holds the microphone.
     public var site: MeetingLink.Provider?
+    /// Notes asked for by hand, of an app the detector never called a call:
+    /// a webinar you only listen to plays sound but never takes the
+    /// microphone. Nothing follows the microphone for these, so they end on
+    /// "Stop", the app quitting, sleep or a long quiet, as notes in person do.
+    public var byHand: Bool
 
     public init(bundleID: String, appName: String, startedAt: Date,
-                site: MeetingLink.Provider? = nil) {
+                site: MeetingLink.Provider? = nil, byHand: Bool = false) {
         self.bundleID = bundleID
         self.appName = appName
         self.startedAt = startedAt
         self.site = site
+        self.byHand = byHand
+    }
+
+    private enum CodingKeys: String, CodingKey { case bundleID, appName, startedAt, site, byHand }
+
+    /// Calls kept before `byHand` existed read back as found by the detector.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        bundleID = try values.decode(String.self, forKey: .bundleID)
+        appName = try values.decode(String.self, forKey: .appName)
+        startedAt = try values.decode(Date.self, forKey: .startedAt)
+        site = try values.decodeIfPresent(MeetingLink.Provider.self, forKey: .site)
+        byHand = try values.decodeIfPresent(Bool.self, forKey: .byHand) ?? false
     }
 
     /// Notes taken by hand with no call: a meeting in the room, heard
@@ -50,6 +68,10 @@ public struct OngoingCall: Codable, Equatable, Sendable {
 
     public var isInPerson: Bool { bundleID == Self.inPersonBundleID }
 
+    /// Notes taken by hand, in the room or of an app's sound: no call the
+    /// detector follows starts or ends them.
+    public var isByHand: Bool { byHand || isInPerson }
+
     /// The running timer beside the icon: "0:42", "12:05", then "1h02" past an
     /// hour, because "1:02:14" is three characters wider than the compact
     /// island's one-glyph-plus-a-few budget and the seconds stop mattering.
@@ -58,6 +80,15 @@ public struct OngoingCall: Codable, Equatable, Sendable {
         let hours = seconds / 3600, minutes = (seconds % 3600) / 60
         if hours > 0 { return String(format: "%dh%02d", hours, minutes) }
         return String(format: "%d:%02d", minutes, seconds % 60)
+    }
+
+    /// The timer without its seconds, for a compact island with no room for
+    /// them (`CallPillFit`): "45s", "12m", then "1h02" as `elapsedLabel`.
+    public func shortElapsedLabel(at now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(startedAt)))
+        if seconds < 60 { return "\(seconds)s" }
+        if seconds < 3600 { return "\(seconds / 60)m" }
+        return elapsedLabel(at: now)
     }
 }
 

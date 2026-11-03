@@ -153,7 +153,7 @@ final class CallMonitor {
     /// title, so a Meet tab behind another tab is found only once it has been
     /// seen (see `refreshSiteIfDue`). Titles are never logged: a meeting's
     /// name can be in one.
-    private static func site(of call: OngoingCall) -> MeetingLink.Provider? {
+    static func site(of call: OngoingCall) -> MeetingLink.Provider? {
         guard CallGlyph.isBrowser(call.bundleID), AXIsProcessTrusted(),
               let app = NSRunningApplication.runningApplications(withBundleIdentifier: call.bundleID).first
         else { return nil }
@@ -196,6 +196,43 @@ final class CallMonitor {
 
     /// Every app holding the microphone right now, ours excluded.
     private func micUsers() -> [MicUser] {
+        Self.audioApps { [self] skipped in
+            switch skipped {
+            case let .neverACall(bundleID):
+                reportNeverACall(bundleID)
+            case let .unowned(processBundle):
+                if reportedUnowned.insert(processBundle).inserted {
+                    Self.log.log("mic held by unowned \(processBundle, privacy: .public)")
+                }
+            }
+        }
+        .filter(\.input)
+        .map { MicUser(bundleID: $0.bundleID, name: $0.name, playing: $0.output) }
+    }
+
+    /// Every app playing sound right now, by the same rule that finds a
+    /// call: what "Take notes" with no call on is of (`HandNotesSource`).
+    static func playingApps() -> [HandNotesSource.Player] {
+        audioApps().filter(\.output).map { HandNotesSource.Player(bundleID: $0.bundleID, name: $0.name) }
+    }
+
+    /// An app using audio right now, all its processes together.
+    private struct AudioApp {
+        var bundleID: String
+        var name: String
+        var input: Bool
+        var output: Bool
+    }
+
+    /// A process holding the microphone that is left out, for the log.
+    private enum Skipped {
+        case neverACall(String)
+        case unowned(String)
+    }
+
+    /// Every app using audio right now, ours, `NeverACall` and system
+    /// processes excluded.
+    private static func audioApps(skipped: (Skipped) -> Void = { _ in }) -> [AudioApp] {
         let objects = AudioProcesses.objects()
         guard !objects.isEmpty else { return [] }
         let running = NSWorkspace.shared.runningApplications
@@ -205,7 +242,7 @@ final class CallMonitor {
         // Grouped by app, because a call is often two processes — a browser
         // helper on the mic and another playing — and it is the APP that is
         // on the call, so "playing" is true if any of its processes plays.
-        var apps: [String: (name: String, input: Bool, output: Bool)] = [:]
+        var apps: [String: AudioApp] = [:]
         for object in objects {
             let input = AudioProcesses.bool(object, kAudioProcessPropertyIsRunningInput)
             let output = AudioProcesses.bool(object, kAudioProcessPropertyIsRunningOutput)
@@ -214,29 +251,25 @@ final class CallMonitor {
             // The process first, so a speech daemon is dropped before its
             // parents are walked; then the app a helper resolves to.
             if let processBundle, NeverACall.matches(processBundle) {
-                if input { reportNeverACall(processBundle) }
+                if input { skipped(.neverACall(processBundle)) }
                 continue
             }
 
-            guard let (bundleID, name) = Self.app(of: pid, processBundle: processBundle,
-                                                  running: running, bundleIDs: bundleIDs) else {
-                if input, let processBundle, reportedUnowned.insert(processBundle).inserted {
-                    Self.log.log("mic held by unowned \(processBundle, privacy: .public)")
-                }
+            guard let (bundleID, name) = app(of: pid, processBundle: processBundle,
+                                             running: running, bundleIDs: bundleIDs) else {
+                if input, let processBundle { skipped(.unowned(processBundle)) }
                 continue
             }
             if NeverACall.matches(bundleID) {
-                if input { reportNeverACall(bundleID) }
+                if input { skipped(.neverACall(bundleID)) }
                 continue
             }
-            var entry = apps[bundleID] ?? (name, false, false)
+            var entry = apps[bundleID] ?? AudioApp(bundleID: bundleID, name: name, input: false, output: false)
             entry.input = entry.input || input
             entry.output = entry.output || output
             apps[bundleID] = entry
         }
-        return apps.filter(\.value.input).map {
-            MicUser(bundleID: $0.key, name: $0.value.name, playing: $0.value.output)
-        }
+        return Array(apps.values)
     }
 
     private func reportNeverACall(_ bundleID: String) {
@@ -268,6 +301,14 @@ final class CallMonitor {
     /// call — so the meeting-notes tap hears exactly the app the pill names,
     /// helpers and FaceTime's daemons included. Never Airlock's own, and
     /// never a process on `NeverACall`, whoever it belongs to.
+    /// Whether any of the call app's processes is taking sound from a
+    /// microphone, by the same rule.
+    static func isOnMicrophone(_ bundleID: String) -> Bool {
+        audioProcesses(ofCallApp: bundleID).contains {
+            AudioProcesses.bool($0, kAudioProcessPropertyIsRunningInput)
+        }
+    }
+
     static func audioProcesses(ofCallApp bundleID: String) -> [AudioObjectID] {
         let running = NSWorkspace.shared.runningApplications
         let bundleIDs = running.compactMap(\.bundleIdentifier)

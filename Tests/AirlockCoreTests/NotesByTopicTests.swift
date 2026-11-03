@@ -471,6 +471,30 @@ final class MeetingWordCheckTests: XCTestCase {
         XCTAssertTrue(answered.contains("Mapa footer."))
     }
 
+    func testATypedWordGoesInWhereverTheGuessOrWhatWasHeardIs() {
+        // The notes already wrote the guess in the summary; what was heard
+        // is still in the topic.
+        let guessed = page.replacingOccurrences(of: "Napa costs forty", with: "Mapa costs forty")
+        let answered = MeetingWordCheck.answer(guessed, best: "Mappa", heard: ["Napa"], use: true, listed: "Mapa")
+        XCTAssertFalse(answered.contains("**Mapa** — heard as"), "the guess's line comes off")
+        XCTAssertFalse(answered.contains("**Mappa**"))
+        XCTAssertTrue(answered.contains("- **Marta** — heard as “Marga” · 0:52"))
+        XCTAssertTrue(answered.contains("Mappa costs forty euros."), "where the notes wrote the guess")
+        XCTAssertTrue(answered.contains("### 1. Mappa price · 0:12"), "where it was heard")
+        XCTAssertTrue(answered.contains("- napa? · 0:05"), "the person's own notes stay as they typed them")
+        XCTAssertEqual(MeetingWordCheck.answer(guessed, best: "Mapa", heard: ["Napa"], use: true, listed: nil),
+                       MeetingWordCheck.answer(guessed, best: "Mapa", heard: ["Napa"], use: true),
+                       "nothing typed is Use")
+    }
+
+    func testTheGuessIsReplacedOnlyWhenAnotherWordWasTyped() {
+        XCTAssertEqual(MeetingWordCheck.forms(["Napa"], listed: nil, best: "Mapa"), ["Napa"])
+        XCTAssertEqual(MeetingWordCheck.forms(["Napa"], listed: "Mapa", best: "Mapa"), ["Napa"])
+        XCTAssertEqual(MeetingWordCheck.forms(["Napa"], listed: "Mapa", best: "Mappa"), ["Napa", "Mapa"])
+        XCTAssertEqual(MeetingWordCheck.forms(["Napa"], listed: "Elock", best: "ELock"), ["Napa", "Elock"],
+                       "a typed word that only changes the case still goes in")
+    }
+
     func testLeaveItOnlyTakesTheLineOffAndTheHeadingWithTheLast() {
         let once = MeetingWordCheck.answer(page, best: "mapa", heard: ["Napa"], use: false)
         XCTAssertEqual(once, page.replacingOccurrences(of: "- **Mapa** — heard as “Napa” · 0:12\n", with: ""))
@@ -517,5 +541,25 @@ final class MeetingWordCheckTests: XCTestCase {
         XCTAssertEqual(store.loadRecord(in: folder)?.segments[1].text, saved?.segments[1].text)
         XCTAssertTrue(try read(MeetingFiles.transcriptName).contains("Marta costs forty euros"))
         XCTAssertFalse(try read(MeetingFiles.transcriptName).contains("Napa"))
+    }
+
+    func testTheStoreWritesATypedWordForTheGuess() throws {
+        let scratch = TestScratch("typed-word")
+        let store = MeetingStore(root: scratch.root)
+        let record = Fixture.record()
+        let folder = try store.makeFolder(for: record, timeZone: Fixture.utc)
+        try store.saveTranscript(record, in: folder, timeZone: Fixture.utc)
+        let notes = CloudNotes.notes(from: try XCTUnwrap(CloudNotes.parse(Fixture.answer)), record: record).notes
+        try store.saveNotes(MeetingFiles.notesPage(for: record, notes: notes, timeZone: Fixture.utc), in: folder)
+        let read = { (name: String) in try String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8) }
+
+        let saved = try store.checkWord("Mappa", heard: ["Napa"], use: true, listed: "Mapa",
+                                        in: folder, timeZone: Fixture.utc)
+        XCTAssertEqual(saved?.segments[1].text, "Mappa costs forty euros a month to begin with.")
+        XCTAssertTrue(try read(MeetingFiles.transcriptName).contains("Mappa costs forty euros"))
+        for name in [MeetingFiles.notesName, MeetingStore.notesAsWrittenName] {
+            XCTAssertFalse(try read(name).contains(MeetingFiles.wordsHeading), "the guess's line came off \(name)")
+            XCTAssertFalse(try read(name).contains("Mapa"), "the guess is gone from \(name)")
+        }
     }
 }

@@ -89,6 +89,16 @@ final class CallDetectorTests: XCTestCase {
         XCTAssertEqual(call.elapsedLabel(at: at(-5)), "0:00", "a clock stepping back never goes negative")
     }
 
+    func testTheShortTimerDropsTheSeconds() {
+        let call = OngoingCall(bundleID: "x", appName: "X", startedAt: t0)
+        XCTAssertEqual(call.shortElapsedLabel(at: at(0)), "0s")
+        XCTAssertEqual(call.shortElapsedLabel(at: at(45)), "45s")
+        XCTAssertEqual(call.shortElapsedLabel(at: at(60)), "1m")
+        XCTAssertEqual(call.shortElapsedLabel(at: at(12 * 60 + 34)), "12m")
+        XCTAssertEqual(call.shortElapsedLabel(at: at(3600 + 2 * 60 + 14)), "1h02")
+        XCTAssertEqual(call.shortElapsedLabel(at: at(-5)), "0s")
+    }
+
     // MARK: - On the island
 
     private func island(_ call: OngoingCall?, battery: Bool = false, meeting: Bool = false,

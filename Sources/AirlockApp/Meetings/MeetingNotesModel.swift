@@ -508,38 +508,55 @@ final class MeetingNotesModel {
     func stop() { send(.stop) }
     func dismiss() { send(.dismiss) }
 
-    /// "Take notes" with no call: a meeting in the room, through the Mac's
-    /// microphone, until "Stop". The calendar is asked which meeting it is,
-    /// as for a call, so the notes can carry its name and who was invited.
-    func takeNotesInPerson() {
+    /// "Take notes" with no call: of the app playing sound, if one is (a
+    /// webinar you only listen to, heard straight from the app, so on
+    /// headphones too), else a meeting in the room, through the Mac's
+    /// microphone. Either until "Stop". The calendar is asked which meeting
+    /// it is, as for a call, so the notes can carry its name and who was
+    /// invited.
+    func takeNotesByHand() {
         guard isEnabled, flow.handButton == .takeNotes else { return }
         let now = Date()
-        let room = OngoingCall.inPerson(at: now)
-        eventCall = room
-        callEvent = eventNear?(now, nil)
-        log("notes: in person, " + (callEvent.map { "event found, \($0.attendees.count) other(s)" } ?? "no event"))
-        send(.takeNotesInPerson(at: now))
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let event: MeetingNotesFlow.Event
+        if let player = HandNotesSource.app(playing: CallMonitor.playingApps(), frontmost: front) {
+            var app = OngoingCall(bundleID: player.bundleID, appName: player.name, startedAt: now, byHand: true)
+            app.site = CallMonitor.site(of: app)
+            eventCall = app
+            callEvent = eventNear?(now, app.site ?? CallEventMatch.provider(ofApp: app.bundleID))
+            log("notes: by hand of \(app.bundleID), "
+                + (callEvent.map { "event found, \($0.attendees.count) other(s)" } ?? "no event"))
+            event = .takeNotesOfApp(app, at: now)
+        } else {
+            let room = OngoingCall.inPerson(at: now)
+            eventCall = room
+            callEvent = eventNear?(now, nil)
+            log("notes: in person, " + (callEvent.map { "event found, \($0.attendees.count) other(s)" } ?? "no event"))
+            event = .takeNotesInPerson(at: now)
+        }
+        send(event)
     }
 
     /// What the one "Take notes" button does now (`MeetingNotesFlow.handButton`).
     var handButton: MeetingNotesFlow.HandButton { flow.handButton }
 
-    /// The "Take notes" button, in the Calls tab and the menu bar: notes in
-    /// the room, the call's own notes while one is on, or "Stop".
+    /// The "Take notes" button, in the Calls tab and the menu bar: notes of
+    /// the app playing sound or in the room, the call's own notes while one
+    /// is on, or "Stop".
     func pressHandButton() {
         switch flow.handButton {
-        case .takeNotes: takeNotesInPerson()
+        case .takeNotes: takeNotesByHand()
         case .takeNotesOfCall: takeNotes()
         case .stop: stop()
         case .busy: break
         }
     }
 
-    /// The meeting in the room while its notes are taken, for the island to
-    /// show the way it shows a call. Nil otherwise: once the notes stop,
-    /// there is nothing on to show.
+    /// The meeting in the room, or the app, while notes taken by hand are
+    /// taken, for the island to show the way it shows a call. Nil otherwise:
+    /// once the notes stop, there is nothing on to show.
     var inPersonCall: OngoingCall? {
-        if case let .recording(call, _) = flow.phase, call.isInPerson { return call }
+        if case let .recording(call, _) = flow.phase, call.isByHand { return call }
         return nil
     }
 
@@ -743,10 +760,12 @@ final class MeetingNotesModel {
     func checkWord(_ answer: CallNotesLibrary.WordAnswer, in folder: URL) {
         let held = folder == self.folder
         do {
-            let record = try store.checkWord(answer.best, heard: answer.heard, use: answer.use, in: folder,
+            let record = try store.checkWord(answer.best, heard: answer.heard, use: answer.use,
+                                             listed: answer.listed, in: folder,
                                              record: held ? self.record : nil)
             if held, let record { self.record = record }
-            log("words: \(answer.use ? "used" : "left") one word to check")
+            let how = answer.listed != nil ? "typed" : answer.use ? "used" : "left"
+            log("words: \(how) one word to check")
         } catch {
             log("words: save FAILED: \(error.localizedDescription)")
         }
@@ -1239,9 +1258,7 @@ final class MeetingNotesModel {
     /// Whether any of the call app's processes is taking sound from a
     /// microphone, by the rule that found the call.
     private static func isOnMicrophone(_ bundleID: String) -> Bool {
-        CallMonitor.audioProcesses(ofCallApp: bundleID).contains {
-            AudioProcesses.bool($0, kAudioProcessPropertyIsRunningInput)
-        }
+        CallMonitor.isOnMicrophone(bundleID)
     }
 
     /// The call app quitting and the Mac going to sleep, which the flow
@@ -1283,8 +1300,8 @@ final class MeetingNotesModel {
         wakeLook = nil
         guard case let .recording(call, _) = flow.phase else { return }
         log("mac going to sleep: notes stop")
-        // A meeting in the room has no call to find again on waking.
-        stoppedBySleep = call.isInPerson ? nil : call.bundleID
+        // Notes taken by hand have no call to find again on waking.
+        stoppedBySleep = call.isByHand ? nil : call.bundleID
         send(.sleep(at: Date()))
     }
 
@@ -2000,8 +2017,11 @@ final class MeetingNotesModel {
     }
 
     /// `call` as the detector knows it now, when it is still the same app's.
+    /// Notes taken by hand stay so, whatever the detector has seen since.
     private func current(_ call: OngoingCall) -> OngoingCall {
-        current(call, bundleID: call.bundleID) ?? call
+        guard var latest = current(call, bundleID: call.bundleID) else { return call }
+        latest.byHand = call.byHand
+        return latest
     }
 
     private func current(_ call: OngoingCall?, bundleID: String) -> OngoingCall? {

@@ -1053,6 +1053,7 @@ struct NotchCompactTrailingView: View {
                              waveLevels: { media.waveLevels })
         .environment(\.callNotesMark, notesMark)
         .environment(\.callNotesLimit, limit)
+        .environment(\.callPillFitsMenuBar, true)
         // Keyed off the RESOLVED slot, never off the input: the input carries a
         // `Date` that moves on every redraw, so keying off it would animate
         // continuously. `CompactSlot` changes when something actually changed.
@@ -1606,6 +1607,17 @@ struct EmptyTabView: View {
     }
 }
 
+extension EnvironmentValues {
+    /// Whether the call pill keeps to the free menu bar beside the notch
+    /// (`MenuBarRoomReader`): on in the island itself, off in the state
+    /// gallery and anywhere else it is drawn for show.
+    @Entry var callPillFitsMenuBar = false
+
+    /// A fixed room for the call pill's content, for the state gallery to
+    /// draw a crowded menu bar without reading this Mac's.
+    @Entry var callPillShownBudget: CGFloat? = nil
+}
+
 /// The call rung: the calling app's logo and how long the call has run, both in
 /// the grey of every other compact glyph (the owner, 2026-10-07: "maybe all in
 /// grey"; the timer was the microphone-in-use green until then). The logo
@@ -1623,84 +1635,136 @@ struct CallPill: View {
     let call: OngoingCall
     @Environment(\.callNotesMark) private var notesMark
     @Environment(\.callNotesLimit) private var limit
+    @Environment(\.callPillFitsMenuBar) private var fitsMenuBar
+    @Environment(\.callPillShownBudget) private var shownBudget
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 3) {
-            // Call notes, when the hidden switch is on, in the purple of
-            // everything Airlock itself is doing for you: the ask and the
-            // countdown as words before the logo, then a mark for how the
-            // notes are going. No sound, ever: this sits beside a call.
-            switch notesMark {
-            case .ask:
-                notesWord(String(localized: "Notes?"))
-            case .startingSoon(let startsAt):
-                // Its own clock, aligned on the countdown's start so the
-                // numbers turn on the second the notes are counting.
-                TimelineView(.periodic(from: startsAt.addingTimeInterval(-MeetingNotesFlow.countdown),
-                                       by: 1)) { context in
-                    notesWord(String(localized: "Notes in \(MeetingNotesBanner.secondsLeft(to: startsAt, at: context.date))"))
-                }
-            case .offer:
-                // Grey once the ask has settled: an offer still open, not
-                // something Airlock is doing.
-                Circle()
-                    .fill(Theme.textSecondary)
-                    .frame(width: 5, height: 5)
-            case .recording:
-                NotesBreathingDot()
-            case .muted:
-                // Hollow: notes are still taken, of the other side only.
-                ring(Theme.assistant)
-            case .paused:
-                // Grey: nothing is being written down.
-                ring(Theme.textSecondary)
-            case .none:
-                EmptyView()
-            }
-            switch CallGlyph.kind(for: call) {
-            case .logo(let name):
-                if let logo = CallGlyph.image(name) {
-                    // 11 is the height the cup and tray glyphs beside it draw at.
-                    Image(nsImage: logo)
-                        .renderingMode(.template)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: 11, height: 11)
-                        .foregroundStyle(Theme.textSecondary)
-                } else {
-                    symbol("phone.fill")
-                }
-            case .symbol(let name):
-                symbol(name)
-            }
-            // Muted or paused, the word is the news and the timer can wait:
-            // the island has no room for both.
-            switch notesMark {
-            case .muted:
-                timerWord(String(localized: "Muted"))
-            case .paused:
-                timerWord(String(localized: "Paused"))
-            default:
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    // Free's limit, for `LimitWord.pillFor` and in place of
-                    // the timer, like Muted: the notes' purple before it
-                    // (amber would say something waits on you, and nothing
-                    // does) and while the rest is still heard, grey once
-                    // they have stopped. The open card
-                    // keeps saying it.
-                    if let limit, limit.shows(at: context.date) {
-                        if [.stopsSoon, .locksSoon, .stillListening].contains(limit.word) {
-                            notesWord(limit.word.pillWord)
-                        } else {
-                            timerWord(limit.word.pillWord)
-                        }
-                    } else {
-                        timerWord(call.elapsedLabel(at: context.date))
-                    }
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            // Only what fits between the notch and the first status item: the
+            // island is drawn over the menu bar, and on a crowded one the
+            // whole pill covered other apps' icons (`CallPillFit`).
+            let timer = timerText(at: context.date)
+            let parts = CallPillFit.parts(widths(timer), budget: fitsMenuBar
+                                          ? MenuBarRoomReader.trailingBudget(at: context.date)
+                                          : shownBudget)
+            HStack(spacing: CallPillFit.spacing) {
+                if parts.mark { mark }
+                if parts.logo { logo }
+                switch parts.timer {
+                case .full:
+                    timerView(timer.full, purple: timer.purple)
+                case .short:
+                    timerView(timer.short ?? timer.full, purple: timer.purple)
+                case nil:
+                    EmptyView()
                 }
             }
         }
+    }
+
+    /// Call notes, when the hidden switch is on, in the purple of everything
+    /// Airlock itself is doing for you: the ask and the countdown as words
+    /// before the logo, then a mark for how the notes are going. No sound,
+    /// ever: this sits beside a call.
+    @ViewBuilder private var mark: some View {
+        switch notesMark {
+        case .ask:
+            notesWord(String(localized: "Notes?"))
+        case .startingSoon(let startsAt):
+            // Its own clock, aligned on the countdown's start so the
+            // numbers turn on the second the notes are counting.
+            TimelineView(.periodic(from: startsAt.addingTimeInterval(-MeetingNotesFlow.countdown),
+                                   by: 1)) { context in
+                notesWord(countdownWord(startsAt, at: context.date))
+            }
+        case .offer:
+            // Grey once the ask has settled: an offer still open, not
+            // something Airlock is doing.
+            Circle()
+                .fill(Theme.textSecondary)
+                .frame(width: 5, height: 5)
+        case .recording:
+            NotesBreathingDot()
+        case .muted:
+            // Hollow: notes are still taken, of the other side only.
+            ring(Theme.assistant)
+        case .paused:
+            // Grey: nothing is being written down.
+            ring(Theme.textSecondary)
+        case .none:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder private var logo: some View {
+        switch CallGlyph.kind(for: call) {
+        case .logo(let name):
+            if let logo = CallGlyph.image(name) {
+                // 11 is the height the cup and tray glyphs beside it draw at.
+                Image(nsImage: logo)
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 11, height: 11)
+                    .foregroundStyle(Theme.textSecondary)
+            } else {
+                symbol("phone.fill")
+            }
+        case .symbol(let name):
+            symbol(name)
+        }
+    }
+
+    private func countdownWord(_ startsAt: Date, at now: Date) -> String {
+        String(localized: "Notes in \(MeetingNotesBanner.secondsLeft(to: startsAt, at: now))")
+    }
+
+    /// What goes in the timer's place, its short form if it has one, and
+    /// whether it is the notes' purple.
+    private func timerText(at now: Date) -> (full: String, short: String?, purple: Bool) {
+        // Muted or paused, the word is the news and the timer can wait:
+        // the island has no room for both.
+        switch notesMark {
+        case .muted:
+            return (String(localized: "Muted"), nil, false)
+        case .paused:
+            return (String(localized: "Paused"), nil, false)
+        default:
+            break
+        }
+        // Free's limit, for `LimitWord.pillFor` and in place of the timer,
+        // like Muted: the notes' purple before it (amber would say something
+        // waits on you, and nothing does) and while the rest is still heard,
+        // grey once they have stopped. The open card keeps saying it.
+        if let limit, limit.shows(at: now) {
+            let purple = [.stopsSoon, .locksSoon, .stillListening].contains(limit.word)
+            return (limit.word.pillWord, nil, purple)
+        }
+        return (call.elapsedLabel(at: now), call.shortElapsedLabel(at: now), false)
+    }
+
+    /// The drawn width of each part, for `CallPillFit`.
+    private func widths(_ timer: (full: String, short: String?, purple: Bool)) -> CallPillFit.Widths {
+        let mark: CGFloat? = switch notesMark {
+        case .ask: Self.textWidth(String(localized: "Notes?"))
+        case .startingSoon(let startsAt): Self.textWidth(countdownWord(startsAt, at: .now))
+        case .offer, .recording, .muted, .paused: 5
+        case .none: nil
+        }
+        return CallPillFit.Widths(mark: mark, logo: 11,
+                                  timer: Self.textWidth(timer.full),
+                                  shortTimer: timer.short.map(Self.textWidth))
+    }
+
+    /// The width `notesWord` and `timerWord` draw `text` at.
+    private static func textWidth(_ text: String) -> CGFloat {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    @ViewBuilder private func timerView(_ text: String, purple: Bool) -> some View {
+        if purple { notesWord(text) } else { timerWord(text) }
     }
 
     private func notesWord(_ text: String) -> some View {

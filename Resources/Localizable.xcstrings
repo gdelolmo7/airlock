@@ -25440,6 +25440,56 @@
           }
         }
       }
+    },
+    "Webinar notes and the right words" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notas de webinars y las palabras correctas"
+          }
+        }
+      }
+    },
+    "With no call on, Take Notes takes notes of the app playing sound. Headphones are fine." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin llamada, Tomar notas toma notas de la app que suena. También con auriculares."
+          }
+        }
+      }
+    },
+    "Your voice goes in those notes only while that app is using your microphone." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu voz entra en esas notas solo mientras esa app usa tu micrófono."
+          }
+        }
+      }
+    },
+    "On “Check these words”, Type it lets you write the right word. It goes in everywhere." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En «Revisa estas palabras», Escribirlo te deja poner la palabra correcta. Cambia en todas partes."
+          }
+        }
+      }
+    },
+    "During a call, the notch's call pill keeps clear of the menu bar icons beside it." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En una llamada, la píldora del notch ya no tapa los iconos de la barra de menús."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

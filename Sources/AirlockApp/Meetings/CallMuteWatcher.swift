@@ -17,14 +17,21 @@ import Synchronization
 /// No button found (another language, an app it does not know,
 /// Accessibility off) means nothing is silenced: the notes behave as they
 /// did before this existed, and the log says so once.
+///
+/// Notes taken by hand of an app (a webinar you only listen to) also count
+/// you muted whenever that app is not using the microphone at all: it
+/// cannot be hearing you then, and an attendee often has no mute button to
+/// read. Looked at with no permission, from the first moment.
 @MainActor
 final class CallMuteWatcher {
     static let interval: Duration = .milliseconds(300)
+    static let micInterval: Duration = .milliseconds(500)
 
     /// A fresh one per call, so one call's mutes never reach the next.
     private(set) var gate = CallMuteGate()
     private let log: (String) -> Void
     private var loop: Task<Void, Never>?
+    private var micLoop: Task<Void, Never>?
 
     init(log: @escaping (String) -> Void) {
         self.log = log
@@ -33,6 +40,7 @@ final class CallMuteWatcher {
     func start(call: OngoingCall) {
         stop()
         gate = CallMuteGate()
+        if call.byHand { watchMicrophone(of: call.bundleID) }
         guard AXIsProcessTrusted() else {
             log("mute: can't see the call's mute button without Accessibility")
             return
@@ -63,6 +71,30 @@ final class CallMuteWatcher {
     func stop() {
         loop?.cancel()
         loop = nil
+        micLoop?.cancel()
+        micLoop = nil
+    }
+
+    /// The first look is made here, before the microphone starts, so not a
+    /// word gets through before it.
+    private func watchMicrophone(of bundleID: String) {
+        let gate = gate
+        let log = log
+        var shown = CallMonitor.isOnMicrophone(bundleID)
+        gate.observeMicrophone(inUse: shown, at: Date())
+        log(shown ? "you: the app is on the microphone" : "you: the app is off the microphone")
+        micLoop = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.micInterval)
+                guard !Task.isCancelled else { return }
+                let inUse = CallMonitor.isOnMicrophone(bundleID)
+                gate.observeMicrophone(inUse: inUse, at: Date())
+                if inUse != shown {
+                    log(inUse ? "you: the app took the microphone" : "you: the app let go of the microphone")
+                    shown = inUse
+                }
+            }
+        }
     }
 }
 
@@ -76,6 +108,9 @@ final class CallMuteGate: Sendable {
     static let delay: TimeInterval = 1
 
     private let timeline = Mutex(MuteTimeline())
+    /// When the app was not using the microphone, for notes taken by hand
+    /// of it: as good as muted. Never written for a call.
+    private let offMicrophone = Mutex(MuteTimeline())
 
     func observe(_ muted: Bool?, at date: Date) {
         timeline.withLock { timeline in
@@ -84,8 +119,15 @@ final class CallMuteGate: Sendable {
         }
     }
 
+    func observeMicrophone(inUse: Bool, at date: Date) {
+        offMicrophone.withLock { timeline in
+            timeline.observe(!inUse, at: date)
+            timeline.forget(before: date.addingTimeInterval(-60))
+        }
+    }
+
     func isMuted(at date: Date) -> Bool {
-        timeline.withLock { $0.isMuted(at: date) }
+        timeline.withLock { $0.isMuted(at: date) } || offMicrophone.withLock { $0.isMuted(at: date) }
     }
 
     /// `source` a second late, silent wherever you were muted. Silence

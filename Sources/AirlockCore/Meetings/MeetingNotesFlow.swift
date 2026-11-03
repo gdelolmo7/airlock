@@ -34,6 +34,12 @@ import Foundation
 ///   `silenceLimit` of nothing heard. No call comes and goes under it, so
 ///   the call detector's starts and ends pass it by, and it is always kept,
 ///   however short: somebody asked for it.
+/// - **An app playing sound is taken by hand the same way** ("Take notes"
+///   during a webinar you only listen to): its sound straight from the app,
+///   so headphones make no difference, and your microphone for your side.
+///   The app never takes the microphone, so nothing follows it: the notes
+///   end on "Stop", the app quitting, the Mac sleeping or `silenceLimit` of
+///   nothing heard, and are kept however short, as notes in the room are.
 /// - **On a plan that caps them, notes stop listening at the cap** (Free:
 ///   the first 30 minutes, `PlanLimits.notesListenFor`), the call itself
 ///   untouched, and what was heard is written. Stopping and starting again
@@ -82,6 +88,9 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         /// "Take notes" with no call: a meeting in the room, heard through
         /// the Mac's microphone.
         case takeNotesInPerson(at: Date)
+        /// "Take notes" with no call while an app plays sound (a webinar
+        /// you only listen to): notes of that app, by hand.
+        case takeNotesOfApp(OngoingCall, at: Date)
         /// "Stop" while recording.
         case stop
         /// "Pause" and "Resume" while recording.
@@ -375,7 +384,9 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             if case let .recording(current, _) = phase {
                 // A call joined from the room is heard by the same
                 // microphone: the notes in person carry on, and say it all.
-                if current.isInPerson { return [] }
+                // Notes taken by hand of an app go on as they were too, even
+                // when it takes the microphone: you are asking a question.
+                if current.isByHand { return [] }
                 // The same call, back before the notes stopped: nothing changes.
                 if current.bundleID == call.bundleID {
                     ending = nil
@@ -435,8 +446,8 @@ public struct MeetingNotesFlow: Equatable, Sendable {
                 phase = .idle
                 return []
             case let .recording(call, _):
-                // Not the notes' call: the room has none to end.
-                if call.isInPerson { return [] }
+                // Not the notes' call: notes by hand have none to end.
+                if call.isByHand { return [] }
                 // Not yet: the ticks decide once the wait is over.
                 var waiting = ending ?? Ending()
                 waiting.micLetGo = waiting.micLetGo ?? at
@@ -479,22 +490,12 @@ public struct MeetingNotesFlow: Equatable, Sendable {
             return []
 
         case let .takeNotesInPerson(at):
-            guard enabled else { return [] }
-            switch phase {
-            case .idle, .ready, .failed:
-                let room = OngoingCall.inPerson(at: at)
-                guard mayListen(to: room, reading) else { return [] }
-                // A new meeting: whatever call came before is not carried on.
-                lastNotes = nil
-                ending = nil
-                phase = .recording(room, since: at)
-                firstStarted = at
-                return [.startNotes(room, continuing: false)]
-            default:
-                // A call is on, or notes are already taken or being written:
-                // the button says so (`handButton`) and does that instead.
-                return []
-            }
+            return takeNotesByHand(of: .inPerson(at: at), at: at, enabled: enabled, reading)
+
+        case let .takeNotesOfApp(app, at):
+            var call = app
+            call.byHand = true
+            return takeNotesByHand(of: call, at: at, enabled: enabled, reading)
 
         case .stop:
             guard case let .recording(call, _) = phase else { return [] }
@@ -545,6 +546,9 @@ public struct MeetingNotesFlow: Equatable, Sendable {
                 return []
             }
             guard case let .recording(call, _) = phase, call.bundleID == bundleID else { return [] }
+            // Nothing follows the microphone for notes by hand: the app gone,
+            // they are over.
+            if call.isByHand { return finishAutomatically(call, endedAt: at, reading) }
             // A quit app has let go of the microphone too, whether or not the
             // detector has said so yet.
             var waiting = ending ?? Ending()
@@ -629,15 +633,35 @@ public struct MeetingNotesFlow: Equatable, Sendable {
         return []
     }
 
+    /// "Take notes" with no call on: in the room, or of an app playing sound.
+    private mutating func takeNotesByHand(of call: OngoingCall, at: Date, enabled: Bool,
+                                          _ reading: Reading?) -> [Effect] {
+        guard enabled else { return [] }
+        switch phase {
+        case .idle, .ready, .failed:
+            guard mayListen(to: call, reading) else { return [] }
+            // A new meeting: whatever call came before is not carried on.
+            lastNotes = nil
+            ending = nil
+            phase = .recording(call, since: at)
+            firstStarted = at
+            return [.startNotes(call, continuing: false)]
+        default:
+            // A call is on, or notes are already taken or being written:
+            // the button says so (`handButton`) and does that instead.
+            return []
+        }
+    }
+
     /// The notes stop on their own. A call from the same app soon after is
     /// still the same meeting (`sameMeetingWindow`), unlike a stop by hand,
     /// and that holds for one too short to keep: it can still grow.
     ///
-    /// Notes in person are the exception on both counts: they were asked for,
-    /// so they are kept however short, and no call can carry them on.
+    /// Notes taken by hand are the exception on both counts: they were asked
+    /// for, so they are kept however short, and no call can carry them on.
     private mutating func finishAutomatically(_ call: OngoingCall, endedAt: Date, _ reading: Reading?) -> [Effect] {
         if let reading, !call.isInPerson { listening?.callIsOver(at: reading.running) }
-        if call.isInPerson {
+        if call.isByHand {
             ending = nil
             phase = .writing(call)
             return [.finishNotes]
@@ -664,7 +688,8 @@ public struct MeetingNotesFlow: Equatable, Sendable {
     }
 
     public enum HandButton: Equatable, Sendable {
-        /// Start notes in person (`Event.takeNotesInPerson`).
+        /// Start notes by hand: of the app playing sound, if one is
+        /// (`Event.takeNotesOfApp`), else in person (`Event.takeNotesInPerson`).
         case takeNotes
         /// A call is on and its notes are not taken yet: start those
         /// (`Event.accept`), not a meeting in the room beside it.

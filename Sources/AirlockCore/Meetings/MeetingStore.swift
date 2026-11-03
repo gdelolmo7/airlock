@@ -131,14 +131,16 @@ public struct MeetingStore: Sendable {
     /// A word on "Check these words" answered for the call in `folder`
     /// (`MeetingWordCheck`): its line comes off the list in both notes
     /// files, and with `use` every way it was heard reads `best`, in them
-    /// and in the transcript. `record` is the one in hand when the app
-    /// holds it, else the one on disk. Returns the record as saved.
+    /// and in the transcript. `listed` is the guess on the list when the
+    /// person typed `best` instead. `record` is the one in hand when the
+    /// app holds it, else the one on disk. Returns the record as saved.
     @discardableResult
-    public func checkWord(_ best: String, heard: [String], use: Bool, in folder: URL,
-                          record held: MeetingRecord? = nil,
+    public func checkWord(_ best: String, heard: [String], use: Bool, listed: String? = nil,
+                          in folder: URL, record held: MeetingRecord? = nil,
                           timeZone: TimeZone = .current) throws -> MeetingRecord? {
         var record = held ?? loadRecord(in: folder)
-        if use, var changed = record, MeetingWordCheck.use(best, for: heard, in: &changed) > 0 {
+        let forms = MeetingWordCheck.forms(heard, listed: listed, best: best)
+        if use, var changed = record, MeetingWordCheck.use(best, for: forms, in: &changed) > 0 {
             if changed.notesWriter == nil || changed.topic == nil, let saved = loadRecord(in: folder) {
                 changed.notesWriter = changed.notesWriter ?? saved.notesWriter
                 changed.topic = changed.topic ?? saved.topic
@@ -149,7 +151,7 @@ public struct MeetingStore: Sendable {
         for name in [Self.notesAsWrittenName, MeetingFiles.notesName] {
             let file = folder.appendingPathComponent(name)
             guard let page = try? String(contentsOf: file, encoding: .utf8) else { continue }
-            let answered = MeetingWordCheck.answer(page, best: best, heard: heard, use: use)
+            let answered = MeetingWordCheck.answer(page, best: best, heard: heard, use: use, listed: listed)
             if answered != page { try write(Data(answered.utf8), to: file) }
         }
         return record

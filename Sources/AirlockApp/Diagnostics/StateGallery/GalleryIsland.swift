@@ -63,6 +63,17 @@ enum GalleryIsland {
             compact("I13c", "Compact: on a call in Chrome, not Meet (icon + timer)",
                     input(call: OngoingCall(bundleID: "com.google.Chrome", appName: "Google Chrome",
                                             startedAt: now.addingTimeInterval(-307)))),
+            // A 14-inch with a full menu bar: 43pt between the notch and the
+            // first status item (`MenuBarRoom`), so the logo and the seconds go.
+            compact("I13d", "Compact: on a call, notes on, crowded menu bar (dot + \"2m\", no logo)",
+                    input(call: OngoingCall(bundleID: "net.whatsapp.WhatsApp", appName: "WhatsApp",
+                                            startedAt: now.addingTimeInterval(-134))),
+                    notesMark: { .recording },
+                    shownBudget: MenuBarRoom.contentBudget(room: 43)),
+            compact("I13e", "Compact: on a call, notes on, room to spare (everything)",
+                    input(call: OngoingCall(bundleID: "net.whatsapp.WhatsApp", appName: "WhatsApp",
+                                            startedAt: now.addingTimeInterval(-134))),
+                    notesMark: { .recording }),
 
             // The usage figures left the band for the Agents tab (W67–W69),
             // so these two are the right gutter at its two widths without them.
@@ -221,7 +232,8 @@ enum GalleryIsland {
     static func compact(_ id: String, _ name: String, _ input: CompactIslandInput,
                         area: String = GalleryIsland.area, meetingStart: Date? = nil,
                         notesMark: @escaping @MainActor () -> MeetingNotesFlow.PillMark = { .none },
-                        notesLimit: @escaping @MainActor () -> CallNotesLimit? = { nil })
+                        notesLimit: @escaping @MainActor () -> CallNotesLimit? = { nil },
+                        shownBudget: CGFloat? = nil)
         -> GalleryState {
         let ambient = BloubFace.Ambient(batteryCritical: input.batteryCritical,
                                         meetingSoon: input.meetingSoon)
@@ -232,6 +244,7 @@ enum GalleryIsland {
                                  meetingStart: { meetingStart }, waveLevels: { [] })
                 .environment(\.callNotesMark, notesMark())
                 .environment(\.callNotesLimit, notesLimit())
+                .environment(\.callPillShownBudget, shownBudget)
                 .padding(.horizontal, 4)
         }
         state.leading = {
