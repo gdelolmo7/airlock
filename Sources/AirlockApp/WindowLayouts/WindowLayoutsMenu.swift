@@ -83,13 +83,14 @@ final class WindowLayoutsMenu: NSObject, NSMenuDelegate {
     @objc private func openAccessibility() { PasteService.openAccessibilitySettings() }
     @objc private func settings() { openSettings() }
 
-    /// Halves, quarters, thirds, two thirds, the whole screen, then centre
-    /// and back: a line between each, as the strip under the notch groups
-    /// them.
+    /// Halves, quarters, thirds, two thirds, the whole screen, every
+    /// window at once, then centre and back: a line between each, as the
+    /// strip under the notch groups them.
     private static func group(of action: WindowLayoutAction) -> Int {
         switch action {
         case .layout(let layout): layout.group
-        case .centre, .restore: 5
+        case .tileAll: 5
+        case .centre, .restore: 6
         }
     }
 
@@ -119,7 +120,8 @@ final class WindowLayoutsMenu: NSObject, NSMenuDelegate {
     private static let iconSize = NSSize(width: 18, height: 12)
 
     /// A little screen with the layout's part filled, like the strip's tiles.
-    /// Centre is a smaller window in the middle; back is the system's arrow.
+    /// Tile all is the screen shared by three windows; centre is a smaller
+    /// window in the middle; back is the system's arrow.
     private static func icon(for action: WindowLayoutAction) -> NSImage? {
         if case .restore = action {
             return NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)
@@ -131,6 +133,15 @@ final class WindowLayoutsMenu: NSObject, NSMenuDelegate {
             outline.lineWidth = 1
             outline.stroke()
             let inside = screen.insetBy(dx: 2, dy: 2)
+            if case .tileAll = action {
+                // Three cells as tiling draws them, a hair apart so they
+                // read as separate windows.
+                NSColor.black.setFill()
+                for cell in WindowTiling.frames(count: 3, in: inside) {
+                    NSBezierPath(roundedRect: cell.insetBy(dx: 0.5, dy: 0.5), xRadius: 0.5, yRadius: 0.5).fill()
+                }
+                return true
+            }
             let part: CGRect
             switch action {
             case .layout(let layout):

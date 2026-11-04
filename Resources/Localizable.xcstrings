@@ -25490,6 +25490,66 @@
           }
         }
       }
+    },
+    "Tile all windows" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repartir todas las ventanas"
+          }
+        }
+      }
+    },
+    "Move the window in front from any app. Press an arrow twice to send it to the next screen." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mueven la ventana de delante desde cualquier app. Pulsa una flecha dos veces para llevarla a la otra pantalla."
+          }
+        }
+      }
+    },
+    "Windows across your screens" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ventanas entre tus pantallas"
+          }
+        }
+      }
+    },
+    "With Plus, press ⌃⌥ and an arrow twice quickly to send the window to the screen on that side." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Con Plus, pulsa ⌃⌥ y una flecha dos veces rápido para llevar la ventana a la pantalla de ese lado."
+          }
+        }
+      }
+    },
+    "Press ⌃⌥A to arrange every window on your screen so they share the space." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pulsa ⌃⌥A para repartir todas las ventanas de tu pantalla en el espacio disponible."
+          }
+        }
+      }
+    },
+    "Put it back on any of those windows returns them all to where they were." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Devolverla a su sitio, en cualquiera de esas ventanas, las deja todas como estaban."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

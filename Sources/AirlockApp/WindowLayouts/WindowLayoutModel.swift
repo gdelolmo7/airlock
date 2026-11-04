@@ -103,15 +103,38 @@ final class WindowLayoutModel {
             guard let binding = shortcuts[action] else { continue }
             let registration = registrations[action] ?? GlobalHotkey()
             registrations[action] = registration
-            registration.register(binding) { [weak self] in self?.perform(action) }
+            registration.register(binding) { [weak self] in self?.pressed(action) }
             if let error = registration.lastError { shortcutErrors[action] = error }
         }
     }
 
     // MARK: - Moving windows
 
-    /// A shortcut: the front window, on the screen it is on.
+    /// The run of presses of one shortcut, for telling a quick second press
+    /// of an arrow from a new one.
+    @ObservationIgnored private var presses = RepeatPress<WindowLayoutAction>()
+
+    /// A keyboard shortcut. The first press of an arrow puts the window in
+    /// that half; pressed again quickly, the same arrow sends it to the
+    /// screen that way, in the same half — a left half stays a left half —
+    /// and once more, one screen further. With no screen that way it stays
+    /// where it is.
+    ///
+    /// Only the keys count presses: a menu row chosen twice is two choices.
+    private func pressed(_ action: WindowLayoutAction) {
+        let run = presses.press(action, at: ProcessInfo.processInfo.systemUptime)
+        guard run > 1, case .layout(let layout) = action, let direction = layout.direction else {
+            return perform(action)
+        }
+        guard movesWindows, let window = WindowMover.frontWindow(),
+              let frame = WindowMover.frame(of: window),
+              let screen = WindowMover.screen(of: frame) else { return }
+        send(window, toward: direction, as: layout, from: screen)
+    }
+
+    /// A shortcut or a menu row: the front window, on the screen it is on.
     func perform(_ action: WindowLayoutAction) {
+        if case .tileAll = action { return tileAll() }
         guard movesWindows, let window = WindowMover.frontWindow() else { return }
         switch action {
         case .layout(let layout):
@@ -124,7 +147,48 @@ final class WindowLayoutModel {
             centre(window, on: screen)
         case .restore:
             restore(window)
+        case .tileAll:
+            break
         }
+    }
+
+    /// `window` in `layout` on the display on the `direction` side of
+    /// `screen`. Nothing that way, nothing moves.
+    func send(_ window: AXUIElement, toward direction: ScreenDirection, as layout: WindowLayout, from screen: NSScreen) {
+        let screens = NSScreen.screens
+        guard let index = ScreenNeighbour.index(toward: direction, of: screen.frame,
+                                                among: screens.map(\.frame)) else { return }
+        apply(layout, to: window, on: screens[index])
+    }
+
+    /// The windows of the last "tile all", so "Put it back" on any of them
+    /// puts them all back: a tiling done by mistake is undone in one go.
+    @ObservationIgnored private var lastTiling: [AXUIElement] = []
+
+    /// Every ordinary window showing on the front window's screen (the
+    /// pointer's when no window is in front), sharing it with no gaps
+    /// (`WindowTiling`). The window in front gets the first, biggest place;
+    /// the rest follow front to back. Minimised and hidden windows stay
+    /// where they are.
+    func tileAll() {
+        guard movesWindows, WindowMover.canMove else { return }
+        let front = WindowMover.frontWindow()
+        let mouse = NSEvent.mouseLocation
+        guard let screen = front.flatMap(WindowMover.frame(of:)).flatMap(WindowMover.screen(of:))
+                ?? NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main
+        else { return }
+        var windows = WindowMover.visibleWindows(on: screen)
+        if let front, let index = windows.firstIndex(where: { CFEqual($0, front) }), index > 0 {
+            windows.insert(windows.remove(at: index), at: 0)
+        }
+        guard !windows.isEmpty else { return }
+        let visible = screen.visibleFrame
+        for (window, target) in zip(windows, WindowTiling.frames(count: windows.count, in: visible)) {
+            guard let current = WindowMover.frame(of: window),
+                  let placed = WindowMover.move(window, to: target, within: visible) else { continue }
+            remember(window, was: current, now: placed)
+        }
+        lastTiling = windows
     }
 
     /// Puts `window` in `layout` on `screen`, keeping the menu bar and the
@@ -148,6 +212,26 @@ final class WindowLayoutModel {
     /// Back to where it was before Airlock moved it. Nothing to go back to,
     /// nothing happens.
     func restore(_ window: AXUIElement) {
+        if lastTiling.contains(where: { CFEqual($0, window) }) {
+            let tiled = lastTiling
+            lastTiling = []
+            // The others only while they are still where tiling put them:
+            // one moved by hand since stays where it was put.
+            for other in tiled where CFEqual(other, window) || stillPlaced(other) {
+                restoreOne(other)
+            }
+            return
+        }
+        restoreOne(window)
+    }
+
+    private func stillPlaced(_ window: AXUIElement) -> Bool {
+        guard let entry = before.last(where: { CFEqual($0.window, window) }),
+              let now = WindowMover.frame(of: window) else { return false }
+        return Self.same(entry.placed, now)
+    }
+
+    private func restoreOne(_ window: AXUIElement) {
         guard let index = before.lastIndex(where: { CFEqual($0.window, window) }) else { return }
         let entry = before.remove(at: index)
         let visible = (WindowMover.screen(of: entry.frame) ?? NSScreen.main)?.visibleFrame ?? entry.frame
@@ -174,20 +258,24 @@ final class WindowLayoutModel {
     }
 }
 
-/// What a shortcut can do: a layout, the middle of the screen at the size
-/// the window is, or put the window back.
-enum WindowLayoutAction: Hashable, Identifiable {
+/// What a shortcut can do: a layout, every window on the screen at once,
+/// the middle of the screen at the size the window is, or put the window
+/// back.
+enum WindowLayoutAction: Hashable, Identifiable, Sendable {
     case layout(WindowLayout)
+    case tileAll
     case centre
     case restore
 
-    static let allCases: [WindowLayoutAction] = WindowLayout.pickerOrder.map(Self.layout) + [.centre, .restore]
+    static let allCases: [WindowLayoutAction] = WindowLayout.pickerOrder.map(Self.layout)
+        + [.tileAll, .centre, .restore]
 
     var id: String { defaultsKey }
 
     var defaultsKey: String {
         switch self {
         case .layout(let layout): return "windowLayouts.shortcut.\(layout.rawValue)"
+        case .tileAll: return "windowLayouts.shortcut.tileAll"
         case .centre: return "windowLayouts.shortcut.centre"
         case .restore: return "windowLayouts.shortcut.restore"
         }
@@ -196,6 +284,7 @@ enum WindowLayoutAction: Hashable, Identifiable {
     var name: String {
         switch self {
         case .layout(let layout): return layout.name
+        case .tileAll: return String(localized: "Tile all windows")
         case .centre: return String(localized: "Centre")
         case .restore: return String(localized: "Put it back")
         }
@@ -203,7 +292,9 @@ enum WindowLayoutAction: Hashable, Identifiable {
 
     /// Control-Option and a key that looks like the place: the arrows for the
     /// halves, Return for all of it, C for the centre, Delete to undo, and the
-    /// D-F-G row for the thirds with E and T above them for two thirds.
+    /// D-F-G row for the thirds with E and T above them for two thirds, and
+    /// A for all the windows at once (free: ⌃⌥A is no other shortcut's).
+    /// Pressing an arrow twice needs no key of its own.
     var defaultShortcut: GlobalHotkey.Binding {
         let key: Int
         switch self {
@@ -221,6 +312,7 @@ enum WindowLayoutAction: Hashable, Identifiable {
         case .layout(.leftTwoThirds): key = kVK_ANSI_E
         case .layout(.rightTwoThirds): key = kVK_ANSI_T
         case .layout(.fullScreen): key = kVK_Return
+        case .tileAll: key = kVK_ANSI_A
         case .centre: key = kVK_ANSI_C
         case .restore: key = kVK_Delete
         }

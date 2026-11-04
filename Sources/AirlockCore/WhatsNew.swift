@@ -54,6 +54,11 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.2.2", title: String(localized: "Windows across your screens"), items: [
+            Item("rectangle.on.rectangle", String(localized: "With Plus, press ⌃⌥ and an arrow twice quickly to send the window to the screen on that side.")),
+            Item("rectangle.grid.2x2", String(localized: "Press ⌃⌥A to arrange every window on your screen so they share the space.")),
+            Item("arrow.uturn.backward", String(localized: "Put it back on any of those windows returns them all to where they were.")),
+        ]),
         Notes(version: "1.2.1", title: String(localized: "Webinar notes and the right words"), items: [
             Item("headphones", String(localized: "With no call on, Take Notes takes notes of the app playing sound. Headphones are fine.")),
             Item("mic", String(localized: "Your voice goes in those notes only while that app is using your microphone.")),

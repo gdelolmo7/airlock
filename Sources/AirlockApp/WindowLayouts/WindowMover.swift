@@ -149,6 +149,64 @@ enum WindowMover {
         return found
     }
 
+    /// The ordinary windows showing on `screen`, front to back: what "tile
+    /// all" arranges.
+    ///
+    /// The window list says what is on screen and in which order (without
+    /// Screen Recording: only titles are held back, and none are needed);
+    /// Accessibility gives the windows themselves, matched by app and frame.
+    /// Minimised windows, hidden apps and other Spaces aren't on screen, so
+    /// they are never in it. Left out as well: Airlock's own windows, panels
+    /// and palettes (anything not a standard window), windows in full
+    /// screen, and slivers too small to be a window anybody reads.
+    static func visibleWindows(on screen: NSScreen) -> [AXUIElement] {
+        guard canMove,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]] else { return [] }
+        let own = ProcessInfo.processInfo.processIdentifier
+        var onScreen: [(pid: pid_t, frame: CGRect)] = []
+        for info in list {
+            guard let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let owner = info[kCGWindowOwnerPID as String] as? pid_t, owner != own,
+                  (info[kCGWindowLayer as String] as? Int ?? 0) == 0,
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { continue }
+            let rect = CGRect(x: bounds["X"] ?? 0, y: primaryHeight - (bounds["Y"] ?? 0) - (bounds["Height"] ?? 0),
+                              width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
+            guard rect.width >= 80, rect.height >= 60,
+                  self.screen(of: rect)?.frame == screen.frame else { continue }
+            onScreen.append((owner, rect))
+        }
+
+        var byApp: [pid_t: [(window: AXUIElement, frame: CGRect)]] = [:]
+        var found: [AXUIElement] = []
+        for entry in onScreen {
+            if byApp[entry.pid] == nil { byApp[entry.pid] = standardWindows(of: entry.pid) }
+            guard let index = byApp[entry.pid]?.firstIndex(where: { candidate in
+                abs(candidate.frame.minX - entry.frame.minX) < 2 && abs(candidate.frame.minY - entry.frame.minY) < 2
+                    && abs(candidate.frame.width - entry.frame.width) < 2
+                    && abs(candidate.frame.height - entry.frame.height) < 2
+            }) else { continue }
+            // Each window once, even if two list entries share its frame.
+            found.append(byApp[entry.pid]!.remove(at: index).window)
+        }
+        return found
+    }
+
+    /// An app's standard windows that can be moved, with their frames.
+    private static func standardWindows(of pid: pid_t) -> [(window: AXUIElement, frame: CGRect)] {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        guard let windows = copy(kAXWindowsAttribute, of: app) as? [AXUIElement] else { return [] }
+        return windows.compactMap { window in
+            AXUIElementSetMessagingTimeout(window, 0.25)
+            guard (copy(kAXSubroleAttribute, of: window) as? String) == (kAXStandardWindowSubrole as String),
+                  (copy(kAXMinimizedAttribute, of: window) as? Bool) != true,
+                  !isFullScreen(window),
+                  let frame = frame(of: window) else { return nil }
+            return (window, frame)
+        }
+    }
+
     // MARK: - Accessibility
 
     private static var primaryHeight: CGFloat { NSScreen.screens.first?.frame.height ?? 0 }

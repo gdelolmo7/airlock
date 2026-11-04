@@ -45,7 +45,7 @@ struct WindowLayoutsSection: View {
                       isOn: $layouts.greenButtonEnabled)
             .disabled(!layouts.isEnabled)
 
-        LookToggleRow("Keyboard shortcuts", subtitle: String(localized: "Move the window in front from any app"),
+        LookToggleRow("Keyboard shortcuts", subtitle: String(localized: "Move the window in front from any app. Press an arrow twice to send it to the next screen."),
                       isOn: $layouts.shortcutsEnabled)
             .settingsAnchor(.windowLayoutShortcuts)
             .disabled(!layouts.isEnabled)
