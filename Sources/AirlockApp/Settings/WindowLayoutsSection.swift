@@ -1,9 +1,8 @@
 import AirlockCore
 import SwiftUI
 
-/// Window layouts, rows on the notch page: the switch for all of it, the
-/// grid on the green button, and the keyboard shortcuts, each one
-/// changeable.
+/// Window layouts, the rows of its add-on page: the grid on the green
+/// button, and the keyboard shortcuts, each one changeable.
 struct WindowLayoutsSection: View {
     @Bindable var layouts: WindowLayoutModel
     /// Read when the page appears and on every redraw; the permission is
@@ -16,10 +15,7 @@ struct WindowLayoutsSection: View {
     private var movesWindows: Bool { license?.entitlement.limits.movesWindows ?? layouts.movesWindows }
 
     var body: some View {
-        LookToggleRow("Drag a window to the notch",
-                      subtitle: String(localized: "Pick a half, a quarter, a third or the whole screen, and it goes there"),
-                      isOn: $layouts.isEnabled)
-            .settingsAnchor(.windowLayouts)
+        // The add-on page's big switch is the switch for all of it.
         if !movesWindows {
             // Free keeps the switch, so the strip can be turned off, and is
             // told here what it needs; the shortcuts wait for Plus.
@@ -27,7 +23,7 @@ struct WindowLayoutsSection: View {
                     subtitle: String(localized: "On Free, the strip shows where a window would go, and it stays put. Plus moves it, and adds the keyboard shortcuts.")) {
                 PlanTagButton(.plus) { settings?.reveal(.plans) }
             }
-            .settingsAnchor(.windowLayoutShortcuts)
+            .settingsAnchor(.windowLayouts)
         } else {
             placingRows
         }
@@ -43,6 +39,7 @@ struct WindowLayoutsSection: View {
         LookToggleRow("Rest on the green button",
                       subtitle: String(localized: "Hold the pointer on a window's green button to pick where it goes"),
                       isOn: $layouts.greenButtonEnabled)
+            .settingsAnchor(.windowLayouts)
             .disabled(!layouts.isEnabled)
 
         LookToggleRow("Keyboard shortcuts", subtitle: String(localized: "Move the window in front from any app. Press an arrow twice to send it to the next screen."),

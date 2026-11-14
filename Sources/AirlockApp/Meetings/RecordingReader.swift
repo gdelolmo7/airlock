@@ -197,6 +197,7 @@ final class RecordingReader {
         guard !stopped else { return removed(folder) }
         do {
             try store.saveNotes(page.page, in: folder)
+            MeetingWordAnswers.applyRemembered(in: folder, store: store, record: nil, log: log)
             if let writer = page.writer {
                 try store.saveNotesWriter(writer, in: folder)
                 // Waits for a date: the service looks again then.

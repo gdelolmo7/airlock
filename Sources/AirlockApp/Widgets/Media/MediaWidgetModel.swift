@@ -150,6 +150,34 @@ enum NowPlayingPin {
     }
 }
 
+/// Which player the idle card offers when nothing is loaded anywhere.
+///
+/// The card used to disappear in this case, a day after the last track (see
+/// `MediaWidgetModel.DormantTrack.freshness`), and the person whose Spotify
+/// was simply closed read that as Airlock having lost its music card. The
+/// idle card holds the place and opens a player with one click.
+///
+/// Pure, with "installed" passed in, so the order can be tested without
+/// anything installed or uninstalled.
+///
+/// The order, and why:
+/// 1. A player that is OPEN. Opening the other one beside it would be odd.
+///    Of two open players, the one used last, then Spotify.
+/// 2. The player used last, if it is still on this Mac. Someone who has
+///    Spotify installed but listens in Music gets Music.
+/// 3. Spotify, if it is installed: the player people install on purpose.
+/// 4. Music, which every Mac has.
+enum IdlePlayerChoice {
+    static func pick(running: Set<MediaPlayerKind>, lastUsed: MediaPlayerKind?,
+                     isInstalled: (MediaPlayerKind) -> Bool) -> MediaPlayerKind {
+        if let lastUsed, running.contains(lastUsed) { return lastUsed }
+        if let open = MediaPlayerKind.allCases.first(where: running.contains) { return open }
+        if let lastUsed, isInstalled(lastUsed) { return lastUsed }
+        if isInstalled(.spotify) { return .spotify }
+        return .appleMusic
+    }
+}
+
 /// Now-playing state across players. Push-driven (each player posts a
 /// distributed notification on playback changes) plus a slow poll while
 /// playing to correct drift. Ambient tier: this model can change what the
@@ -163,11 +191,25 @@ final class MediaWidgetModel {
             // playhead, and the pin only cares which player it is. Both sides
             // of the comparison go through `NowPlayingPin` so the guard and the
             // value it guards cannot drift apart.
+            if let player = state?.player, player != lastPlayer { lastPlayer = player }
             let pinned = NowPlayingPin.bundleID(of: state)
             guard pinned != NowPlayingPin.bundleID(of: oldValue) else { return }
             onNowPlayingChanged?(pinned)
         }
     }
+
+    /// The player that last had a track loaded, kept across launches so the
+    /// idle card offers the player this person actually uses. Unlike
+    /// `dormant`, it never goes stale: it names an app, not a track.
+    private(set) var lastPlayer: MediaPlayerKind? = UserDefaults.standard.string(forKey: MediaWidgetModel.lastPlayerKey)
+        .flatMap(MediaPlayerKind.init(rawValue:)) {
+        didSet {
+            guard lastPlayer != oldValue else { return }
+            UserDefaults.standard.set(lastPlayer?.rawValue, forKey: Self.lastPlayerKey)
+        }
+    }
+
+    private static let lastPlayerKey = "media.lastPlayer"
 
     /// The app the card is about, playing or paused — see `NowPlayingPin`.
     var nowPlayingBundleID: String? { NowPlayingPin.bundleID(of: state) }
@@ -590,7 +632,7 @@ final class MediaWidgetModel {
         isRunning ? String(localized: "Stopped in \(player) · \(ago)") : String(localized: "Last played in \(player) · \(ago)")
     }
 
-    /// The dormant card's button. The same action either way — opening a
+    /// The dormant and idle cards' button. The same action either way — opening a
     /// running app brings it forward — but "Open" for an open app reads as
     /// the card not knowing.
     static func dormantButton(player: String, isRunning: Bool) -> String {
@@ -608,6 +650,31 @@ final class MediaWidgetModel {
 
     /// Nothing to remember once the widget is off — see `isEnabled`.
     func clearDormant() { dormant = nil }
+
+    /// The player the idle card offers when there is nothing else to show —
+    /// see `IdlePlayerChoice` for the order.
+    var idlePlayer: MediaPlayerKind {
+        IdlePlayerChoice.pick(running: runningPlayers, lastUsed: lastPlayer,
+                              isInstalled: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleID) != nil })
+    }
+
+    /// Open the idle card's player, or bring it forward if it is already open.
+    ///
+    /// Through Launch Services, never an Apple event: opening an app needs no
+    /// Automation permission, so the card works the same with it off. If the
+    /// player then refuses to be read, the refused card takes this one's place.
+    func openIdlePlayer() {
+        let player = idlePlayer
+        if let app = NSWorkspace.shared.runningApplications
+            .first(where: { $0.bundleIdentifier == player.bundleID }) {
+            app.activate()
+        } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: player.bundleID) {
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            return
+        }
+        onNavigateAway?()
+    }
 
     // MARK: - Reactive wave
 

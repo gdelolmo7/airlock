@@ -12,21 +12,21 @@ final class SettingsAnchorTests: XCTestCase {
         XCTAssertEqual(SettingsAnchor.search("history").first, .clipboardHistory)
     }
 
-    /// The call languages show on the Voice page only while call notes are on,
+    /// The call languages show on the Meeting notes page only while call notes are on,
     /// and search follows the page.
     func testCallLanguagesOnlyWhileCallNotesAreOn() {
         XCTAssertFalse(SettingsAnchor.search("calls", callNotesOn: false).contains(.callLanguages))
         XCTAssertEqual(SettingsAnchor.search("language on calls", callNotesOn: true).first,
                        .callLanguages)
-        XCTAssertEqual(SettingsAnchor.callLanguages.pane, .voice)
+        XCTAssertEqual(SettingsAnchor.callLanguages.pane, .callNotes)
     }
 
-    /// The call notes switch itself is there on or off: off, it is the only
-    /// way back.
+    /// The Meeting notes switch itself is there on or off: off, it is the
+    /// only way back.
     func testTheCallNotesSwitchIsAlwaysThere() {
         XCTAssertEqual(SettingsAnchor.search("call notes", callNotesOn: false).first, .callNotes)
         XCTAssertEqual(SettingsAnchor.search("call notes", callNotesOn: true).first, .callNotes)
-        XCTAssertEqual(SettingsAnchor.callNotes.pane, .voice)
+        XCTAssertEqual(SettingsAnchor.callNotes.pane, .callNotes)
     }
 
     /// The way to past calls shows beside the call languages, so it follows
@@ -34,7 +34,7 @@ final class SettingsAnchorTests: XCTestCase {
     func testPastCallsOnlyWhileCallNotesAreOn() {
         XCTAssertFalse(SettingsAnchor.search("past calls", callNotesOn: false).contains(.pastCalls))
         XCTAssertEqual(SettingsAnchor.search("past calls", callNotesOn: true).first, .pastCalls)
-        XCTAssertEqual(SettingsAnchor.pastCalls.pane, .voice)
+        XCTAssertEqual(SettingsAnchor.pastCalls.pane, .callNotes)
     }
 
     /// The words meetings spell their way sit with the other call rows.
@@ -43,7 +43,7 @@ final class SettingsAnchorTests: XCTestCase {
             .contains(.knownWords))
         XCTAssertEqual(SettingsAnchor.search("words to know", callNotesOn: true).first, .knownWords)
         XCTAssertEqual(SettingsAnchor.search("spelling", callNotesOn: true).first, .knownWords)
-        XCTAssertEqual(SettingsAnchor.knownWords.pane, .voice)
+        XCTAssertEqual(SettingsAnchor.knownWords.pane, .callNotes)
     }
 
     /// "Write notes online" sits with the other call rows, and only while
@@ -57,7 +57,7 @@ final class SettingsAnchorTests: XCTestCase {
                                              notesOnlineOn: true).first, .notesOnline)
         XCTAssertTrue(SettingsAnchor.search("gemini", callNotesOn: true, notesOnlineOn: true)
             .contains(.notesOnline))
-        XCTAssertEqual(SettingsAnchor.notesOnline.pane, .voice)
+        XCTAssertEqual(SettingsAnchor.notesOnline.pane, .callNotes)
     }
 
     /// Every row a search can return lands on a page the sidebar offers.

@@ -20,11 +20,12 @@ public enum CloudNotes {
     public static let questionLimit = 8
     public static let keyPointLimit = 5
 
-    /// The same, for notes written by topic (`Draft.byTopic`): every to-do
-    /// is asked for, so more are let through.
+    /// The same, for notes written by topic (`Draft.byTopic`). Only the
+    /// to-dos someone is counting on are asked for, but a long planning
+    /// meeting can have more than the summary's eight.
     public static let topicLimit = 10
     public static let pointLimit = 6
-    public static let topicTodoLimit = 25
+    public static let topicTodoLimit = 12
     public static let wordLimit = 5
 
     /// What the server is asked for when the app wants notes by topic. A

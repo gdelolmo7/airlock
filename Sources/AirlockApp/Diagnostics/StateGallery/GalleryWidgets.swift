@@ -53,8 +53,14 @@ enum GalleryWidgets {
             GalleryState("W6", area, "Media: player open but stopped (Spotify is still running)", width: panel) {
                 dormant(ago: "3 min. ago", isRunning: true)
             },
-            GalleryState("W7", area, "Media: nothing playing (no card; Home is the row below)", width: panel) {
-                homeRow(sound: soundCard())
+            GalleryState("W7", area, "Media: nothing playing, Spotify closed (one click opens it)", width: panel) {
+                VStack(alignment: .leading, spacing: 10) {
+                    idle(.spotify, isRunning: false)
+                    homeRow(sound: soundCard())
+                }
+            },
+            GalleryState("W7a", area, "Media: nothing playing, Music open with nothing loaded", width: panel) {
+                idle(.appleMusic, isRunning: true)
             },
             GalleryState("W8", area, "Media: Spotify/Music control refused", width: panel) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -432,6 +438,14 @@ enum GalleryWidgets {
                          artwork: artwork, onReopen: {})
     }
 
+    /// The idle card as `MediaSectionView` builds it, for a chosen player.
+    private static func idle(_ player: MediaPlayerKind, isRunning: Bool) -> some View {
+        IdlePlayerCard(playerName: player.displayName,
+                       button: MediaWidgetModel.dormantButton(player: player.displayName, isRunning: isRunning),
+                       artwork: ArtworkView(url: nil, size: MediaCardMetrics.artworkSize, source: player),
+                       onOpen: {})
+    }
+
     /// Settings' "How should the music bars move?" section, drawn as
     /// Settings draws its status line: the sentence is the model's.
     private static func waveSettings(_ diagnosis: WaveTapDiagnosis) -> some View {
@@ -506,11 +520,13 @@ enum GalleryWidgets {
     private static func keyMap(dictation: Bool) -> some View {
         KeyMapCard(rows: KeyMapSectionView.rows(
             dictation: dictation ? HoldKeyMonitor.Key.control.glyph : nil,
-            clipboardKey: GlobalHotkey.Binding.commandShiftC.displayName))
+            clipboardKey: GlobalHotkey.Binding.commandShiftC.displayName,
+            shelf: true))
     }
 
     private static func tryThese(done: Set<FirstStep>, dictation: Bool, calendar: Bool) -> some View {
-        let available = FirstStepsCard.available(dictation: dictation, calendar: calendar)
+        let available = FirstStepsCard.available(dictation: dictation, calendar: calendar,
+                                                 clipboard: true, shelf: true)
         return FirstStepsCard(steps: FirstSteps(startedAt: Date()).steps(available: available),
                               done: done, holdKey: HoldKeyMonitor.Key.control.displayName, onHide: {})
             .frame(width: stack)

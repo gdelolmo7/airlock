@@ -117,15 +117,71 @@ public struct MeetingStore: Sendable {
             record.notesWriter = record.notesWriter ?? saved.notesWriter
             record.topic = record.topic ?? saved.topic
         }
+        let before = loadRecord(in: folder)
         try saveTranscript(record, in: folder, timeZone: timeZone)
         let kept = folder.appendingPathComponent(Self.notesAsWrittenName)
-        let written = (try? String(contentsOf: kept, encoding: .utf8)) ?? notesPage(in: folder)
+        let page = notesPage(in: folder)
+        let written = (try? String(contentsOf: kept, encoding: .utf8)) ?? page
         guard let written else { return }
         if !FileManager.default.fileExists(atPath: kept.path) {
             try write(Data(written.utf8), to: kept)
         }
-        try write(Data(MeetingNaming.apply(record, to: written).utf8),
-                  to: folder.appendingPathComponent(MeetingFiles.notesName))
+        // The person's own edits are kept: only what Airlock wrote is
+        // named again from the page as written (`MeetingPageEdit.renamed`).
+        let named = if let page, let before {
+            MeetingPageEdit.renamed(page, written: written, from: before, to: record)
+        } else {
+            MeetingNaming.apply(record, to: written)
+        }
+        try write(Data(named.utf8), to: folder.appendingPathComponent(MeetingFiles.notesName))
+    }
+
+    /// The page as Airlock wrote it, names not yet put in, or nil for notes
+    /// from before it was kept.
+    public func writtenNotes(in folder: URL) -> String? {
+        try? String(contentsOf: folder.appendingPathComponent(Self.notesAsWrittenName), encoding: .utf8)
+    }
+
+    /// Whether the notes page is not the one Airlock wrote, with the names
+    /// given since: the person changed it, here or in a text editor.
+    public func notesWereEdited(in folder: URL) -> Bool {
+        guard let page = notesPage(in: folder), let written = writtenNotes(in: folder) else { return false }
+        return page != (loadRecord(in: folder).map { MeetingNaming.apply($0, to: written) } ?? written)
+    }
+
+    /// The page as the person changed it in the notes window: the notes
+    /// file only. The page as written stays, for going back to it.
+    public func saveEditedNotes(_ page: String, in folder: URL) throws {
+        try write(Data(page.utf8), to: folder.appendingPathComponent(MeetingFiles.notesName))
+    }
+
+    /// "Back to what Airlock wrote": the page as written, with today's
+    /// names put in, in place of the person's edits. The page with the edits
+    /// is returned, for undoing it; nil when there is nothing to go back to.
+    @discardableResult
+    public func restoreWrittenNotes(in folder: URL) throws -> String? {
+        guard let written = writtenNotes(in: folder), let page = notesPage(in: folder) else { return nil }
+        let named = loadRecord(in: folder).map { MeetingNaming.apply($0, to: written) } ?? written
+        try write(Data(named.utf8), to: folder.appendingPathComponent(MeetingFiles.notesName))
+        return page
+    }
+
+    /// The name the person gave the call, in the record, the transcript's
+    /// heading and both notes pages' title. Empty gives the call back the
+    /// name it had.
+    public func saveGivenTitle(_ title: String, in folder: URL, timeZone: TimeZone = .current) throws {
+        guard var record = loadRecord(in: folder) else { return }
+        let title = title.components(separatedBy: .newlines).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        record.givenTitle = title.isEmpty ? nil : title
+        try saveTranscript(record, in: folder, timeZone: timeZone)
+        let heading = MeetingFiles.title(of: record, inFile: true)
+        for name in [Self.notesAsWrittenName, MeetingFiles.notesName] {
+            let url = folder.appendingPathComponent(name)
+            guard let page = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let renamed = MeetingPageEdit.retitled(page, as: heading)
+            if renamed != page { try write(Data(renamed.utf8), to: url) }
+        }
     }
 
     /// A word on "Check these words" answered for the call in `folder`
@@ -187,6 +243,29 @@ public struct MeetingStore: Sendable {
             at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
         return folders.compactMap { folder in keptRecord(in: folder).map { (folder, $0) } }
             .sorted { $0.record.startedAt > $1.record.startedAt }
+    }
+
+    /// A to-do ticked (or unticked) on the desktop widget, written into the
+    /// call's page. Only when the box at that place still holds the same
+    /// to-do: an edited page wins and the tick is dropped (`false`). The page
+    /// as written gets the same box, so naming the voices later keeps it.
+    @discardableResult
+    public func tick(_ tick: DeskTick) throws -> Bool {
+        guard tick.isPlainFolder else { return false }
+        let folder = root.appendingPathComponent(tick.folder, isDirectory: true)
+        guard keptRecord(in: folder) != nil, let page = notesPage(in: folder),
+              let ticked = DeskTodos.ticking(page, index: tick.index, text: tick.text, done: tick.done)
+        else { return false }
+        if ticked != page {
+            try write(Data(ticked.utf8), to: folder.appendingPathComponent(MeetingFiles.notesName))
+        }
+        let kept = folder.appendingPathComponent(Self.notesAsWrittenName)
+        if let written = try? String(contentsOf: kept, encoding: .utf8),
+           let keptTicked = DeskTodos.ticking(written, index: tick.index, text: nil, done: tick.done),
+           keptTicked != written {
+            try write(Data(keptTicked.utf8), to: kept)
+        }
+        return true
     }
 
     /// Removes a call's folder and everything in it. Only ever a folder right

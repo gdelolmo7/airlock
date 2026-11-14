@@ -13,6 +13,12 @@ struct AirlockWindowView: View {
     /// The calls; missing in a window made without them (the gallery).
     @Environment(CallNotesLibrary.self) private var library: CallNotesLibrary?
     @AppStorage(MeetingNotesModel.enabledKey) private var callNotesOn = MeetingNotesModel.onByDefault
+    /// The add-ons' models, for the sidebar's on/off dots. Optional: a
+    /// window drawn by the gallery may have none, and then shows no dots.
+    @Environment(TrayModel.self) private var tray: TrayModel?
+    @Environment(ClipboardWidgetModel.self) private var clipboard: ClipboardWidgetModel?
+    @Environment(AgentsWidgetModel.self) private var agents: AgentsWidgetModel?
+    @Environment(DictationModel.self) private var dictation: DictationModel?
     /// What is typed in the Settings search field.
     @State private var query = ""
     /// Bumped by ⌘F, which puts the cursor in the Settings search field.
@@ -33,10 +39,10 @@ struct AirlockWindowView: View {
             .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
             .overlay {
                 HStack(spacing: 0) {
-                    LookSidebar(pages: SettingsPane.sidebarCases,
-                                selection: Binding(get: { model.pane.resolved },
+                    LookSidebar(selection: Binding(get: { model.pane.resolved },
                                                    set: { model.pane = $0; query = "" }),
                                 calls: callsRow,
+                                isOn: addOnIsOn,
                                 query: $query,
                                 focusRequest: searchRequest)
                     detail
@@ -55,6 +61,15 @@ struct AirlockWindowView: View {
                 .hidden()
             }
             .onAppear { model.refresh() }
+    }
+
+    /// Whether each add-on is on, read through the same switches its page
+    /// flips, so a dot changes the moment the big switch does.
+    private var addOnIsOn: ((AddOn) -> Bool)? {
+        guard let tray, let clipboard, let agents, let dictation else { return nil }
+        let switches = AddOnSwitches(tray: tray, clipboard: clipboard, agents: agents, dictation: dictation)
+        let notesOn = callNotesOn
+        return { $0 == .meetingNotes ? notesOn : switches.isOn($0) }
     }
 
     /// The calls are what is chosen, and there are calls to show.

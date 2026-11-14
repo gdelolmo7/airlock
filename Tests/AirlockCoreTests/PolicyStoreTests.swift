@@ -120,8 +120,55 @@ extension PolicyStoreTests {
         try "allow:\n  - Bash(git status)\n".write(to: project, atomically: true, encoding: .utf8)
 
         let store = PolicyStore(globalFileURL: global)
-        XCTAssertEqual(store.load(projectRoot: dir.path).policy.allow.count, 2, "merged")
+        // The project's own file is in the folder, so its allow rule is not in
+        // force: only the global one is. Reading it as a single file still works.
+        XCTAssertEqual(store.load(projectRoot: dir.path).policy.allow.map(\.text), ["Read"])
         XCTAssertEqual(store.load(fileAt: project).policy.allow.map(\.text), ["Bash(git status)"])
         XCTAssertEqual(store.load(fileAt: global).policy.allow.map(\.text), ["Read"])
+    }
+}
+
+/// A project's own rule file may make Airlock stricter, never looser.
+extension PolicyStoreTests {
+    private func writeRepositoryFile(_ text: String) throws {
+        let file = store.repositoryFileURL(projectRoot: root.path)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try text.write(to: file, atomically: true, encoding: .utf8)
+    }
+
+    func testARepositorysAllowRulesAreIgnored() throws {
+        try writeRepositoryFile("allow:\n  - Bash\n  - Write\n")
+        XCTAssertTrue(store.load(projectRoot: root.path).policy.allow.isEmpty)
+    }
+
+    func testARepositorysDenyRulesStillCount() throws {
+        try writeRepositoryFile("deny:\n  - Bash(*deploy*)\n")
+        XCTAssertEqual(store.load(projectRoot: root.path).policy.deny.map(\.text), ["Bash(*deploy*)"])
+    }
+
+    func testARepositoryCannotShortenTheWait() throws {
+        try writeRepositoryFile("ask_timeout: 1\n")
+        XCTAssertNil(store.load(projectRoot: root.path).policy.askTimeout)
+    }
+
+    func testAlwaysWritesOutsideTheProject() throws {
+        // Here the fake home sits inside `root`, so the project is a sibling.
+        let project = root.appendingPathComponent("repo").path
+        try FileManager.default.createDirectory(atPath: project, withIntermediateDirectories: true)
+        try store.appendAllowRule("Bash(make build)", projectRoot: project)
+        let file = store.projectFileURL(projectRoot: project)
+        XCTAssertFalse(file.path.hasPrefix(project + "/"), "a rule that loosens must not live in the repo")
+        XCTAssertTrue(file.path.hasPrefix(store.globalFileURL.deletingLastPathComponent().path + "/projects/"))
+        XCTAssertEqual(store.load(projectRoot: project).policy.allow.map(\.text), ["Bash(make build)"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.repositoryFileURL(projectRoot: project).path))
+    }
+
+    func testTwoProjectsWithTheSameFolderNameKeepSeparateRules() {
+        let a = store.projectFileURL(projectRoot: "/Users/me/one/web")
+        let b = store.projectFileURL(projectRoot: "/Users/me/two/web")
+        XCTAssertNotEqual(a, b)
+        XCTAssertTrue(a.deletingLastPathComponent().lastPathComponent.hasPrefix("web-"))
+        XCTAssertEqual(a, store.projectFileURL(projectRoot: "/Users/me/one/web/"), "same folder, same file")
     }
 }

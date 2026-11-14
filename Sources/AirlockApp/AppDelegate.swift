@@ -53,6 +53,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openSettings: { [weak self] in self?.appWindow?.show(anchor: .windowLayouts) },
         openPlans: { [weak self] in self?.license?.showPlans(from: "window_layouts") })
     private var tally: UsageTallyStore?
+    /// The desktop widget's to-dos. Nil on a build without the widget.
+    private var deskTodos: DeskTodosPublisher?
+    private var deskNextCall: DeskNextCallPublisher?
+    private var deskShelf: DeskShelfPublisher?
+    private var deskClips: DeskClipsPublisher?
+    private var deskAgents: DeskAgentsPublisher?
 
     /// `airlock://activate?key=…` coming back from a finished checkout.
     ///
@@ -70,6 +76,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// and is asked about before anything is kept (`OwnerMarkQuestion`), on
     /// the next turn so a link that launched the app finishes the launch first.
     func application(_ application: NSApplication, open urls: [URL]) {
+        // A click on the desktop widget, anywhere but a to-do's circle.
+        if urls.contains(where: DeskShelf.isOpenURL) {
+            Task { @MainActor [weak self] in self?.model?.meetings.showPastCalls() }
+            return
+        }
+        // Join on the Next call widget: only an event the calendar already
+        // has coming up, so a link from anywhere else joins nothing.
+        if let id = urls.lazy.compactMap(DeskNextCall.eventID(from:)).first {
+            Task { @MainActor [weak self] in
+                guard let calendar = self?.calendarWidget,
+                      let event = calendar.upcoming.first(where: { $0.id == id }) else { return }
+                calendar.join(event)
+            }
+            return
+        }
+        // "Notes ready" on the Next call widget: that call's notes.
+        if let folder = urls.lazy.compactMap(DeskNextCall.callFolder(from:)).first {
+            Task { @MainActor [weak self] in self?.model?.meetings.showCall(folder: folder) }
+            return
+        }
+        // A file on the Shelf widget: opened only if it is on the Shelf now.
+        if let name = urls.lazy.compactMap(DeskShelfFiles.fileName(from:)).first {
+            Task { @MainActor [weak self] in
+                guard let tray = self?.trayWidget, tray.isEnabled,
+                      let item = tray.items.first(where: { $0.name == name }) else { return }
+                tray.open(item)
+            }
+            return
+        }
+        // Anywhere else on the Shelf widget: the notch, on the Shelf.
+        if urls.contains(where: DeskShelfFiles.isOpenURL) {
+            Task { @MainActor [weak self] in self?.notch?.showShelf() }
+            return
+        }
+        // A copy on the Last copied widget: copied again only if it is in
+        // the history and shown on this plan, so a link from anywhere else
+        // can only put back something you copied yourself.
+        if let id = urls.lazy.compactMap(DeskClips.clipID(from:)).first {
+            Task { @MainActor [weak self] in
+                guard let clipboard = self?.clipboardWidget, clipboard.isEnabled,
+                      let item = DeskClips.shown(clipboard.history.items, planShows: clipboard.planShows)
+                        .first(where: { $0.id == id }) else { return }
+                clipboard.copy(item)
+            }
+            return
+        }
+        // Anywhere else on the Last copied widget: the notch, on the Clipboard.
+        if urls.contains(where: DeskClips.isOpenURL) {
+            Task { @MainActor [weak self] in self?.notch?.showClipboard() }
+            return
+        }
+        // An agent on the AI agents widget. One waiting on the notch opens the
+        // notch on its card, where it is answered: nothing is ever answered
+        // from the desk. Any other goes to its terminal. The id is looked up
+        // in Airlock's own sessions, so a link from anywhere else can do no
+        // more than that.
+        if let id = urls.lazy.compactMap(DeskAgents.sessionID(from:)).first {
+            Task { @MainActor [weak self] in
+                guard let self, let session = self.model?.state.sessions[id] else { return }
+                if session.pendingPermission != nil {
+                    self.notch?.showAgents()
+                } else {
+                    self.model?.jump(to: session)
+                }
+            }
+            return
+        }
+        // Anywhere else on the AI agents widget: the notch, on Agents.
+        if urls.contains(where: DeskAgents.isOpenURL) {
+            Task { @MainActor [weak self] in self?.notch?.showAgents() }
+            return
+        }
         if let mark = urls.lazy.compactMap({ OwnerMark.mark(from: $0) }).first {
             Task { @MainActor in OwnerMarkQuestion.ask(keeping: mark, in: UsageCounts.shared) }
             return
@@ -100,6 +178,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // one of those would see an empty new-identity world if the copy had
         // not already happened.
         migrateFromLegacyIdentity()
+        // Straight after, for the same reason: the models read their switch
+        // once, when they are built, and the old identity's switches have to
+        // be in place to count as "somebody already uses this Mac". Once per
+        // install; an update never changes a card. A demo run leaves
+        // it alone, like the crash marker below, since it may share the
+        // installed copy's preferences.
+        if !Self.isDemoMode {
+            let decision = AddOnSwitches.seedAtLaunch()
+            if decision != .alreadyRan {
+                Log.app.notice("add-ons seed: \(String(describing: decision), privacy: .public)")
+            }
+        }
         // Nothing unless started with `--outage` or `--no-apple-intelligence`.
         PretendOutage.announce()
         // Right after the preferences are where they belong, since the answer
@@ -138,6 +228,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.start()
 
         if Self.isDemoMode { model.seedDemo() }
+
+        // Not in the demo: its calls are made up, and the widget would show them.
+        if !Self.isDemoMode, let desk = DeskTodosPublisher() {
+            deskTodos = desk
+            desk.start()
+        }
 
         let media = MediaWidgetModel()
         self.media = media
@@ -184,6 +280,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appearance = NotchAppearanceModel()
         self.appearance = appearance
+        // The desktop widget is drawn on the notch's ground, so it follows it.
+        if let deskTodos {
+            deskTodos.surface = { [weak appearance] in appearance?.surface.desk ?? .black }
+            deskTodos.refresh()
+        }
+        // The Next call widget: the calendar's next events, and today's
+        // notes. Not in the demo either, for the same reason.
+        if !Self.isDemoMode, let next = DeskNextCallPublisher() {
+            deskNextCall = next
+            next.events = { [weak calendarWidget] in calendarWidget?.upcoming ?? [] }
+            next.surface = { [weak appearance] in appearance?.surface.desk ?? .black }
+            calendarWidget.onUpcomingChanged = { [weak next] in next?.refresh() }
+            deskTodos?.onChange = { [weak next] in next?.refresh() }
+            next.start()
+        }
 
         // Claude's usage figures reach the Agents tab through its status line,
         // and one status line is all Claude has — so another tool writing that
@@ -206,15 +317,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let trayWidget = TrayModel()
         self.trayWidget = trayWidget
         trayWidget.start()
+        // The Shelf widget. Not in the demo, like the others.
+        if !Self.isDemoMode, let shelf = DeskShelfPublisher(tray: trayWidget) {
+            deskShelf = shelf
+            shelf.surface = { [weak appearance] in appearance?.surface.desk ?? .black }
+            shelf.start()
+        }
 
         let clipboardWidget = ClipboardWidgetModel()
         self.clipboardWidget = clipboardWidget
         clipboardWidget.plan = { [weak license] in license?.entitlement.limits }
         clipboardWidget.start()
         AirlockCopy.history = clipboardWidget
+        // The Last copied widget. Not in the demo, like the others.
+        if !Self.isDemoMode, let clips = DeskClipsPublisher(clipboard: clipboardWidget) {
+            deskClips = clips
+            clips.surface = { [weak appearance] in appearance?.surface.desk ?? .black }
+            clips.start()
+        }
 
         let dictation = DictationModel()
         dictation.media = media
+        dictation.isCallRecording = { [weak model] in model?.meetings.takingNotes != nil }
         self.dictation = dictation
 
         // A dictation with nowhere to land: on the clipboard, and kept in its
@@ -271,6 +395,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // is built below; a press before then finds a nil handler and does
         // nothing, which is the right nothing.
         agentsWidget.start()
+        // The AI agents widget. Not in the demo, like the others.
+        if !Self.isDemoMode, let desk = DeskAgentsPublisher(model: model, agents: agentsWidget) {
+            deskAgents = desk
+            desk.surface = { [weak appearance] in appearance?.surface.desk ?? .black }
+            desk.start()
+        }
 
         // Array order is panel order WITHIN a placement; which strip a widget
         // lands in is the widget's own `placement`, and which tab its `tab`.
@@ -295,7 +425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WidgetArrangement.applyHomeSoundLayoutOnce()
         var widgets: [any NotchWidget] = [
             AgentsWidget(model: model, agents: agentsWidget),
-            RepositoryWidget(repository: repositoryWidget),
+            RepositoryWidget(repository: repositoryWidget, agents: agentsWidget),
             CalendarWidget(calendar: calendarWidget,
                            onChooseCalendars: { [weak self] in self?.appWindow?.show(anchor: .calendars) }),
             CallsWidget(meetings: model.meetings),
@@ -304,10 +434,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Order inside a placement is panel order, and the banner is the
             // headline: it sits above the rail, not under it.
             // Above the banner: a new person's first days, then gone.
-            FirstStepsWidget(steps: .shared, dictation: dictation, calendar: calendarWidget),
+            FirstStepsWidget(steps: .shared, dictation: dictation, calendar: calendarWidget,
+                             clipboard: clipboardWidget, tray: trayWidget),
             MediaWidget(media: media),
             SystemControlsWidget(controls: systemControls),
-            KeyMapWidget(dictation: dictation, clipboard: clipboardWidget, agents: agentsWidget),
+            KeyMapWidget(dictation: dictation, clipboard: clipboardWidget, agents: agentsWidget,
+                         tray: trayWidget),
             SoundWidget(sound: sound, output: audioOutput, appVolume: appVolume),
             BatteryWidget(battery: batteryWidget),
             SystemStatsWidget(system: systemWidget),
@@ -390,6 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // "Call Notes…" and a call's notification all land there.
         appWindow?.calls = model.meetings.callsPage
         notch.onOpenSettings = { [weak self] in self?.appWindow?.show() }
+        notch.onOpenAddOns = { [weak self] in self?.appWindow?.show(pane: .addOns) }
         appWindow?.islandPreview = { [weak notch] in notch?.preview() ?? AnyView(EmptyView()) }
 
         // Clicking a notification lands on the pane that fixes what it reported.

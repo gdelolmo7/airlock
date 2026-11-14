@@ -24,7 +24,13 @@ struct NotchTopBar: View {
     @Environment(NotchUIState.self) private var uiState
     @Environment(NotchAppearanceModel.self) private var appearance
     @Environment(DictationModel.self) private var dictation
+    @Environment(TrayModel.self) private var tray
+    @Environment(ClipboardWidgetModel.self) private var clipboard
+    @Environment(AgentsWidgetModel.self) private var agents
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Meeting notes' switch is a preference with no model to observe; reading
+    /// it here is what makes the "+" go when the last add-on goes on.
+    @AppStorage(MeetingNotesModel.enabledKey) private var meetingNotesOn = MeetingNotesModel.onByDefault
 
     /// A mode has the band: dictating. There is no tab on screen then, so
     /// nothing that acts on one is offered.
@@ -58,6 +64,9 @@ struct NotchTopBar: View {
                     // (`NotchRootView`), and the panel's resize is the kit's.
                     .animation(Motion.swap.animation(reduceMotion: reduceMotion),
                                value: uiState.selectedTab)
+                    if showsAddOnsButton(leadingTabs: sides.leading.count) {
+                        PlusTabButton(action: uiState.openAddOns)
+                    }
                     iconButton("chevron.up", tint: Theme.textSecondary, label: String(localized: "Collapse"), action: onCollapse)
                 }
                 Spacer(minLength: 0)
@@ -105,6 +114,20 @@ struct NotchTopBar: View {
             .frame(width: gutterWidth, alignment: .trailing)
             .padding(.trailing, 10)
         }
+    }
+
+    /// The "+" shows until every add-on is on, and only while the left gutter
+    /// has room for it beside the tabs and the chevron (`AddOnsPlusButton` in
+    /// Core says why, and does the sum).
+    private func showsAddOnsButton(leadingTabs: Int) -> Bool {
+        let switches = AddOnSwitches(tray: tray, clipboard: clipboard, agents: agents, dictation: dictation)
+        let everythingAdded = AddOn.allCases.allSatisfy {
+            $0 == .meetingNotes ? meetingNotesOn : switches.isOn($0)
+        }
+        // The row sits 8 in from the screen edge (the padding above).
+        let room = Double(appearance.clearGutterWidth) - 8
+        return AddOnsPlusButton.shows(everythingAdded: everythingAdded,
+                                                  leadingTabs: leadingTabs, room: room)
     }
 
     /// The agents pill carries the session count, so dropping the old "2 agents"
@@ -178,6 +201,33 @@ struct NotchTopBar: View {
         .clickable()
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+/// The "+" after the tabs: the way to Settings › Add-ons from the notch.
+/// Dashed, so it reads as a place for more rather than a tab of its own, and
+/// never selected, because it opens a window rather than a page here.
+/// Not private: the state gallery draws it.
+struct PlusTabButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "plus")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: CGFloat(AddOnsPlusButton.width), height: 26)
+                .overlay {
+                    Capsule()
+                        .strokeBorder(Color.white.opacity(0.28),
+                                      style: StrokeStyle(lineWidth: 1, dash: [3, 2.5]))
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .clickable()
+        .help(String(localized: "Add-ons"))
+        .accessibilityLabel(String(localized: "Add-ons"))
     }
 }
 

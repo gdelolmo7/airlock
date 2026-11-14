@@ -167,6 +167,7 @@ public enum MeetingFiles {
     /// known.
     /// `inFile` keeps the English wording, for the files the app writes.
     public static func title(of record: MeetingRecord, inFile: Bool = false) -> String {
+        if let given = record.givenTitle { return given }
         if record.event?.name == nil, let recording = record.recording { return recording.title }
         return title(event: record.event, callName: record.callName, inPerson: record.isInPerson,
                      topic: record.topic, inFile: inFile)
@@ -175,7 +176,7 @@ public enum MeetingFiles {
     /// Whether `title(of:)` is a name, kept as written ("Budget review",
     /// "Kitchen planning"), rather than a description ("Call in Zoom").
     public static func titleIsAName(_ record: MeetingRecord) -> Bool {
-        record.event?.name != nil || record.recording != nil || record.topic != nil
+        record.givenTitle != nil || record.event?.name != nil || record.recording != nil || record.topic != nil
     }
 
     /// `title(of:)` for a call whose record is not to hand: its calendar

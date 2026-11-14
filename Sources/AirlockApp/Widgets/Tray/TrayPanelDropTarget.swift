@@ -41,7 +41,12 @@ struct TrayPanelDropTarget: DropDelegate {
     /// True even for a drag the tray cannot keep. Refusing here would skip
     /// `dropEntered`, and the refusal would then have nowhere to be said —
     /// `dropUpdated` is where the cursor is told no.
-    func validateDrop(info: DropInfo) -> Bool { true }
+    ///
+    /// The one refusal is the Shelf switched off: then there is nothing to
+    /// explain, and the panel is simply not somewhere a file goes. The panel
+    /// also stops declaring any types then (`NotchRootView`); this is the
+    /// same answer from the delegate's side.
+    func validateDrop(info: DropInfo) -> Bool { tray.isEnabled }
 
     func dropEntered(info: DropInfo) {
         uiState.isDropTargeted = !uiState.isDraggingOut

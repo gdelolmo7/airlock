@@ -44,6 +44,8 @@ final class NotchDropCatcher {
     private var pocketContent = DropPocketLayout(formats: 0, actions: 0).size
     /// When a drag last said anything. `watchForAbandonment` is the only reader.
     private var lastDragMessage = Date.distantPast
+    /// Whether a drag over the notch is ours to take — see `takeDrops`.
+    private var takingDrops = true
     private var abandonWatch: Task<Void, Never>?
     private var screenTask: Task<Void, Never>?
     private let onEnter: (TrayDropKind) -> Void
@@ -174,6 +176,18 @@ final class NotchDropCatcher {
         rest()
     }
 
+    /// Whether a drag over the notch does anything at all. Off follows the
+    /// Shelf's switch: the window stays, because it owns the cutout's hover,
+    /// but it stops being a drag destination, so a file carried to the top
+    /// passes through to whatever is underneath instead of opening a shelf
+    /// that was switched off. Kept here, not just in the view, because
+    /// `place()` builds a new view on every display change.
+    func takeDrops(_ on: Bool) {
+        guard on != takingDrops else { return }
+        takingDrops = on
+        (panel?.contentView as? DropCatcherView)?.acceptsDrags(on)
+    }
+
     /// Where this window is on screen, for turning a drag point in it into
     /// the panel's space (`panelPoint`). Nil before it is placed.
     var frame: NSRect? { panel?.frame }
@@ -271,6 +285,7 @@ final class NotchDropCatcher {
             },
             onHover: onHover
         )
+        (panel.contentView as? DropCatcherView)?.acceptsDrags(takingDrops)
         self.panel = panel
         if !onStandIn || islandVisible { panel.orderFrontRegardless() }
     }
@@ -508,7 +523,18 @@ private final class DropCatcherView: NSView {
         // Read from Core rather than spelled out here, because the open panel
         // declares the identical set (`TrayPanelDropTarget`) and the two
         // drifting apart is exactly the bug this list already once caused.
-        registerForDraggedTypes(TrayDropKind.watchedTypeIdentifiers.map(NSPasteboard.PasteboardType.init(rawValue:)))
+        acceptsDrags(true)
+    }
+
+    /// Registered, or not a destination at all. Unregistering rather than
+    /// refusing in `draggingEntered`: a refusal still grows the window and
+    /// opens the panel to explain itself, which is the opposite of "off".
+    func acceptsDrags(_ on: Bool) {
+        if on {
+            registerForDraggedTypes(TrayDropKind.watchedTypeIdentifiers.map(NSPasteboard.PasteboardType.init(rawValue:)))
+        } else {
+            unregisterDraggedTypes()
+        }
     }
 
     @available(*, unavailable)

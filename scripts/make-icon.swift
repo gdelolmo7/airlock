@@ -36,7 +36,7 @@ let eyeInk   = (r: 0.020, g: 0.024, b: 0.031)   // Theme.bloubEyes, dark end
 
 // MARK: - The mark, read from the app rather than copied into this file
 //
-// The bloub's geometry lives in `Sources/AirlockApp/Views/Bloub.swift`, which
+// The bloub's geometry lives in `Sources/AirlockCore/Bloub/BloubArt.swift`, which
 // that file declares is the source of truth. A script cannot import the app
 // target, and the obvious workaround — pasting the numbers here — would make two
 // sources of truth for one shape and guarantee they drift.
@@ -47,7 +47,7 @@ let eyeInk   = (r: 0.020, g: 0.024, b: 0.031)   // Theme.bloubEyes, dark end
 
 let bloubSource = try! String(contentsOf: URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent()
-    .appendingPathComponent("Sources/AirlockApp/Views/Bloub.swift"), encoding: .utf8)
+    .appendingPathComponent("Sources/AirlockCore/Bloub/BloubArt.swift"), encoding: .utf8)
 
 func numbers(in text: String) -> [CGFloat] {
     let pattern = try! NSRegularExpression(pattern: "-?\\d+\\.?\\d*")

@@ -51,6 +51,9 @@ final class GlobalHotkey {
         static let commandShiftG = Binding(keyCode: UInt32(kVK_ANSI_G),
                                            carbonModifiers: UInt32(cmdKey | shiftKey))
 
+        /// Dictation's "type the last one again". Three keys, like keep-awake's.
+        static let controlOptionCommandD = Binding(keyCode: UInt32(kVK_ANSI_D),
+                                                   carbonModifiers: UInt32(cmdKey | optionKey | controlKey))
         /// Keep-awake's shortcut, off until switched on in Settings. Three keys
         /// so that switching it on takes nothing an app already uses.
         static let controlOptionCommandW = Binding(keyCode: UInt32(kVK_ANSI_W),

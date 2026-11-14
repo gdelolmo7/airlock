@@ -479,6 +479,12 @@ extension MeetingFiles {
             lines += ["_\(coverLine(listened, of: record.endedAt?.timeIntervalSince(record.startedAt)))_", ""]
         }
         if let writtenFrom { lines += ["_\(writtenFrom)_", ""] }
+        // Why the person's own Claude key didn't write them, when it was
+        // asked; not "offline" again when the waiting line says it already.
+        if let writer, let problem = writer.ownKeyProblem, !writer.ownKey,
+           !(problem == .offline && writer.waitsForOnline) {
+            lines += ["_\(problem.line)_", ""]
+        }
         let words = NumberedTranscript(record).wordCount
 
         let written = notes.flatMap { language(of: $0, record: record) }
@@ -515,7 +521,9 @@ extension MeetingFiles {
             lines += section(say(keyPointsHeading), notes.keyPoints)
         }
         let by: String
-        if writer?.place == .online {
+        if writer?.ownKey == true {
+            by = OwnKeyNotes.footer(model: writer?.model) + ". "
+        } else if writer?.place == .online {
             by = "Written online by Airlock"
                 + (CloudNotes.maker(ofModel: writer?.model).map { ", with \($0)" } ?? "") + ". "
         } else if notes != nil {

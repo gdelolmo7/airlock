@@ -20,6 +20,7 @@ import AirlockCore
 struct KeyMapSectionView: View {
     @Environment(DictationModel.self) private var dictation
     @Environment(ClipboardWidgetModel.self) private var clipboard
+    @Environment(TrayModel.self) private var tray
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let tips = KeyMapTips.shared
 
@@ -34,7 +35,8 @@ struct KeyMapSectionView: View {
         let watches = dictation.isEnabled && dictation.readiness.canWatchHoldKey
         let rows = Self.rows(
             dictation: watches ? dictation.holdKey.glyph : nil,
-            clipboardKey: clipboard.isEnabled && clipboard.hotkeyEnabled ? clipboard.hotkey.displayName : nil)
+            clipboardKey: clipboard.isEnabled && clipboard.hotkeyEnabled ? clipboard.hotkey.displayName : nil,
+            shelf: tray.isEnabled)
             .filter { !tips.isClosed($0.id) }
         if !rows.isEmpty {
             KeyMapCard(rows: rows) { id in
@@ -54,7 +56,9 @@ struct KeyMapSectionView: View {
     ///   - dictation: the hold key's glyph while dictation is on; nil while
     ///     it is off.
     ///   - clipboardKey: the clipboard's shortcut while it has one, else nil.
-    static func rows(dictation: String?, clipboardKey: String?) -> [KeyMapRow] {
+    ///   - shelf: whether the Shelf is on, and so whether a file dropped on
+    ///     the notch goes anywhere.
+    static func rows(dictation: String?, clipboardKey: String?, shelf: Bool) -> [KeyMapRow] {
         var rows: [KeyMapRow] = []
         if let dictation {
             rows.append(KeyMapRow(id: "dictate", symbol: "mic.fill",
@@ -66,11 +70,13 @@ struct KeyMapSectionView: View {
                                   title: String(localized: "Everything you copy"),
                                   trailing: .cap(clipboardKey)))
         }
-        // No switch and no binding — the drop target is the notch itself, and it
-        // is the one row that is true on every install.
-        rows.append(KeyMapRow(id: "tray", symbol: "tray",
-                              title: String(localized: "Drop a file on the notch to shelve it"),
-                              trailing: .hint(String(localized: "Try it"))))
+        // No binding: the drop target is the notch itself. It has a switch now
+        // (the Shelf can be off), and off, a drop does nothing to show.
+        if shelf {
+            rows.append(KeyMapRow(id: "tray", symbol: "tray",
+                                  title: String(localized: "Drop a file on the notch to shelve it"),
+                                  trailing: .hint(String(localized: "Try it"))))
+        }
         return rows
     }
 }

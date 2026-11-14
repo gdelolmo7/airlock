@@ -1,4 +1,5 @@
 import AirlockCore
+import AppKit
 import SwiftUI
 
 /// "Who's who": every voice of a meeting, each with something it said to
@@ -301,7 +302,17 @@ struct CallVoiceRename: View {
         .padding(12)
         .frame(width: width)
         .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
-        .task { focused = voice }
+        .background(KeyWindowTaker())
+        .task {
+            // Asked straight away, the field is not in a key window yet (a
+            // pop-up still opening, or the panel beside the call, which never
+            // takes the keyboard by itself), so the focus went nowhere.
+            try? await Task.sleep(for: .milliseconds(60))
+            focused = voice
+            try? await Task.sleep(for: .milliseconds(30))
+            // The name there now is selected, so typing replaces it.
+            if let editor = NSApp.keyWindow?.firstResponder as? NSTextView { editor.selectAll(nil) }
+        }
     }
 
     /// "Same as Marc" for every name another voice has, then what this
@@ -602,5 +613,22 @@ enum CallNotesNaming {
                 .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         }
         return fold(one) == fold(other)
+    }
+}
+
+/// Makes the window it is drawn in the key window, once, so a name box that
+/// opens can be typed in without a second click.
+private struct KeyWindowTaker: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Taker() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class Taker: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async {
+                if window.canBecomeKey, !window.isKeyWindow { window.makeKey() }
+            }
+        }
     }
 }

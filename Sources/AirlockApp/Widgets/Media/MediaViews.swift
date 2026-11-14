@@ -52,6 +52,14 @@ struct MediaSectionView: View {
                 artwork: ArtworkView(url: dormant.artworkURL, size: MediaCardMetrics.artworkSize,
                                      source: dormant.player),
                 onReopen: { media.reopenDormantPlayer() })
+        } else {
+            let player = media.idlePlayer
+            let isRunning = media.runningPlayers.contains(player)
+            IdlePlayerCard(
+                playerName: player.displayName,
+                button: MediaWidgetModel.dormantButton(player: player.displayName, isRunning: isRunning),
+                artwork: ArtworkView(url: nil, size: MediaCardMetrics.artworkSize, source: player),
+                onOpen: { media.openIdlePlayer() })
         }
     }
 
@@ -332,6 +340,58 @@ struct DormantTrackCard<Artwork: View>: View {
             .clickable()
         }
         .modifier(HomeCardBackground())
+    }
+}
+
+/// Nothing is loaded in any player, and no recent track to remember. The card
+/// keeps its place instead of vanishing (a closed Spotify read as Airlock
+/// having lost its music card) and opens the player with one click — see
+/// `IdlePlayerChoice` for which one. The whole card is the button: there is
+/// nothing else on it to press. Values in, so the gallery draws this.
+struct IdlePlayerCard<Artwork: View>: View {
+    let playerName: String
+    /// "Open Spotify", or "Show Spotify" while it is open with nothing loaded.
+    let button: String
+    let artwork: Artwork
+    var onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(alignment: .center, spacing: 12) {
+                artwork
+                    // Quieter than a live card, not greyed like a memory: the
+                    // icon is the player's, and colour is how it is recognised.
+                    .opacity(0.7)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Nothing playing")
+                        .font(Theme.chrome(14, .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                    Text(playerName)
+                        .font(Theme.chrome(12))
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(button)
+                    .font(Theme.chrome(12, .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .background(Capsule().fill(Theme.textPrimary.opacity(0.10)))
+            }
+            .modifier(HomeCardBackground())
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .clickable()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Nothing playing"))
+        .accessibilityHint(Text(button))
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -772,13 +832,22 @@ struct ArtworkView: View {
 /// asks about apps that are audible by definition, whereas a player can be
 /// launched a moment after something first asked, and a nil remembered then
 /// would leave the badge missing for the rest of the session.
+///
+/// A player that is installed but closed gets its icon from the app on disk:
+/// the idle card offers a closed player, and a music note there would not say
+/// which one a click opens.
 @MainActor
 private enum PlayerIcon {
     static func image(for kind: MediaPlayerKind) -> NSImage? {
         if let cached = cache[kind.bundleID] { return cached }
-        guard let icon = NSRunningApplication
+        let running = NSRunningApplication
             .runningApplications(withBundleIdentifier: kind.bundleID)
-            .first?.icon else { return nil }
+            .first?.icon
+        let installed = running == nil
+            ? NSWorkspace.shared.urlForApplication(withBundleIdentifier: kind.bundleID)
+                .map { NSWorkspace.shared.icon(forFile: $0.path) }
+            : nil
+        guard let icon = running ?? installed else { return nil }
         cache[kind.bundleID] = icon
         return icon
     }

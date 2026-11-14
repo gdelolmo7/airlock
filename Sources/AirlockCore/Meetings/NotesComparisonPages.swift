@@ -62,83 +62,74 @@ enum NotesComparisonPages {
 
         ## Summary
 
-        This meeting was called to address the quarterly budget overspend and discuss upcoming plans for the team offsite and agency contract. The team decided to halve the remaining quarterly travel budget to absorb the 18,000-euro marketing overspend and agreed to reschedule the December offsite to January. Outstanding actions include Joan sending the agency terms to legal for review before November, Marta circulating revised budget figures by Friday, and deciding whether to approve a 4,000-euro client trip to Lisbon.
+        The call addressed closing an €18,000 marketing budget overspend, adjusting travel, and coordinating upcoming offsite and agency plans. It was decided to halve the remaining quarterly travel budget and postpone the December team offsite to January. Person 1 will provide updated budget numbers by Friday, while legal review of the agency's terms remains to be finalized.
 
         ## To-dos
 
-        - [ ] Talk to the head of sales regarding travel cut and customer trips — You · 11:45
-        - [ ] Call hotel to move team offsite to January this week — You · 31:31
-        - [ ] Send an invite for monthly fifteen-minute budget check on first Mondays — Marta · 11:03
-        - [ ] Send agency terms to legal for review today — Joan · 35:04
-        - [ ] Update the forecast reflecting the travel budget cut · 5:43
-        - [ ] Tell team not to book anything new until travel rules are written · 5:50
-        - [ ] Send revised budget numbers to both attendees Friday · 6:23
-        - [ ] Put two slides together on campaign performance for board explanation · 10:09
-        - [ ] Chase the agency about the September invoice tomorrow morning · 15:42
-        - [ ] Write short note to the whole team about travel cuts lasting until January · 16:42
-        - [ ] Move design tool renewal into Q1 forecast · 25:02
-        - [ ] Copy Marta in on agency fee details · 35:32
+        - [ ] Speak with the head of sales regarding the quarterly travel restrictions — You · 11:45
+        - [ ] Call the hotel to reschedule the offsite to January before the deposit deadline this week — You · 31:31
+        - [ ] Query the agency regarding the suspected duplicate billing on the September invoice tomorrow morning — Person 2 · 2:25
+        - [ ] Prepare two slides summarizing the autumn campaign metrics — Person 2 · 10:09
+        - [ ] Draft and send an announcement to the team regarding temporary travel limits — Person 2 · 16:42
+        - [ ] Submit the agency contract terms to legal and obtain approval before the first of November — Person 2 · 35:04
+        - [ ] Send revised budget figures to everyone Friday — Person 1 · 6:10
+        - [ ] Schedule a monthly 15-minute budget review meeting for every first Monday — Person 1 · 10:38
 
         ## Topics
 
-        ### 1. Quarter budget overview and marketing overspend · 0:31
+        ### 1. Quarterly budget review · 0:31
 
-        Marketing was 18,000 euros over plan due to an unbudgeted autumn campaign ad wave and an agency invoice discrepancy.
+        Costs closed 4% over plan mainly due to marketing, requiring a reduction in travel to balance the budget.
 
-        - **Quarter status:** Overall closed four percent over plan, with salaries on plan, software slightly under, and office costs flat · 0:31
-        - **Marketing overspend:** Line stands out at 18,000 euros over budget · 0:52
-        - **Campaign cost:** Autumn campaign second wave in September accounts for about 15,000 euros · 1:06
-        - **Agency invoice:** September agency invoice appears to double-bill video edits, worth around 3,000 euros · 1:49
-        - **Year-end risk:** Full year would end 25,000 euros over plan without changes, against board expectations · 3:01
+        - **Quarterly performance:** Overall spending was 4% over plan, with salaries on target, software slightly under, and office costs flat · 0:31
+        - **Marketing overspend:** Marketing ran €18,000 over plan due to an unplanned September ad wave and an inflated agency invoice · 0:52
+        - **Year-end projection:** Spending will end roughly €25,000 over budget unless adjustments are made this quarter · 3:01
+        - ✓ **Cost adjustments:** Events and the January new hire remain untouched, while travel is halved from €36,000 to save €18,000 · 4:06
+        - ✓ **Travel criteria:** Internal trips must switch to video calls, while customer visits require your direct approval · 5:20
+        - ✓ **Budget governance:** Any budget changes agreed outside the master sheet must be recorded within the week · 10:20
 
-        ### 2. Budget adjustments and travel cut · 3:52
+        ### 2. Other budget lines and campaign · 6:49
 
-        Travel budget is halved for the rest of the quarter to cover the marketing gap while protecting hiring and events.
+        Other cost lines remain stable, while the autumn campaign delivered strong early leads at lower cost.
 
-        - ✓ **Protected areas:** November trade fair leads and the January hire will not be cut · 3:52
-        - ✓ **Travel reduction:** Travel budget of 36,000 euros is halved to save 18,000 euros for the remainder of the quarter · 4:20
-        - ✓ **Travel conditions:** Internal trips convert to video calls and customer trips require your approval · 5:20
-        - **Spent travel:** About 4,000 euros of the quarter's travel budget is already spent · 21:05
-        - ✓ **Staff communication:** Entire team will be notified of the travel restrictions lasting until January · 16:31
+        - ✓ **Software and facilities:** A €2,000 design tool renewal shifts to January, and the €800 coffee machine request is deferred to January · 6:49
+        - **Revenue and margin:** Revenue ran 3% above plan from August renewals, maintaining healthy margins despite cost line scrutiny · 8:32
+        - **Autumn campaign results:** Generated approximately 400 leads with 22 in sales talks at a lower cost per lead than spring · 9:28
+        - ✓ **Spring campaign mix:** The campaign will keep its planned budget size while increasing video and reducing display ads · 13:09
+        - ✓ **Hiring plan:** The January hire proceeds, while the planned April hire will be evaluated in March depending on Q1 performance · 14:08
 
-        ### 3. Review of other budget lines · 6:49
+        ### 3. Board meeting preparation · 17:40
 
-        Other budget lines are generally stable despite timing shifts and small currency fluctuations.
+        Deadlines and presentation order were coordinated for the upcoming board meeting.
 
-        - **Software line:** Under by 2,000 euros because design tool renewal shifted to January · 6:49
-        - ✓ **Office costs:** Lease changes start in March, and an 800-euro coffee machine request is postponed to January · 7:22
-        - **Revenue and margin:** Revenue is three percent above plan from August renewals, maintaining overall margin · 8:32
-        - **Exchange rate:** Euro-dollar movement affects two tools by a few hundred euros monthly but requires no immediate action · 12:10
+        - ✓ **Schedule:** The board meets on the 12th, and the presentation deck must be ready by the 8th · 17:40
+        - ✓ **Presentation role:** You will present last to cover the plan to return to budget · 17:51
 
-        ### 4. Budget controls and future planning · 10:20
+        ### 4. Team offsite rescheduling · 30:30
 
-        Procedures are introduced to track off-budget agreements and future campaign and hiring plans.
+        The December team offsite in Girona is moved to January to align with travel cutbacks and the new fiscal year.
 
-        - ✓ **Tracking rule:** Any agreement outside the budget sheet must enter the sheet the same week · 10:20
-        - ✓ **Monthly check:** Fifteen-minute review on the first Monday of each month for lines that moved · 10:38
-        - ✓ **Spring campaign:** Total spend remains unchanged but mix shifts toward more video and fewer display ads · 13:09
-        - ✓ **April hire:** Decision postponed to March, conditional on Q1 budget performance · 14:14
-        - **Board deck:** Board meeting is on the 12th, with the deck ready on the 8th · 17:40
+        - ✓ **Postponement:** Rescheduling the Girona offsite from December to January saves €11,000 in Q4 and offers lower hotel rates · 30:30
+        - **Deposit:** The deposit remains fully refundable until the end of October · 31:42
 
-        ### 5. Rescheduling team offsite · 30:30
+        ### 5. Agency contract terms · 34:00
 
-        The December team offsite in Girona is shifted to January to reduce current quarter spend.
+        The agency proposed a 10% rate increase and a 12-month contract that needs prompt legal review.
 
-        - **Offsite cost:** Girona offsite was scheduled for second week of December at about 11,000 euros · 30:30
-        - ✓ **Date change:** Moving to January moves 11,000 euros into next year's budget with cheaper hotel rates · 31:13
-        - **Deposit:** Deposit is refundable until the end of October · 31:42
+        - **Contract proposal:** The agency requested a 12-month term alongside an approximate 10% increase in monthly fees · 34:00
+        - **Approval deadline:** Legal review must be completed before November 1 to avoid delaying the spring campaign · 34:34
+        - ✓ **Contract length negotiation:** Person 2 will counter with a 6-month term with an option to extend, accepting 12 months if refused · 36:16
 
-        ### 6. Agency contract terms for next year · 34:12
+        ### 6. Lisbon client visit · 38:00
 
-        The agency proposed a 12-month contract with a 10 percent fee increase, requiring legal review before November.
+        A decision on a costly client visit to Lisbon was deferred pending discussion with the account manager.
 
-        - **Contract terms:** Agency requested a 12-month contract and an increase in monthly fees of about ten percent · 34:12
-        - **Review timeline:** Legal approval is required before November 1 to avoid delaying the spring campaign · 34:34
-        - ✓ **Negotiation stance:** Joan will request a six-month contract with extension option, accepting twelve if required · 36:16
+        - **Travel cost:** The client requested an in-person meeting in Lisbon, which is estimated at roughly €4,000 · 38:00
+        - ✓ **Forecast status:** Person 1 will leave the Lisbon trip out of the revised forecast until an approval decision is made · 38:40
 
         ## Open questions
 
-        - Will the customer visit to Lisbon be approved under the travel cut? — _The trip costs about 4,000 euros and flights will become expensive after next week, but you need to speak with the account manager first_ · 38:00
+        - Will the €4,000 client visit to Lisbon be approved despite the travel cut? — _Flight prices increase after next week, and inclusion in the updated forecast depends on the decision_ · 38:00
 
         ---
 
@@ -153,117 +144,86 @@ enum NotesComparisonPages {
 
         ## Summary
 
-        The call reviewed the quarterly budget and next steps for the team offsite and agency renewal. Travel was halved for the rest of the quarter to offset the €18,000 marketing overspend, and the offsite will move to January. Person 2 will seek legal approval of the agency terms before 1 November; the Lisbon client visit remains undecided.
+        The call reviewed the quarterly budget, the team offsite and next year's agency terms. Travel will be halved for the rest of the quarter while events and the January hire remain protected, and the offsite moves to January. Person 1 will send revised figures by Friday, and Person 2 will seek legal approval of the agency terms before November 1; the Lisbon visit remains open.
 
         ## To-dos
 
-        - [ ] Talk to the head of sales about the temporary travel cut — You · 11:38
-        - [ ] Present the plan to get back on budget at the board meeting — You · 17:40
-        - [ ] Move the offsite to January before the end of October — You · 31:31
-        - [ ] Call the hotel about moving the offsite this week — You · 31:31
-        - [ ] Talk to the account manager before deciding on the Lisbon visit — You · 38:40
-        - [ ] Ask the agency about possible duplicate video-edit charges on the September invoice tomorrow morning — Person 2 · 2:25
-        - [ ] Tell the team not to book new travel until the rules are written down — Person 2 · 5:50
-        - [ ] Prepare two slides on the autumn campaign results — Person 2 · 10:01
-        - [ ] Write a short whole-team note explaining the travel cut lasts only until January — Person 2 · 16:42
-        - [ ] Send the new agency terms to legal today — Person 2 · 35:04
-        - [ ] Get legal approval for the agency terms before the first of November — Person 2 · 35:12
-        - [ ] Copy Person 1 into the agency terms review so they can see the fee before signing — Person 2 · 35:24
-        - [ ] Update the forecast with the travel cut — Person 1 · 5:43
-        - [ ] Send revised numbers to both other participants by Friday — Person 1 · 6:10
-        - [ ] Send an invite for the monthly budget check — Person 1 · 10:38
-        - [ ] Monitor exchange-rate effects on dollar-billed tools — Person 1 · 12:10
-        - [ ] Move the design tool renewal into the first-quarter forecast — Person 1 · 25:02
-        - [ ] Keep the Lisbon visit out of the forecast until its status is known — Person 1 · 38:52
+        - [ ] Explain the temporary travel cut to the head of sales — You · 11:38
+        - [ ] Present the plan to get back on budget, last in the board presentation — You · 17:40
+        - [ ] Move the offsite to January and call the hotel this week, before the end of October — You · 31:31
+        - [ ] Query the agency's September invoice for possible duplicate video-edit charges tomorrow morning — Person 2 · 2:06
+        - [ ] Write a short whole-team travel-cut note, stating it lasts only until January; tell the team to pause new bookings until rules are written — Person 2 · 5:50
+        - [ ] Prepare two slides on campaign results for the board explanation — Person 2 · 10:01
+        - [ ] Obtain legal approval of the agency terms; send them today and copy Person 1 for fee review before the first of November — Person 2 · 35:04
+        - [ ] Send both others the revised forecast, including the agency answer, paid travel and the deferred design-tool renewal Friday — Person 1 · 5:43
+        - [ ] Send the invitation for a 15-minute budget check every first Monday — Person 1 · 10:38
 
         ## Topics
 
-        ### 1. Quarterly budget outlook · 0:31
+        ### 1. Quarterly budget and controls · 0:31
 
-        Costs finished above plan, with marketing the main overspend and a possible agency billing error still to resolve.
+        Costs finished above plan, requiring corrective savings and tighter budget tracking.
 
-        - **Costs:** The quarter closed about 4% over plan; marketing was €18,000 over · 0:31
-        - **Campaign:** About €15,000 of the overspend came from a second ad wave agreed in July but omitted from the budget sheet · 1:06
-        - **Invoice:** Suspected duplicate video-edit billing could recover about €3,000 · 2:06
-        - **Year-end:** Without changes, costs would finish about €25,000 over; the board wants spending back on plan by December · 3:01
-        - **Revenue:** Revenue is 3% above plan from two August renewals; margin is fine, but the board assesses each cost line separately · 8:32
-        - **Forecast:** Revised numbers are due Friday, incorporating the agency response and already-paid travel · 6:10
+        - **Overspend:** costs closed 4% above plan; marketing was €18,000 over, including about €15,000 for the autumn campaign · 0:31
+        - **Target:** unchanged spending would end the year about €25,000 over; the board wants costs back on plan by December · 3:01
+        - ✓ **Software:** the €2,000 underspend is a renewal deferred to January, not a saving; retain exchange-rate effects in the forecast without action · 6:49
+        - ✓ **Office costs:** flat until the new lease starts in March; defer the €800 coffee machine to January · 7:22
+        - **Revenue and margin:** revenue is 3% above plan from two August renewals; margin is fine, salaries are on plan and bonus accrual matches last year · 8:15
+        - ✓ **Controls:** record off-sheet spending agreements the same week; hold 15-minute checks of changed lines every first Monday · 10:20
 
-        ### 2. Temporary travel restrictions · 3:52
+        ### 2. Agency billing and terms · 1:49
 
-        Travel will be halved for the rest of the quarter, with customer visits requiring your approval and Lisbon still undecided.
+        The September invoice needs checking, while next year's contract requires negotiation and timely legal approval.
 
-        - ✓ **Savings:** Halving the €36,000 quarterly travel budget saves €18,000; events remain protected · 3:52
-        - ✓ **Duration:** The cut lasts only this quarter; the normal travel budget returns in January · 5:01
-        - ✓ **Rules:** Internal trips become video calls; customer trips require your approval · 5:20
-        - ✓ **Communication:** Tell the whole team about the cut; Person 2 will draft a short note · 16:20
-        - **Paid bookings:** About €4,000 is already spent, so the reduction must come from what remains · 21:05
-        - **Lisbon:** The €4,000 client visit remains open pending your account-manager discussion; flights rise after next week · 38:00
+        - **Invoice:** video edits may have been billed twice; a correction could return about €3,000 · 1:49
+        - **Renewal request:** the agency wants a 12-month contract and a monthly fee about 10% higher · 34:00
+        - **Legal approval:** required before signing; review usually takes two weeks, and approval after November 1 would delay the spring campaign · 34:26
+        - ✓ **Fee review:** Person 1 wants to see the fee before signing; Person 2 will copy them in · 35:24
+        - ✓ **Contract length:** seek six months with an extension option; 12 months is acceptable if the agency refuses · 36:10
 
-        ### 3. Hiring schedule · 4:06
+        ### 3. Events and hiring timetable · 3:36
 
-        The January hire remains in place, while the April hire will be decided in March against first-quarter performance.
+        Events and the January hire are protected, while the April hire will be reconsidered in March.
 
-        - ✓ **January hire:** Keep the planned start; delaying to March would not meet the need · 4:06
-        - **April hire:** Person 1 favours keeping it only if the first quarter lands on plan · 14:14
-        - ✓ **Decision timing:** Decide the April hire in March · 14:26
+        - ✓ **Protected spending:** keep events and the January hire; the November trade fair supplies most leads, and the hire is needed in January rather than March · 3:36
+        - ✓ **April hire:** decide in March; Person 1 recommends proceeding only if the first quarter lands on plan · 14:08
 
-        ### 4. Other budget lines · 6:49
+        ### 4. Travel budget and approvals · 4:20
 
-        Most other cost lines are stable, while deferred software spending and exchange-rate effects need to remain visible.
+        Travel will be halved for the rest of the quarter, with customer visits subject to your approval.
 
-        - ✓ **Software:** The €2,000 underspend is a design tool renewal delayed to January, not a genuine saving · 6:49
-        - **Forecast:** Person 1 will move the renewal into the first quarter to avoid double counting · 25:02
-        - **Office:** Costs are flat; the new lease starts in March and has no effect this year · 7:22
-        - ✓ **Coffee machine:** Defer the €800 purchase until January · 7:47
-        - **Salaries:** Spending is on plan, including bonus accrual at last year's level · 8:15
-        - ✓ **Currency:** Dollar-billed tools add a few hundred euros monthly; retain this in the forecast without acting yet · 12:10
+        - ✓ **Cut:** halve the €36,000 quarterly travel budget to save €18,000; restore the normal budget in January · 4:20
+        - ✓ **Rules:** internal trips become video calls; customer trips require your approval · 5:20
+        - **Customer definition:** Person 1 proposed counting any trip with a customer meeting on the calendar · 11:15
+        - ✓ **Communication:** inform the whole team, rather than only managers, that the restriction lasts until January · 16:20
+        - **Paid bookings:** about €4,000 is already spent; the reduction must come from what remains · 21:05
+        - ✓ **Lisbon:** the roughly €4,000 client visit remains undecided and will stay out of the forecast pending an answer · 38:00
 
-        ### 5. Campaign results and planning · 9:14
+        ### 5. Campaign results and planning · 9:07
 
-        Early autumn results look promising, and the spring campaign can change its channel mix without increasing its budget.
+        Early autumn results are encouraging, and the spring campaign will change its media mix without increasing its budget.
 
-        - **Results:** About 400 new leads arrived in six weeks; 22 are already in talks with sales · 9:28
-        - **Efficiency:** Cost per lead is lower than the spring campaign, even including the second wave · 9:47
-        - **Return:** Whether the autumn campaign paid for itself is not yet known · 9:14
-        - **Board evidence:** Person 2 will prepare two slides to help explain the overspend · 10:01
-        - ✓ **Spring mix:** Keep the campaign size and total budget unchanged, with more video and fewer display ads in next month's plan · 13:09
+        - **Results:** about 400 new leads, with 22 already talking to sales; cost per lead is lower than in spring · 9:28
+        - **Payback:** whether the autumn campaign paid for itself is not yet known · 9:07
+        - ✓ **Spring plan:** retain the planned size and total budget, with more video and fewer display ads, in next month's plan · 13:09
 
-        ### 6. Budget controls and board · 10:20
+        ### 6. Board presentation timing · 17:40
 
-        The call established tighter budget recording and monthly checks, alongside the timetable for the board presentation.
+        The board meeting is on the twelfth, with the deck requested for the eighth and your recovery plan presented last.
 
-        - **Recording:** Agreements made outside the budget sheet should enter it that same week · 10:20
-        - ✓ **Monthly check:** Hold a 15-minute review every first Monday, covering only changed lines · 10:38
-        - **Scheduling:** Person 1 will send the recurring review invite · 11:03
-        - ✓ **Board timing:** The meeting is on the twelfth; the deck should be ready on the eighth · 17:40
-        - ✓ **Presentation:** Your section goes last and covers the plan to return to budget · 17:51
+        - ✓ **Schedule:** Person 1 wants the deck ready on the eighth for the meeting on the twelfth; your budget-recovery section goes last · 17:40
 
-        ### 7. Offsite timing and costs · 30:30
+        ### 7. Team offsite rescheduling · 30:30
 
-        The Girona offsite will move from December to January, shifting its cost into next year's budget.
+        The Girona offsite moves from December to January, shifting its cost into next year's budget.
 
-        - **Booking:** The offsite was booked for December's second week in Girona, costing about €11,000 for hotel and train · 30:30
-        - ✓ **Timing:** Move the offsite to January, when the hotel is cheaper and the cost leaves this quarter's budget · 31:00
-        - **Changes:** You will move the booking and call the hotel this week · 31:31
-        - **Deposit:** It is refundable until the end of October; you will act before then · 31:42
-
-        ### 8. Agency contract terms · 34:00
-
-        The agency's proposed renewal needs legal and fee review, with a shorter term to be requested before the spring campaign deadline.
-
-        - **Proposal:** The agency wants a 12-month contract and a monthly fee about 10% higher · 34:00
-        - **Legal review:** Approval is required before signing; legal has not seen the terms and usually needs two weeks · 34:26
-        - **Deadline:** Approval is needed before 1 November or the spring campaign slips · 34:49
-        - **Submission:** Person 2 will send the terms today and get legal approval before 1 November · 35:04
-        - **Fee review:** Person 2 will copy Person 1 in so the higher fee can be reviewed before signing · 35:24
-        - ✓ **Negotiation:** Request six months with an extension option; 12 months is acceptable if the agency refuses · 36:10
+        - **Original booking:** second week of December in Girona, costing about €11,000 for hotel and train · 30:30
+        - ✓ **Move:** reschedule to January, when the hotel is cheaper, taking €11,000 out of this quarter · 31:00
+        - **Deposit:** refundable until the end of October; you will contact the hotel this week · 31:31
 
         ## Open questions
 
-        - Did the agency bill twice for September's video edits? — _A correction could recover about €3,000; Person 2 will chase the agency_ · 2:06
-        - Did the autumn campaign pay for itself? — _Lead figures are promising, but its financial return is not yet known_ · 9:14
-        - Will the Lisbon client visit go ahead under the travel cut? — _It costs about €4,000; your account-manager discussion is pending and flights rise after next week_ · 38:00
+        - Will the client visit in Lisbon be approved? — _You want to speak to the account manager first; flights become expensive after next week_ · 38:00
 
         ---
 

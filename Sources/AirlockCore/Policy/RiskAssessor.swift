@@ -33,6 +33,9 @@ public enum RiskAssessor {
         (#"chmod\s+(-\w+\s+)*777"#, String(localized: "world-writable permissions")),
         (#"drop\s+(table|database)"#, String(localized: "destructive SQL")),
         (#"(deploy[^;|&]*prod|prod[^;|&]*deploy)"#, String(localized: "production deploy")),
+        // Airlock's own rule files. An agent that could approve its own edit
+        // to one could write itself an allow-everything rule.
+        (#"\.airlock/(projects/[^\s'"]*/)?policy\.ya?ml"#, String(localized: "changes Airlock's approval rules")),
     ]
 
     public static func assess(_ request: PermissionRequest) -> Risk? {

@@ -366,8 +366,9 @@ final class AppModel {
     /// each nils its own state when it is switched off, which is the same fact
     /// said once instead of twice. Sound does need one: `AudioOutputModel` goes
     /// on tracking the default device whatever the card's switch says, because
-    /// the switch is about the panel, not about CoreAudio. The shelf needs none
-    /// either — `TrayWidget.isToggleable` is false.
+    /// the switch is about the panel, not about CoreAudio. The shelf needs one
+    /// too: switched off it keeps its files (and so a count), but a count in
+    /// the island for a shelf with no tab would point at nothing.
     ///
     /// **Keep-awake is the one exception: switched off, it still contributes.**
     /// What reaches Core is `SystemControlsModel.isAwake`, the assertion being
@@ -417,7 +418,7 @@ final class AppModel {
             batteryCritical: battery.state?.isCritical == true,
             batteryMinutesRemaining: battery.state?.minutesRemaining,
             // `items`, never `ingesting`: a tile still landing is not yet a file.
-            shelfCount: tray.items.count,
+            shelfCount: tray.isEnabled ? tray.items.count : 0,
             // Ungated — see the exception above.
             // Either hold: the switch's, or the one an agent at work asked for.
             keepingAwake: controls.isAwake || controls.isHeldForAgents,

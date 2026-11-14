@@ -41,7 +41,16 @@ final class KeyMapTipsTests: XCTestCase {
 
     /// Every row the card can draw has an id the tips know.
     func testEveryRowIsATip() {
-        let ids = KeyMapSectionView.rows(dictation: "⌃", clipboardKey: "⌘⇧V").map(\.id)
+        let ids = KeyMapSectionView.rows(dictation: "⌃", clipboardKey: "⌘⇧V", shelf: true).map(\.id)
         XCTAssertEqual(Set(ids), Set(KeyMapTips.all))
+    }
+
+    /// The card only prints a gesture that fires: with the Shelf off, a file
+    /// dropped on the notch goes nowhere, so the row goes too.
+    func testTheShelfRowFollowsTheShelfSwitch() {
+        let ids = KeyMapSectionView.rows(dictation: nil, clipboardKey: nil, shelf: false).map(\.id)
+        XCTAssertFalse(ids.contains("tray"))
+        XCTAssertTrue(KeyMapSectionView.rows(dictation: nil, clipboardKey: nil, shelf: true)
+            .map(\.id).contains("tray"))
     }
 }

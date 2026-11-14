@@ -56,6 +56,10 @@ protocol NotchWidget {
     /// its neighbours, and wiring it to the models it must yield to would put
     /// every future home widget in its initialiser.
     var isFallback: Bool { get }
+    /// Whether it is drawn, and so whether it keeps its tab in the strip. A
+    /// requirement, not only the extension's default, so a widget that only
+    /// makes sense beside another can say so (`RepositoryWidget`).
+    var isVisible: Bool { get }
     /// Expanded-panel block; nil when there is nothing to show.
     func panelSection() -> AnyView?
     /// Where that block sits in the panel.

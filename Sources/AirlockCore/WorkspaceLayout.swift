@@ -70,8 +70,15 @@ public struct WorkspaceLayout: Equatable, Sendable {
     /// or is one of the path fragments a bare directory URL leaves behind,
     /// falls back rather than producing a file called "." or "/".
     public static func droppedImageName(hint: String?, extension ext: String) -> String {
-        let base = hint.map { ($0 as NSString).deletingPathExtension } ?? ""
-        guard !base.isEmpty, base != "/", base != "." else { return "Dropped image.\(ext)" }
+        // The hint comes from whatever app the picture was dragged from, so it
+        // is only ever a file name: no folders (a `../` would write outside
+        // the tray), no `:` (a folder separator to Finder), no leading dots.
+        let leaf = hint.map { ($0 as NSString).lastPathComponent }.flatMap { $0 == "/" ? nil : $0 } ?? ""
+        var base = (leaf as NSString).deletingPathExtension
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        while base.hasPrefix(".") { base.removeFirst() }
+        guard !base.isEmpty else { return "Dropped image.\(ext)" }
         return "\(base).\(ext)"
     }
 

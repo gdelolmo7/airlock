@@ -42,7 +42,8 @@ enum GalleryDictation {
             .notYet("T17", area, "No subscription",
                     why: "Retired: nothing locks any more, so a hold is never turned away for the licence."),
             notice("T18", "Microphone failed to start", .microphoneFailedToStart),
-            notice("T19", "Two-minute limit", .reachedLimit),
+            notice("T19", "Five-minute limit (holding)", .reachedLimit(minutes: 5)),
+            notice("T19b", "Ten-minute limit (locked on)", .reachedLimit(minutes: 10)),
             notice("T20", "Clean-up failed / unavailable", .tidyingFailed),
             GalleryState("T21", area, "Secure input on (above the hold it slowed down)") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -67,15 +68,18 @@ enum GalleryDictation {
     /// The hold itself, as the open notch draws it. Levels are made-up peaks —
     /// a quiet room, or a mid-sentence wave — scaled the way the live meter is.
     private static func strip(_ id: String, _ name: String, words: String, route: DictationRoute = .type,
-                              listening: Bool = true, finishing: Bool = false) -> GalleryState {
+                              listening: Bool = true, finishing: Bool = false,
+                              locked: Bool = false) -> GalleryState {
         GalleryState(id, area, name) {
-            listeningStrip(words: words, route: route, listening: listening, finishing: finishing)
+            listeningStrip(words: words, route: route, listening: listening, finishing: finishing,
+                           locked: locked)
         }
     }
 
     private static func listeningStrip(words: String, route: DictationRoute,
-                                       listening: Bool, finishing: Bool = false) -> ListeningStrip {
-        ListeningStrip(isListening: listening, isFinishing: finishing,
+                                       listening: Bool, finishing: Bool = false,
+                                       locked: Bool = false) -> ListeningStrip {
+        ListeningStrip(isListening: listening, isFinishing: finishing, isLocked: locked,
                        route: route, destinationName: route == .copy ? "Finder" : "Notes",
                        liveText: words,
                        inputLevels: (words.isEmpty || !listening

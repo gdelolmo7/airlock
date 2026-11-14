@@ -120,6 +120,13 @@ public enum TranscriptCleanup {
         let candidate = sanitized(cleaned, rawBeganQuoted: beginsQuoted(raw))
         guard !candidate.isEmpty else { return nil }
 
+        // New lines come only from "new line" said aloud. A model that adds
+        // one ("text:\n\n…") or drops one would change the layout the
+        // speaker asked for, so its answer is not used.
+        guard newLines(candidate) == newLines(raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
+        }
+
         // Punctuation and casing add a few characters; anything past the slack
         // is content, and content is the one thing cleanup must never add.
         guard candidate.count <= raw.count + max(12, raw.count / 5) else { return nil }
@@ -143,15 +150,19 @@ public enum TranscriptCleanup {
 
     // MARK: - Sanitising
 
-    /// Collapse whitespace (a model that returns "text:\n\n…" folds to one
-    /// line) and strip one layer of wrapping quotes the model added — but only
+    /// Collapse spaces and strip one layer of wrapping quotes the model added — but only
     /// when the raw transcript did not itself begin quoted, so a speaker who
     /// dictates a quotation keeps it.
     static func sanitized(_ cleaned: String, rawBeganQuoted: Bool) -> String {
+        // Spaces fold within each line; the new lines the speaker said stay,
+        // at most a paragraph break at a time. `vetted` makes sure there are
+        // exactly as many as the speaker said.
         var text = strippingTags(cleaned)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+            .components(separatedBy: "\n")
+            .map { $0.components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " ") }
+            .joined(separator: "\n")
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if !rawBeganQuoted, text.count > 2,
            let first = text.first, let last = text.last,
@@ -160,6 +171,10 @@ public enum TranscriptCleanup {
                 .trimmingCharacters(in: .whitespaces)
         }
         return text
+    }
+
+    private static func newLines(_ text: String) -> Int {
+        text.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
     }
 
     /// Remove the wrapper `prompt(for:)` added, if the model echoed it back.

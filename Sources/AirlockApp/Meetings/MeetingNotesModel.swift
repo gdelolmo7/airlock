@@ -267,6 +267,11 @@ final class MeetingNotesModel {
     /// reached, in seconds of the call.
     @ObservationIgnored private var voicesNumbering = CallVoices.Numbering()
     @ObservationIgnored private var voicesThrough: TimeInterval = 0
+    /// In the room, whether the loudest voice may still be guessed to be
+    /// you: false once the person took "That's me" off the guess. And who
+    /// the last look guessed, for the log.
+    @ObservationIgnored private var voicesGuessYou = true
+    @ObservationIgnored private var voicesGuessedYou: Int?
     /// Numbers the voices heard so far, every few seconds of the call.
     @ObservationIgnored private var voicesLooking: Task<Void, Never>?
     /// The voices are being told apart: from when the model starts until
@@ -418,6 +423,7 @@ final class MeetingNotesModel {
         // these are the call's first, and the Mac says they are ready.
         CloudNotesService.shared.onRedone = { [weak self] folder, notes, first in
             guard let self else { return }
+            answerRemembered(in: folder)
             // Still under the "Notes ready" line: it counts the new to-dos.
             if case let .ready(name, _) = flow.phase, name == folder.lastPathComponent {
                 readyNotes = notes.isEmpty ? nil : notes
@@ -698,7 +704,9 @@ final class MeetingNotesModel {
         if let madeCallsPage { return madeCallsPage }
         let made = CallsPage(store: store)
         made.follow(live, openWindow: { [weak self] in self?.openLiveWindow() },
-                    isPaused: { [weak self] in self?.isPaused ?? false })
+                    isPaused: { [weak self] in self?.isPaused ?? false },
+                    canName: { [weak self] voice in self?.canNameLive(voice) ?? false },
+                    name: { [weak self] names in self?.nameLiveCall(names) })
         made.takeNotes(state: { [weak self] in self?.handButton ?? .busy },
                        press: { [weak self] in self?.pressHandButton() })
         made.saveNames { [weak self] folder, names in self?.saveNames(names, in: folder) }
@@ -742,6 +750,9 @@ final class MeetingNotesModel {
     func saveNames(_ names: [MeetingVoiceName], in folder: URL) {
         let held = folder == self.folder
         guard var record = held ? self.record : store.loadRecord(in: folder) else { return }
+        // "That's me" taken off the voice guessed to be you: it is not, so
+        // nobody is guessed for the rest of the call.
+        if held, record.names.contains(where: \.guessed), !names.contains(where: \.isYou) { voicesGuessYou = false }
         record.replaceNames(with: names)
         if held { self.record = record }
         do {
@@ -774,6 +785,20 @@ final class MeetingNotesModel {
             let list = MeetingKnownWords.adding(answer.best, to: typed)
             if list != typed { UserDefaults.standard.set(list, forKey: Self.knownWordsKey) }
         }
+        // The same question in a later call is answered the same way.
+        MeetingWordAnswers.keep(answer)
+        madeCallsPage?.refreshIfOpen()
+        recentCalls.refresh()
+    }
+
+    /// Words on the notes in `folder` answered before, in an earlier call,
+    /// are answered again the same way and not asked.
+    func answerRemembered(in folder: URL) {
+        let held = folder == self.folder
+        guard let record = MeetingWordAnswers.applyRemembered(in: folder, store: store,
+                                                              record: held ? self.record : nil,
+                                                              log: log) else { return }
+        if held { self.record = record }
         madeCallsPage?.refreshIfOpen()
         recentCalls.refresh()
     }
@@ -1685,6 +1710,9 @@ final class MeetingNotesModel {
         voicesFrom = offset
         voicesNumbering = CallVoices.Numbering()
         voicesThrough = offset
+        voicesGuessYou = true
+        voicesGuessedYou = nil
+        live.learning(record.isInPerson)
         splittingVoices = true
         Task { await listener.start(stream) }
         voicesLooking?.cancel()
@@ -1708,6 +1736,7 @@ final class MeetingNotesModel {
         voicesLooking = nil
         voices = nil
         splittingVoices = false
+        live.learning(false)
         Task { await listener.cancel() }
         log("voices: stopped, the other side was named")
     }
@@ -1716,6 +1745,10 @@ final class MeetingNotesModel {
     /// hears in steps of ten seconds, so a line is numbered ten to twenty
     /// seconds after it is said.
     private static let voicesEvery: Duration = .seconds(4)
+
+    /// How long the room's voices are "still being learnt" in the side
+    /// window: lines can move from one person to another until then.
+    private static let voicesLearning: TimeInterval = 240
 
     /// Numbers the lines the voice model has heard so far, while the call
     /// goes on, so the side window tells people apart as they talk. Each
@@ -1726,15 +1759,20 @@ final class MeetingNotesModel {
         guard let heard = await listener.soFar(), !Task.isCancelled, heard.through > voicesThrough,
               voices === listener, var record, let them else { return }
         voicesThrough = heard.through
+        live.learning(record.isInPerson && heard.through - voicesFrom < Self.voicesLearning)
         let before = record
         let people = voicesNumbering.people.count
         let outcome = CallVoices.number(&record, from: voicesFrom, through: heard.through, spans: heard.spans,
-                                        words: them.words, numbering: &voicesNumbering)
+                                        words: them.words, loudness: heard.loudness, guessesYou: voicesGuessYou,
+                                        numbering: &voicesNumbering)
         guard record != before else { return }
-        if outcome.people != people {
+        if outcome.people != people || outcome.guessedYou != voicesGuessedYou {
             log("voices so far: \(outcome.people) people by \(Int(heard.through))s"
+                + (outcome.guessedYou.map { ", Person \($0) guessed as you" } ?? "")
+                + (outcome.moved > 0 ? ", \(outcome.moved) line(s) moved back" : "")
                 + (outcome.reason.map { " (\($0))" } ?? ""))
         }
+        voicesGuessedYou = outcome.guessedYou
         self.record = record
         saveSoon()
     }
@@ -1744,10 +1782,13 @@ final class MeetingNotesModel {
     private func numberVoices(_ report: CallVoiceListener.Report, words: [CallLanguageFollow.Timed],
                               in record: inout MeetingRecord) {
         let outcome = CallVoices.number(&record, from: voicesFrom, spans: report.spans, words: words,
+                                        loudness: report.loudness, guessesYou: voicesGuessYou,
                                         numbering: &voicesNumbering)
         let rtf = report.audioSeconds > 0 ? report.computeSeconds / report.audioSeconds : 0
         var line = "voices: \(outcome.people) people from \(outcome.heard) heard"
         line += ", \(outcome.folded) folded, \(outcome.split) line(s) cut"
+        if outcome.moved > 0 { line += ", \(outcome.moved) moved back" }
+        if let you = outcome.guessedYou { line += ", Person \(you) guessed as you" }
         if !outcome.talk.isEmpty {
             line += ", talk " + outcome.talk.map { String(format: "%.1f", $0) }.joined(separator: "/") + "s"
         }
@@ -1931,6 +1972,7 @@ final class MeetingNotesModel {
 
         guard let folder, var record else {
             splittingVoices = false
+            live.learning(false)
             return
         }
         record.endedAt = Date()
@@ -1963,6 +2005,7 @@ final class MeetingNotesModel {
         }
         self.record = record
         splittingVoices = false
+        live.learning(false)
         saveNow()
         guard keeping else {
             log("notes: short call (\(Int(record.duration(at: Date())))s), not kept")
@@ -2042,6 +2085,7 @@ final class MeetingNotesModel {
             do {
                 try store.saveNotes(page.page, in: folder)
                 log(String(format: "summary: saved in %.1fs", Date().timeIntervalSince(started)))
+                self?.answerRemembered(in: folder)
                 if let writer = page.writer {
                     do {
                         try store.saveNotesWriter(writer, in: folder)
@@ -2132,7 +2176,9 @@ final class MeetingNotesModel {
         let earlier = await Task.detached(priority: .utility) {
             store.calls().prefix(looked).map(\.record)
         }.value
-        let known = MeetingKnownWords.forMeeting(record, typed: typed, earlier: earlier)
+        let replacements = DictationWordsStore.replacements(settings).map { ($0.heard, $0.written) }
+        let known = MeetingKnownWords.forMeeting(record, typed: typed, earlier: earlier,
+                                                 replacements: replacements)
         let changed = known.respell(&record)
         if !known.isEmpty {
             log("words: \(changed) line(s) respelled, \(typed.count) typed, \(known.spellings.count) known")
@@ -2144,9 +2190,12 @@ final class MeetingNotesModel {
     /// the take kept beside them (`MeetingNotesSource`); the page says so in
     /// a line of its own.
     ///
-    /// Written online first, for a subscriber who has notes online
-    /// (`CloudNotesService`), and by the Mac whenever they aren't, a failure
-    /// included, without a word.
+    /// Written by Claude first, when the person saved their own Anthropic
+    /// key (`OwnKeyNotesService`), on any plan. Then online, for a
+    /// subscriber who has notes online (`CloudNotesService`), and by the Mac
+    /// whenever they aren't, a failure included, without a word. When the
+    /// person's key was asked and didn't work, the page says why
+    /// (`MeetingNotesWriter.ownKeyProblem`).
     ///
     /// A Mac that can't write notes (no Apple Intelligence) keeps the call
     /// waiting instead, when waiting can bring notes: offline, a failure, or
@@ -2159,9 +2208,27 @@ final class MeetingNotesModel {
         // The plan the call is written under, kept with the notes: the page
         // and the window say what a better one would have written.
         let plan = PlanSnapshot.kept(startedOn: record.startedOn, now: CloudNotesService.shared.plan())
+        var ownKeyProblem: OwnKeyNotes.Problem?
+        switch await OwnKeyNotesService.shared.write(record, log: log) {
+        case .written(let notes, let model):
+            let claude = MeetingNotesWriter.ownKey(model: model, at: Date(), plan: plan)
+            return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: notes, writer: claude),
+                                notes: notes, writer: claude)
+        case .skipped:
+            break
+        case .problem(let problem):
+            ownKeyProblem = problem
+        }
+        // Who wrote them, with why the person's key didn't, when it was asked.
+        let marked = { (writer: MeetingNotesWriter?) -> MeetingNotesWriter? in
+            guard let ownKeyProblem else { return writer }
+            var writer = writer ?? .mac(at: Date(), plan: plan)
+            writer.ownKeyProblem = ownKeyProblem
+            return writer
+        }
         switch await CloudNotesService.shared.write(record, log: log) {
         case .written(let notes, let model):
-            let online = MeetingNotesWriter.online(model: model, at: Date(), plan: plan)
+            let online = marked(MeetingNotesWriter.online(model: model, at: Date(), plan: plan))
             return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: notes, writer: online),
                                 notes: notes, writer: online)
         case .mac(.hiddenSwitchOff):
@@ -2190,11 +2257,13 @@ final class MeetingNotesModel {
         }
         switch await MeetingSummarizer.notes(for: source.record, log: log) {
         case .notes(let notes):
+            writer = marked(writer)
             return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: notes, writtenFrom: source.line,
                                                              writer: writer),
                                 notes: notes.isEmpty ? nil : notes, writer: writer, allowanceUntil: allowanceUntil)
         case .unavailable(let reason):
             log("summary: none — \(reason)")
+            writer = marked(writer)
             return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: nil, unavailableReason: reason,
                                                              writer: writer),
                                 notes: nil, writer: writer, allowanceUntil: allowanceUntil)
@@ -2207,6 +2276,7 @@ final class MeetingNotesModel {
                 log("notes online: waiting, \(waiting.noNotesYet?.rawValue ?? "")"
                     + (waiting.notBefore.map { " until \($0.formatted(.iso8601))" } ?? ""))
             }
+            writer = marked(writer)
             return WrittenNotes(page: MeetingFiles.notesPage(for: record, notes: nil, unavailableReason: reason,
                                                              writer: writer, noModel: availability),
                                 notes: nil, writer: writer, allowanceUntil: allowanceUntil)

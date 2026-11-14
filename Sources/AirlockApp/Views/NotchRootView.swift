@@ -403,8 +403,9 @@ struct NotchExpandedView: View {
         // ask. Anywhere lands, and we switch to the tray so you see where it went.
         //
         // And it takes exactly what the cutout takes — one list, one classifier,
-        // one answer. See `TrayPanelDropTarget`.
-        .onDrop(of: TrayPanelDropTarget.contentTypes,
+        // one answer. See `TrayPanelDropTarget`. None at all with the Shelf
+        // switched off, the same as the cutout.
+        .onDrop(of: tray.isEnabled ? TrayPanelDropTarget.contentTypes : [],
                 delegate: TrayPanelDropTarget(tray: tray, uiState: uiState,
                                               onSettled: onDragSettled))
         // A Swap: a session arriving or leaving is the list making room, and

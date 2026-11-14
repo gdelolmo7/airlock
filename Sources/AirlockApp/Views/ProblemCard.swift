@@ -1,3 +1,4 @@
+import AirlockCore
 import SwiftUI
 
 /// Every problem state's one look: an icon, one sentence, at most one button

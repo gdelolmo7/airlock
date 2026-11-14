@@ -76,6 +76,8 @@ struct DictationOverlayView: View {
     private var listening: some View {
         ListeningStrip(isListening: dictation.isListening,
                        isFinishing: dictation.isFinishing,
+                       isLocked: dictation.isLockedOn,
+                       keyGlyph: dictation.holdKeyGlyph,
                        route: dictation.route,
                        destinationName: dictation.destinationName,
                        liveText: dictation.liveText,
@@ -223,6 +225,10 @@ struct ListeningStrip: View {
     let isListening: Bool
     /// The key is up; the last words are still arriving.
     var isFinishing = false
+    /// Locked on by a tap: the key is up and the caption says how to stop.
+    var isLocked = false
+    /// The dictation key's symbol, for that caption.
+    var keyGlyph = "⌃"
     let route: DictationRoute
     let destinationName: String?
     let liveText: String
@@ -314,8 +320,14 @@ struct ListeningStrip: View {
         // Let go already: "Release to…" would be an instruction already
         // followed, and read as the key not having registered.
         if isFinishing { return String(localized: "Catching your last words…") }
-        if route == .copy { return String(localized: "Release to copy it") }
         let destination = destinationName ?? String(localized: "the front app")
+        // Locked on by a tap: nothing is held, so say how it ends.
+        if isLocked {
+            return route == .copy
+                ? String(localized: "Tap \(keyGlyph) to copy it · Esc cancels")
+                : String(localized: "Tap \(keyGlyph) to type into \(destination) · Esc cancels")
+        }
+        if route == .copy { return String(localized: "Release to copy it") }
         return String(localized: "Release to type into \(destination)")
     }
 

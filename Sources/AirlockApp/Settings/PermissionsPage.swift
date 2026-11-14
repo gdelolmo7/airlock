@@ -142,7 +142,7 @@ struct PermissionsPage: View {
             // asks for four permissions on launch is asking before it has
             // earned any of them, and a refusal then costs features the person
             // had not met yet.
-            LookNote("Airlock never asks for a permission on launch. Each one is asked for the first time the feature that needs it is used, so saying no only ever costs you that one feature.")
+            LookNote("Airlock never asks for a permission on launch. Each one is asked for when you add the feature that needs it, or the first time it is used, so saying no only ever costs you that one feature.")
             LookNote("macOS gives these to an app, not to a person, so each one has to be allowed once. Every feature that needs one simply stays off until you turn it on.")
             LookNote("Ask for everything asks for each in turn, one at a time. Accessibility and Input Monitoring can only be switched on by you, in System Settings — it takes you there.")
 

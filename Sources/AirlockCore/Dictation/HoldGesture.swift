@@ -61,7 +61,29 @@ public struct HoldGesture: Equatable, Sendable {
 
     /// A ceiling, so a genuinely stuck key cannot record until the disk fills.
     /// Reaching it delivers what was said — it is a safety limit, not a penalty.
-    public static let maximumHold: TimeInterval = 120
+    ///
+    /// Five minutes with the key held. It was two, which cut off anyone
+    /// thinking a longer message through aloud.
+    public static let maximumHold: TimeInterval = 300
+
+    /// The ceiling for a dictation locked on by a tap. Longer than a hold,
+    /// because nobody is pinning a key down for it — and still a ceiling,
+    /// because a locked dictation that was forgotten is a microphone left on.
+    public static let maximumLocked: TimeInterval = 600
+
+    /// How long a locked dictation may hear nothing at all before it is taken
+    /// for a stray tap and ended quietly.
+    ///
+    /// The hold keys are bare modifiers, and brushing one is ordinary. With
+    /// tap-to-lock that brush would otherwise leave the microphone open for
+    /// ten minutes behind somebody who never meant to dictate.
+    public static let strayLockWindow: TimeInterval = 15
+
+    /// Whether a locked dictation should be given up as a tap nobody meant.
+    /// Words or a voice on the microphone at any point keep it.
+    public static func lockLooksStray(runningFor: TimeInterval, heardWords: Bool, peak: Float) -> Bool {
+        runningFor >= strayLockWindow && !heardWords && peak < HoldInterruption.voiceLevel
+    }
 
     public enum Event: Equatable, Sendable {
         case keyDown(at: Date)
@@ -70,12 +92,20 @@ public struct HoldGesture: Equatable, Sendable {
         /// rather than from our event stream, which is the entire point: it is
         /// the one source that cannot have missed an event.
         case tick(at: Date, isPhysicallyDown: Bool)
-        /// Torn down from outside — the feature switched off, the app quitting.
+        /// Torn down from outside — the feature switched off, the app quitting,
+        /// or Escape.
         case cancel
+        /// The key is down and something else is going on with it: a scroll,
+        /// a drag, or (while locked on) another key or a click. That was a
+        /// shortcut, not a tap, so the release that follows neither locks a
+        /// new dictation on nor stops a locked one.
+        case pressAbandoned
     }
 
     public enum Effect: Equatable, Sendable {
         case startCapture
+        /// A tap: keep recording with the key up, until it is tapped again.
+        case lock
         /// Stop, transcribe, deliver.
         case finish(Finish)
         /// Stop, transcribe nothing, deliver nothing.
@@ -105,12 +135,42 @@ public struct HoldGesture: Equatable, Sendable {
     /// change the answer to "was this long enough" while the key was still down.
     public let floor: TimeInterval
 
-    public init(startedAt: Date? = nil, floor: TimeInterval = HoldGesture.minimumHold) {
+    /// Whether a release below the floor locks the dictation on instead of
+    /// discarding it. Off unless asked for: the caller turns it on only when
+    /// the person has the setting on and the chord guard can see keys — a
+    /// blind hold cannot tell a tap from ⌥⌫ (`blindHold`).
+    public let locksOnTap: Bool
+
+    /// Recording with the key up, after a tap. Ends on the next press and
+    /// release, on `cancel`, or at `maximumLocked`.
+    public private(set) var isLocked = false
+
+    /// Locked, and the key is down again: its release stops the dictation.
+    private var isStopping = false
+
+    /// This press was shared with a scroll or a drag (`pressAbandoned`), so
+    /// its release is not a tap. ⌃-scroll is the screen zoom, and a quick
+    /// one used to lock the microphone on behind it.
+    private var isShared = false
+
+    public init(startedAt: Date? = nil, floor: TimeInterval = HoldGesture.minimumHold,
+                locksOnTap: Bool = false) {
         self.startedAt = startedAt
         self.floor = floor
+        self.locksOnTap = locksOnTap
     }
 
     public var isRecording: Bool { startedAt != nil }
+
+    /// The ceiling this dictation runs to.
+    public var limit: TimeInterval { isLocked ? Self.maximumLocked : Self.maximumHold }
+
+    private mutating func reset() {
+        startedAt = nil
+        isLocked = false
+        isStopping = false
+        isShared = false
+    }
 
     public func heldFor(at now: Date) -> TimeInterval {
         guard let startedAt else { return 0 }
@@ -127,34 +187,58 @@ public struct HoldGesture: Equatable, Sendable {
     public mutating func apply(_ event: Event) -> Effect? {
         switch event {
         case .keyDown(let now):
-            guard startedAt == nil else { return nil }
-            startedAt = now
-            return .startCapture
+            guard startedAt != nil else {
+                startedAt = now
+                return .startCapture
+            }
+            // Locked on: this press is the one that stops it, on the way up.
+            // On the way up and not down, so a shortcut that starts with the
+            // same key can still be told apart (`pressAbandoned`).
+            if isLocked { isStopping = true }
+            return nil
 
         case .keyUp(let now):
             guard let started = startedAt else { return nil } // release with no press
-            startedAt = nil
-            return now.timeIntervalSince(started) >= floor
-                ? .finish(.released)
-                : .discard(.tooShort)
+            if isLocked {
+                guard isStopping else { return nil }
+                reset()
+                return .finish(.released)
+            }
+            if now.timeIntervalSince(started) >= floor {
+                reset()
+                return .finish(.released)
+            }
+            if locksOnTap, !isShared {
+                isLocked = true
+                return .lock
+            }
+            reset()
+            return .discard(.tooShort)
 
         case .tick(let now, let isPhysicallyDown):
             guard let started = startedAt else { return nil }
             let held = now.timeIntervalSince(started)
-            if held >= Self.maximumHold {
-                startedAt = nil
+            if held >= limit {
+                reset()
                 return .finish(.reachedLimit)
             }
-            guard !isPhysicallyDown else { return nil }
-            startedAt = nil
+            // Locked on, the key is meant to be up.
+            guard !isLocked, !isPhysicallyDown else { return nil }
+            reset()
             // Same short-tap rule as a real release: a key that was never held
-            // long enough is a tap whether or not we saw it come up.
+            // long enough is a tap whether or not we saw it come up. A lost
+            // release never locks — nobody chose that.
             return held >= floor ? .finish(.releaseLost) : .discard(.tooShort)
 
         case .cancel:
             guard startedAt != nil else { return nil }
-            startedAt = nil
+            reset()
             return .discard(.cancelled)
+
+        case .pressAbandoned:
+            isStopping = false
+            if startedAt != nil, !isLocked { isShared = true }
+            return nil
         }
     }
 }

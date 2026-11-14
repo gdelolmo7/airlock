@@ -13,6 +13,8 @@ import SwiftUI
 enum SettingsAnchor: String, CaseIterable, Identifiable {
     // General
     case launchAtLogin, appLanguage, displays, sounds, updates, crashReports, usageCounts, diagnostics
+    // Add-ons
+    case addOns
     // The notch
     case surface, panelWidth, textSize, usageLimits, batteryPercentage
     case widgets, reactiveWave, perAppVolume
@@ -21,7 +23,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     case agentsSwitch, calendars, shelf
     // Voice
     case holdToDictate, microphoneInput, language, callNotes, callLanguages, pastCalls, notesOnline,
-         tellVoicesApart, knownWords, cleanup, pauseMusic
+         tellVoicesApart, knownWords, ownClaudeKey, cleanup, pauseMusic, dictationWords, learnFromFixes
     // Clipboard
     case clipboardHistory, neverRecorded, clipboardShortcut, autoPaste
     // Agents
@@ -37,13 +39,17 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     var pane: SettingsPane {
         switch self {
         case .launchAtLogin, .appLanguage, .displays, .sounds, .updates, .crashReports, .usageCounts, .diagnostics: return .general
+        case .addOns, .shelf: return .tray
         case .surface, .panelWidth, .textSize, .usageLimits, .batteryPercentage,
              .widgets, .reactiveWave, .perAppVolume,
              .keepAwakeAgents, .keepAwakeCutoff, .keepAwakeScreen, .keepAwakeShortcut,
-             .windowLayouts, .windowLayoutShortcuts,
-             .agentsSwitch, .calendars, .shelf: return .appearance
-        case .holdToDictate, .microphoneInput, .language, .callNotes, .callLanguages, .pastCalls,
-             .notesOnline, .tellVoicesApart, .knownWords, .cleanup, .pauseMusic: return .voice
+             .calendars: return .appearance
+        case .windowLayouts, .windowLayoutShortcuts: return .windowLayouts
+        case .agentsSwitch: return .agents
+        case .callNotes, .callLanguages, .pastCalls, .notesOnline, .tellVoicesApart, .knownWords, .ownClaudeKey:
+            return .callNotes
+        case .holdToDictate, .microphoneInput, .language, .cleanup, .pauseMusic, .dictationWords,
+             .learnFromFixes: return .voice
         case .clipboardHistory, .neverRecorded, .clipboardShortcut, .autoPaste: return .clipboard
         case .gateHotkey, .promptSound, .usageWarning, .givingUp, .rules: return .agents
         case .permissionCalendar, .permissionMicrophone, .permissionInputMonitoring,
@@ -55,6 +61,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .launchAtLogin: return String(localized: "Launch at login")
+        case .addOns: return String(localized: "Add-ons")
         case .appLanguage: return String(localized: "Airlock's language")
         case .sounds: return String(localized: "Sounds")
         case .displays: return String(localized: "Show on the main display")
@@ -88,8 +95,11 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .notesOnline: return String(localized: "Write notes online")
         case .tellVoicesApart: return String(localized: "Tell voices apart")
         case .knownWords: return String(localized: "Words to know")
+        case .ownClaudeKey: return String(localized: "Your own Claude key")
         case .cleanup: return String(localized: "Tidy up what I said")
         case .pauseMusic: return String(localized: "Pause music while speaking")
+        case .dictationWords: return String(localized: "Words to know for dictation")
+        case .learnFromFixes: return String(localized: "Learn from my fixes")
         case .clipboardHistory: return String(localized: "Clipboard history")
         case .neverRecorded: return String(localized: "What it never remembers")
         case .clipboardShortcut: return String(localized: "Clipboard shortcut")
@@ -115,6 +125,8 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     var keywords: [String] {
         switch self {
         case .launchAtLogin: return ["startup", "login", "start", "open"]
+        case .addOns: return ["add-ons", "addons", "features", "add", "remove", "extensions", "plugins",
+                              "turn on", "turn off", "complementos", "funciones", "añadir", "quitar"]
         case .appLanguage: return ["language", "spanish", "english", "idioma", "español", "inglés", "translate",
                                    "traducir"]
         case .sounds: return ["sound", "audio", "chime", "alert", "mute", "quiet", "volume"]
@@ -154,8 +166,13 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         case .tellVoicesApart: return ["voices", "speakers", "people", "person", "who said", "who spoke",
                                        "participants", "diarization", "meetings", "calls"]
         case .knownWords: return ["words", "names", "spelling", "vocabulary", "transcript", "meetings", "calls"]
+        case .ownClaudeKey: return ["claude", "anthropic", "api", "key", "sonnet", "model", "better", "notes",
+                                    "to-dos", "meetings", "calls"]
         case .cleanup: return ["cleanup", "punctuation", "filler", "tidy"]
         case .pauseMusic: return ["music", "pause", "speaking"]
+        case .dictationWords: return ["words", "names", "spelling", "vocabulary", "dictation", "jargon",
+                                      "always write", "replace"]
+        case .learnFromFixes: return ["learn", "fix", "correction", "remember", "words", "dictation"]
         case .clipboardHistory: return ["clipboard", "history", "copy", "paste"]
         case .neverRecorded: return ["password", "ignore", "private", "skip", "clipboard"]
         case .clipboardShortcut: return ["shortcut", "hotkey", "clipboard", "key"]
@@ -184,6 +201,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
     var spanishKeywords: [String] {
         switch self {
         case .launchAtLogin: return ["inicio", "arrancar", "abrir", "sesion", "encender"]
+        case .addOns: return ["complementos", "funciones", "anadir", "quitar", "extensiones"]
         case .appLanguage: return []
         case .sounds: return ["sonido", "audio", "aviso", "alerta", "silencio", "volumen"]
         case .displays: return ["pantalla", "monitor", "externa", "tapa", "principal"]
@@ -221,8 +239,13 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
                                        "reuniones", "llamadas"]
         case .knownWords: return ["palabras", "nombres", "ortografia", "vocabulario", "transcripcion",
                                   "reuniones", "llamadas"]
+        case .ownClaudeKey: return ["clave", "claude", "anthropic", "api", "modelo", "notas", "tareas",
+                                    "reuniones", "llamadas"]
         case .cleanup: return ["limpiar", "puntuacion", "muletillas", "ordenar"]
         case .pauseMusic: return ["musica", "pausa", "pausar", "hablar"]
+        case .dictationWords: return ["palabras", "nombres", "ortografia", "vocabulario", "dictado",
+                                      "reemplazar"]
+        case .learnFromFixes: return ["aprender", "corregir", "correcciones", "recordar", "palabras", "dictado"]
         case .clipboardHistory: return ["portapapeles", "historial", "copiar", "pegar"]
         case .neverRecorded: return ["contraseña", "ignorar", "privado", "omitir", "portapapeles"]
         case .clipboardShortcut: return ["atajo", "tecla", "portapapeles"]
@@ -257,7 +280,7 @@ enum SettingsAnchor: String, CaseIterable, Identifiable {
         // Only a build that could send one shows the switch.
         case .crashReports: return CrashReporter.bundleDSN != nil
         case .usageCounts: return UsageCounts.bundleEndpoint != nil
-        case .callLanguages, .pastCalls, .tellVoicesApart, .knownWords: return callNotesOn
+        case .callLanguages, .pastCalls, .tellVoicesApart, .knownWords, .ownClaudeKey: return callNotesOn
         case .notesOnline: return callNotesOn && notesOnlineOn
         default: return true
         }

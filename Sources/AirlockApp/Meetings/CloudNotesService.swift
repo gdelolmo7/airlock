@@ -481,7 +481,8 @@ final class CloudNotesService {
                                                plan: PlanSnapshot.kept(startedOn: record.startedOn, now: plan()))
         do {
             try store.dropWaitingLine(in: folder)
-            let kept = hadNotes ? try store.keepEarlierNotes(in: folder) : nil
+            // A page the person changed is always kept, notes or none.
+            let kept = hadNotes || store.notesWereEdited(in: folder) ? try store.keepEarlierNotes(in: folder) : nil
             try store.saveNotes(MeetingFiles.notesPage(for: record, notes: notes, writer: writer), in: folder)
             save(writer, in: folder, log: log)
             do {

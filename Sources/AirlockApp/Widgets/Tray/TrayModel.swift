@@ -73,7 +73,28 @@ final class TrayModel {
     /// Core where they are tested.
     private(set) var selection = ShelfSelection()
 
+    static let enabledKey = "tray.enabled"
+    /// The Shelf's switch: its tab, and a file carried to the top of the
+    /// screen opening anything. On unless switched off, which is what every
+    /// install had before there was a switch.
+    ///
+    /// Off hides and stops; it never empties. The folder and everything in it
+    /// stay, and the watcher keeps the list current, so switching back on
+    /// finds the shelf exactly as it was left. A stored property seeded from
+    /// defaults rather than a computed read of them, so Observation sees it
+    /// move (see `WidgetToggle.stored`).
+    var isEnabled: Bool = WidgetToggle.stored(TrayModel.enabledKey, default: true) {
+        didSet {
+            guard isEnabled != oldValue else { return }
+            UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey)
+            onSwitch?()
+        }
+    }
+
     @ObservationIgnored var onChange: (() -> Void)?
+    /// The switch moved. Apart from `onChange` because the controller does
+    /// more than redraw for it: the drop catcher and the mouse watch follow.
+    @ObservationIgnored var onSwitch: (() -> Void)?
     @ObservationIgnored var onNavigateAway: (() -> Void)?
     /// Dragging an item out means moving the pointer off the panel, which is
     /// exactly the gesture that collapses it. The controller pins it open.

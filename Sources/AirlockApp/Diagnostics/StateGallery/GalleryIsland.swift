@@ -89,6 +89,14 @@ enum GalleryIsland {
                     topBar(battery: chargingBattery, agents: 2) { tabStrip(.home) }
                 }
             },
+            // The "+" after the tabs, while something is left to add and the
+            // left gutter has room (`AddOnsPlusButton`).
+            GalleryState("I16a", area, "Top bar: a new Mac, Home and Dashboard, then the \"+\"") {
+                topBar() { tabStrip(.home, tabs: [.home, .dashboard], plus: true) }
+            },
+            GalleryState("I16b", area, "Top bar: Shelf and Clipboard added, the \"+\" after them") {
+                topBar() { tabStrip(.home, tabs: [.home, .dashboard, .tray, .clipboard], plus: true) }
+            },
             GalleryState("I17", area, "Top bar badge: Recording (dot starts bright)") {
                 topBar(arrange: false) { RecordingBadge(isListening: true) }
             },
@@ -310,11 +318,15 @@ enum GalleryIsland {
     /// `registry.visibleTabs()` gives them with every widget on and call notes
     /// on, split as `NotchTopBar` splits them: Agents is on the right
     /// (`topBar(agents:)`). The strip's own tests cover which ones drop out.
-    private static func tabStrip(_ selected: NotchTab?) -> some View {
+    /// `tabs` and `plus` draw a Mac with fewer add-ons on: the tabs it would
+    /// have, and the "+" (the real button) after them.
+    private static func tabStrip(_ selected: NotchTab?, tabs: [NotchTab] = NotchTab.allCases,
+                                 plus: Bool = false) -> some View {
         HStack(spacing: 3) {
-            ForEach(NotchTab.topBarSides(NotchTab.allCases).leading) { tab in
+            ForEach(NotchTab.topBarSides(tabs).leading) { tab in
                 self.tab(tab, selected: tab == selected)
             }
+            if plus { PlusTabButton {} }
             glyph("chevron.up")
         }
     }

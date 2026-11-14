@@ -94,7 +94,10 @@ final class DictationModel {
     /// `@Observable` cannot track a computed property backed by
     /// `@ObservationIgnored` storage — the toggle would write the value and
     /// nothing would redraw. This codebase has been bitten by that twice.
-    var isEnabled: Bool = WidgetToggle.stored("dictation.enabled", default: false) {
+    /// Named so the add-on list (`AddOnSwitches`) reads the same key this does.
+    static let enabledKey = "dictation.enabled"
+
+    var isEnabled: Bool = WidgetToggle.stored(DictationModel.enabledKey, default: false) {
         didSet {
             guard isEnabled != oldValue else { return }
             toggle.value = isEnabled
@@ -104,6 +107,7 @@ final class DictationModel {
                 cancelEverything()
             }
             applyHotkey()
+            applyPasteLastHotkey()
         }
     }
 
@@ -159,6 +163,30 @@ final class DictationModel {
         didSet { UserDefaults.standard.set(pausesMusic, forKey: "dictation.pausesMusic") }
     }
 
+    /// A quick tap of the dictation key locks dictation on until the next
+    /// tap; holding works as it always did. On by default. Never applies
+    /// while another app holds secure input (`HoldGesture.locksOnTap`).
+    var tapToLock: Bool = WidgetToggle.stored("dictation.tapToLock", default: true) {
+        didSet { UserDefaults.standard.set(tapToLock, forKey: "dictation.tapToLock") }
+    }
+
+    /// A soft sound when dictation starts and when it stops. Its own switch,
+    /// apart from Settings › General › Sounds: those are about agents.
+    var playsSounds: Bool = WidgetToggle.stored("dictation.sounds", default: true) {
+        didSet { UserDefaults.standard.set(playsSounds, forKey: "dictation.sounds") }
+    }
+
+    /// True while call notes are recording. Dictation makes no sound then:
+    /// it would land in the call's recording. Wired by AppDelegate.
+    @ObservationIgnored var isCallRecording: (() -> Bool)?
+
+    /// Dictation is locked on by a tap: the key is up and it keeps listening
+    /// until the key is tapped again or Escape is pressed.
+    private(set) var isLockedOn = false
+
+    /// The held key's symbol, for the notch's "tap to stop" line.
+    var holdKeyGlyph: String { holdKey.glyph }
+
     /// Empty means "whatever macOS is using".
     ///
     /// The UID is persisted, never the numeric `AudioDeviceID`, which the system
@@ -171,6 +199,57 @@ final class DictationModel {
             refreshDevices()
         }
     }
+
+    /// "Keep history": every dictation in Settings › Dictation › History. On
+    /// unless switched off; off clears nothing by itself (Clear history does).
+    var keepsHistory: Bool = DictationHistoryStore.keepsHistory {
+        didSet {
+            guard keepsHistory != oldValue else { return }
+            UserDefaults.standard.set(keepsHistory, forKey: DictationHistoryStore.keepsHistoryKey)
+        }
+    }
+
+    /// "Keep recordings for Try again": a week, on this Mac. Off removes the
+    /// recordings already kept.
+    var keepsRecordings: Bool = UserDefaults.standard.object(
+        forKey: DictationHistoryStore.keepsRecordingsKey) as? Bool ?? true {
+        didSet {
+            guard keepsRecordings != oldValue else { return }
+            UserDefaults.standard.set(keepsRecordings, forKey: DictationHistoryStore.keepsRecordingsKey)
+            if !keepsRecordings { history.removeAllRecordings() }
+        }
+    }
+
+    /// A shortcut that types the last dictation again, wherever the cursor is.
+    var pastesLast: Bool = UserDefaults.standard.object(
+        forKey: DictationHistoryStore.pastesLastKey) as? Bool ?? true {
+        didSet {
+            guard pastesLast != oldValue else { return }
+            UserDefaults.standard.set(pastesLast, forKey: DictationHistoryStore.pastesLastKey)
+            applyPasteLastHotkey()
+        }
+    }
+
+    var pasteLastHotkey: GlobalHotkey.Binding = Defaults.binding(
+        DictationHistoryStore.pasteLastBindingKey, default: .controlOptionCommandD) {
+        didSet {
+            guard pasteLastHotkey != oldValue else { return }
+            Defaults.setBinding(pasteLastHotkey, DictationHistoryStore.pasteLastBindingKey)
+            applyPasteLastHotkey()
+        }
+    }
+
+    /// Why the paste-again shortcut is not registered, for Settings.
+    var pasteLastHotkeyError: String?
+
+    @ObservationIgnored let history = DictationHistoryStore.shared
+    @ObservationIgnored let pasteLastRegistration = GlobalHotkey()
+    /// This hold's record and recorder, from the microphone opening until the
+    /// words are handed to `deliver`.
+    @ObservationIgnored var historyEntry: DictationEntry?
+    @ObservationIgnored var historyRecorder: DictationRecorder?
+    /// This hold is into a password field: nothing of it is kept.
+    @ObservationIgnored var historySecure = false
 
     private(set) var availableInputs: [AudioInputDevice] = []
     /// What the preference resolves to right now — including "you picked
@@ -303,6 +382,10 @@ final class DictationModel {
             guard !Task.isCancelled, let self, self.isActive else { return }
             self.showsIndicator = true
             self.onListeningChanged?(true)
+            // With the panel and not at key-down: by now the press has
+            // earned being called a dictation. At key-down every ⌃C would
+            // chime.
+            if self.gesture.isRecording { self.playCue(started: true) }
         }
     }
 
@@ -401,6 +484,26 @@ final class DictationModel {
             onChooseLanguage?()
         case .letAirlockType:
             PermissionSwitch.allowAccessibility()
+        case .rememberWord:
+            if let learned = offeredWord { DictationWordsStore.keep(learned) }
+        }
+        offeredWord = nil
+    }
+
+    /// The word the "Remember" card is offering, until it is answered or goes.
+    @ObservationIgnored private var offeredWord: DictationCorrection.Learned?
+
+    /// A word fixed by hand after a dictation: asked about in the notch, or
+    /// kept straight away with "Add without asking" on. Never over another
+    /// card or a hold in progress: the fix is just not offered then.
+    private func offerToRemember(_ learned: DictationCorrection.Learned) {
+        guard !isActive, heardNothing == nil, holdNotice == nil else { return }
+        if DictationWordsStore.learnsSilently {
+            DictationWordsStore.keep(learned)
+            showNotice(.rememberedWord(learned.word))
+        } else {
+            offeredWord = learned
+            showNotice(.rememberWord(learned.word))
         }
     }
 
@@ -464,12 +567,16 @@ final class DictationModel {
     /// gallery only: nil everywhere else.
     @ObservationIgnored var previewCleanupAvailability: ModelAvailability?
 
-    /// Names the recogniser should expect to hear — the tools people dictate
-    /// about, which it otherwise turns into ordinary words.
-    static let recognitionVocabulary: [String] = [
-        "Claude", "Claude Code", "Codex", "ChatGPT", "Cursor",
-        "VS Code", "Visual Studio Code", "Xcode", "iTerm", "Airlock",
-    ]
+    /// Names the recogniser should expect to hear out of the box — the tools
+    /// people dictate about, which it otherwise turns into ordinary words.
+    /// They are the built-ins of "Words to know", removable there.
+    static let recognitionVocabulary: [String] = DictationWords.builtIns
+
+    /// Watches the box a dictation was typed into for a word fixed by hand.
+    @ObservationIgnored private let fixWatcher = DictationFixWatcher()
+    /// What the last dictation typed, so "scratch that" can take it back.
+    /// In memory only, never for a password box, and gone once used.
+    @ObservationIgnored private var lastTyped: String?
     private(set) var availableLocales: [Locale] = []
     private(set) var readiness = DictationReadiness(blocker: .disabled, canType: false,
                                                     canWatchHoldKey: true)
@@ -479,7 +586,7 @@ final class DictationModel {
 
     // MARK: - Machinery
 
-    @ObservationIgnored private let toggle = WidgetToggle(key: "dictation.enabled", defaultValue: false)
+    @ObservationIgnored private let toggle = WidgetToggle(key: DictationModel.enabledKey, defaultValue: false)
     @ObservationIgnored private let holdMonitor = HoldKeyMonitor()
 
     /// What the last `applyHotkey` measured, not what is true right now.
@@ -504,7 +611,20 @@ final class DictationModel {
 
     @ObservationIgnored private let capture = AudioCapture()
     @ObservationIgnored private let session = SpeechSession()
-    @ObservationIgnored private var gesture = HoldGesture()
+    @ObservationIgnored private var gesture = HoldGesture() {
+        didSet {
+            // Escape is looked for only while a dictation is running — see
+            // `HoldKeyMonitor.watchesEscape`.
+            holdMonitor.watchesEscape = gesture.isRecording
+            if isLockedOn != gesture.isLocked { isLockedOn = gesture.isLocked }
+        }
+    }
+    /// The ceiling of the dictation that last finished, in minutes: five for
+    /// a hold, ten when locked on. Noted when it finishes, because the
+    /// gesture is reset by then.
+    /// The start sound played for the dictation in progress.
+    @ObservationIgnored private var cueStarted = false
+    @ObservationIgnored private var finishedLimitMinutes = Int(HoldGesture.maximumHold / 60)
     /// Scrolls, keys and clicks during the hold in progress — see
     /// `HoldInterruption`. Reset when a hold starts, and handed to the
     /// delivery by value, since the next hold may start before it runs.
@@ -567,8 +687,14 @@ final class DictationModel {
         dictationLog("start enabled=\(isEnabled) holdKey=\(holdKey.displayName) "
                      + "cleanup=\(cleansTranscript) model=\(cleanup.availability)")
         if isEnabled, cleansTranscript { cleanup.prepare(instructions: cleanupInstructions) }
-        Task { await prepare() }
+        Task {
+            await prepare()
+            // After `prepare`, which finds the recogniser recovery needs.
+            await recoverCutOff()
+            history.prune()
+        }
         applyHotkey()
+        applyPasteLastHotkey()
     }
 
     // MARK: - Readiness
@@ -641,6 +767,7 @@ final class DictationModel {
     /// background app that prompts at launch is one people deny reflexively.
     func requestMicrophoneAccess() async {
         guard AppBundle.isBundled else { return refreshReadiness() }
+        SystemQuestionWatch.shared.begin()
         _ = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
             AVAudioApplication.requestRecordPermission { c.resume(returning: $0) }
         }
@@ -662,6 +789,7 @@ final class DictationModel {
     /// app it has already asked about once.
     @discardableResult
     func requestInputMonitoring() -> Bool {
+        SystemQuestionWatch.shared.begin()
         InputMonitoring.request()
         applyHotkey()
         return readiness.canWatchHoldKey
@@ -696,10 +824,17 @@ final class DictationModel {
             },
             onUp: { [weak self] in
                 dictationLog("hold UP")
+                // Released with a mouse button down: the key was modifying a
+                // drag that began before it, which no event here announces.
+                // Not a tap, so it must not lock on or stop a locked one.
+                if Self.mouseButtonIsDown() { self?.handle(.pressAbandoned) }
                 self?.handle(.keyUp(at: Date()))
             },
             onInterrupt: { [weak self] input in
                 self?.interrupted(by: input, on: "hold") ?? true
+            },
+            onEscape: { [weak self] in
+                self?.escapePressed()
             })
         dictationLog("holdMonitor(\(holdKey.displayName)) → \(ok ? "ok" : "FAILED")")
 
@@ -805,6 +940,13 @@ final class DictationModel {
     /// Start a hold, or ignore it if one is already live, so a second
     /// key-down can never open another `AudioCapture` on the same microphone.
     private func beginHold() {
+        // Locked on by a tap: this press is the one that stops it, when it
+        // comes back up. Nothing below applies — no new hold is starting.
+        if gesture.isLocked {
+            dictationLog("  locked on — this press stops it")
+            handle(.keyDown(at: Date()))
+            return
+        }
         let secureInput = noteSecureInputIfHeld()
         let blind = secureInput != nil
         if isListening {
@@ -851,7 +993,11 @@ final class DictationModel {
         // reintroduced. Only the threshold for *delivering* the hold — and for
         // showing the panel — moves.
         if !gesture.isRecording {
-            gesture = HoldGesture(floor: blind ? HoldGesture.blindHold : HoldGesture.minimumHold)
+            // A tap locks only where a chord can be seen: blind, a tap and
+            // ⌥⌫ look the same, and locking on a word-delete would leave the
+            // microphone open behind a password field.
+            gesture = HoldGesture(floor: blind ? HoldGesture.blindHold : HoldGesture.minimumHold,
+                                  locksOnTap: tapToLock && !blind)
             interruptions = HoldInterruptions()
         }
         // Immediately. A 120ms grace was tried here to keep a fast ⌥⌫ from ever
@@ -879,6 +1025,14 @@ final class DictationModel {
             handle(.cancel)
             return true
         }
+        // Locked on, and the key went down again with something else: a
+        // shortcut that happens to start with the dictation key. The
+        // dictation carries on, and the release that follows stops nothing.
+        if gesture.isLocked {
+            dictationLog("\(key) \(input.rawValue) while locked on — a shortcut, still listening")
+            handle(.pressAbandoned)
+            return true
+        }
         let heardWords = HoldInterruption.soundsLikeTalking(
             heardWords: !session.transcript.display
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -887,6 +1041,9 @@ final class DictationModel {
         switch interruptions.note(input, heardWords: heardWords) {
         case .carryOn:
             dictationLog("\(key) \(input.rawValue) — still listening")
+            // Still a hold if it lasts, but no longer a tap: a quick
+            // ⌃-scroll must not lock the microphone on.
+            handle(.pressAbandoned)
             return false
         case .carryOnThenCopy:
             dictationLog("\(key) \(input.rawValue) after words — still listening; they'll be copied, not typed")
@@ -908,22 +1065,38 @@ final class DictationModel {
         case .keyUp, .cancel:
             noticeRevealTask?.cancel()
             noticeRevealTask = nil
-        case .keyDown, .tick:
+        case .keyDown, .tick, .pressAbandoned:
             break
         }
+        let limit = gesture.limit
         guard let effect = gesture.apply(event) else { return }
         switch effect {
+        case .lock:
+            // Nothing to queue: the capture that the key-down started simply
+            // carries on. The notch says how to stop.
+            dictationLog("  effect=lock — listening until the next tap")
         case .startCapture:
             dictationLog("  effect=startCapture (queued)")
             enqueue { await self.beginListening() }
         case .finish(let reason):
             dictationLog("  effect=finish(\(reason)) (queued)")
+            finishedLimitMinutes = Int(limit / 60)
+            playCue(started: false)
             // Now, not inside the queued work: a new hold resets it.
             let interruptions = self.interruptions
             enqueue { await self.finishListening(reason, interruptions: interruptions) }
         case .discard(let reason):
             dictationLog("  effect=discard(\(reason)) (queued)")
+            playCue(started: false)
             enqueue { await self.discardListening(reason) }
+        }
+    }
+
+    /// Whether a mouse button is held right now, from the hardware state
+    /// and not from the event stream.
+    private static func mouseButtonIsDown() -> Bool {
+        [CGMouseButton.left, .right, .center].contains {
+            CGEventSource.buttonState(.combinedSessionState, button: $0)
         }
     }
 
@@ -974,6 +1147,11 @@ final class DictationModel {
         // the opening word of every dictation — the one failure this feature is
         // not allowed to introduce.
         startFocusProbe()
+        // A new dictation ends the look at the last one's text box.
+        fixWatcher.stop()
+        // Written before a word is heard, so a dictation cut off on its way
+        // still has a record and its audio. Never for a password field.
+        beginHistoryEntry()
 
         do {
             dictationLog("  starting audio engine…")
@@ -985,11 +1163,12 @@ final class DictationModel {
             dictationLog("  engine up; starting analyzer…")
             // What the recogniser should expect to hear — see
             // `SpeechSession.begin`.
-            let vocabulary = Self.recognitionVocabulary
+            // Everything on "Words to know", built-ins included.
+            let vocabulary = DictationWordsStore.load().spellings
             try await session.begin(locale: locale,
                                     secondary: resolvedSecondaryLocale,
                                     vocabulary: vocabulary,
-                                    input: stream)
+                                    input: DictationRecorder.tee(stream, into: historyRecorder))
             dictationLog("  analyzer up; listening")
             isListening = true
             listeningSince = Date()
@@ -1005,6 +1184,7 @@ final class DictationModel {
             startLiveTicker()
         } catch {
             dictationLog("  capture start failed: \(error.localizedDescription)")
+            forgetHistoryEntry()
             statusMessage = String(localized: "The microphone couldn't start. Try again in a moment.")
             let earned = gesture.startedAt?.addingTimeInterval(gesture.floor)
             // The analyzer can fail after the engine came up, which makes this
@@ -1071,12 +1251,13 @@ final class DictationModel {
         // cleanup and typing need only the text. So they run outside, and the
         // chain is free for the next hold immediately.
         deliver(heard, peak: peak, listenedFor: listenedFor, reason: reason,
-                interruptions: interruptions)
+                interruptions: interruptions, keeping: takeHistoryEntry())
     }
 
     /// Cleanup, then keystrokes. Runs off the gesture chain — see `finishListening`.
     private func deliver(_ heard: String, peak: Float, listenedFor: TimeInterval,
-                         reason: HoldGesture.Finish, interruptions: HoldInterruptions) {
+                         reason: HoldGesture.Finish, interruptions: HoldInterruptions,
+                         keeping: HistoryKeeping) {
         let previous = deliveryTask
         deliveryTask = Task { @MainActor [weak self] in
             // Still serialised against ITSELF: two transcripts typing into the
@@ -1086,6 +1267,8 @@ final class DictationModel {
 
             dictationLog("heard \(DictationDiagnostics.redact(heard)) peak=\(peak)")
             guard let spoken = DictationText.prepared(heard) else {
+                // Nothing heard is nothing to keep.
+                if let entry = keeping.entry { self.history.remove(entry.id) }
                 // A hold that only scrolled — ⌃-scroll zooming the screen —
                 // was never dictation, so it gets no card.
                 if interruptions.endsQuietlyWhenSilent {
@@ -1114,8 +1297,36 @@ final class DictationModel {
             }
 
             await self.typeOut(spoken, reason: reason,
-                               copyInstead: interruptions.copiesInstead)
+                               copyInstead: interruptions.copiesInstead,
+                               keeping: keeping)
         }
+    }
+
+    /// The word list, then the tidy step, then the word list again, so a name
+    /// the tidy step "corrected" comes back. Shared by a dictation and by Try
+    /// again, so both give the same words for the same speech.
+    func polish(_ spoken: String, showsProgress: Bool) async -> (text: String, tidyingFailed: Bool) {
+        let words = DictationWordsStore.load()
+        let respelled = words.respelled(spoken, isDictionaryWord: DictationWordsStore.isDictionaryWord)
+        if respelled != spoken {
+            dictationLog("words → \(DictationDiagnostics.redact(respelled))")
+        }
+        var text = respelled
+        var tidyingFailed = false
+        if cleansTranscript {
+            if showsProgress { isCleaning = true }
+            text = await cleanup.clean(respelled, instructions: cleanupInstructions)
+            if showsProgress { isCleaning = false }
+            text = words.respelled(text, isDictionaryWord: DictationWordsStore.isDictionaryWord)
+            if text != respelled {
+                dictationLog("cleaned → \(DictationDiagnostics.redact(text))")
+            }
+            if let rejection = cleanup.lastRejection {
+                if showsProgress { statusMessage = rejection }
+                tidyingFailed = true
+            }
+        }
+        return (text, tidyingFailed)
     }
 
 
@@ -1126,27 +1337,49 @@ final class DictationModel {
     /// `copyInstead`: a key or click came while the person was talking, so the
     /// cursor may not be where it was — the words go to the clipboard.
     private func typeOut(_ spoken: String, reason: HoldGesture.Finish,
-                         copyInstead: Bool = false) async {
+                         copyInstead: Bool = false,
+                         keeping: HistoryKeeping = HistoryKeeping()) async {
+        // "comma", "scratch that", a saved text's name: before the word list
+        // and the tidy step, so both see the signs and not the words.
+        let commands = spokenCommands(spoken)
+        if commands.erasePrevious {
+            let erased = await eraseLastTyped()
+            dictationLog("  scratch that: \(erased ? "took back the last dictation" : "nothing to take back")")
+            if !erased {
+                statusMessage = String(localized: "Nothing taken back: the text there has changed since.")
+            }
+        }
+        if commands.text.isEmpty {
+            // Only a command was said; it has been carried out.
+            if let entry = keeping.entry { history.remove(entry.id) }
+            setIndicator(false)
+            return
+        }
+
         // Between transcription and typing, never after: the text that
         // reaches the document and the text recorded as "last dictation"
         // have to be the same thing, or the recovery path shows something
         // you never got.
-        var text = spoken
-        var tidyingFailed = false
-        if self.cleansTranscript {
-            self.isCleaning = true
-            text = await self.cleanup.clean(spoken, instructions: self.cleanupInstructions)
-            self.isCleaning = false
-            if text != spoken {
-                dictationLog("cleaned → \(DictationDiagnostics.redact(text))")
-            }
-            if let rejection = self.cleanup.lastRejection {
-                self.statusMessage = rejection
-                tidyingFailed = true
-            }
+        let (text, tidyingFailed) = commands.isSavedText
+            ? (commands.text, false)
+            : await polish(commands.text, showsProgress: true)
+        // A saved text may be an address or an account number: it is typed,
+        // and never written to a log or to the history.
+        let shown = commands.isSavedText ? spoken : text
+        func logged(_ value: String) -> String {
+            commands.isSavedText ? "a saved text" : DictationDiagnostics.redact(value)
         }
 
-        self.lastTranscript = text
+        // A password field keeps nothing, not even in memory.
+        if !keeping.secure { self.lastTranscript = shown }
+        func finish(_ delivery: DictationEntry.Delivery) {
+            guard var entry = keeping.entry else { return }
+            entry.heard = spoken
+            entry.text = shown
+            entry.finished = true
+            entry.delivery = delivery
+            history.put(entry)
+        }
 
         // Nothing in front can take text. Typing anyway is what sent a
         // dictation into Gmail's keyboard shortcuts, so the words go to the
@@ -1164,6 +1397,7 @@ final class DictationModel {
         if let notice = DictationHoldNotice.afterDelivery(copied: copies,
                                                           afterKeyOrClick: copyInstead,
                                                           reachedLimit: reason == .reachedLimit,
+                                                          limitMinutes: finishedLimitMinutes,
                                                           tidyingFailed: tidyingFailed) {
             self.showNotice(notice)
         } else {
@@ -1171,16 +1405,17 @@ final class DictationModel {
         }
 
         if copies {
-            dictationLog("copying \(DictationDiagnostics.redact(text)) — "
+            dictationLog("copying \(logged(text)) — "
                          + (copyInstead ? "a key or click came while talking" : "nowhere to type"))
             self.onCopyTranscript?(text)
+            finish(.copied)
             self.statusMessage = copyInstead
                 ? String(localized: "You pressed a key or clicked while talking — copied to your clipboard.")
                 : String(localized: "Nothing to type into — copied to your clipboard.")
             return
         }
 
-        dictationLog("typing \(DictationDiagnostics.redact(text)) axTrusted=\(TypeService.isTrusted)")
+        dictationLog("typing \(logged(text)) axTrusted=\(TypeService.isTrusted)")
         guard await TypeService.type(text) else {
             // THE SAME FALLBACK THE `.copy` ROUTE ABOVE GETS, and it was
             // missing here. Without Accessibility the words were
@@ -1213,6 +1448,7 @@ final class DictationModel {
                 self.showNotice(.copiedCantTypeYet)
             }
             self.onCopyTranscript?(text)
+            finish(.copied)
             self.statusMessage = trusted
                 ? String(localized: "Couldn't type that one — copied to your clipboard instead.")
                 : DictationHoldNotice.copiedCantTypeYet.sentence
@@ -1238,12 +1474,61 @@ final class DictationModel {
         // Counted where the text actually LANDED, not where the hold
         // ended: a transcript that failed to type is not a dictation the
         // app did for you, and the trial card must not claim it.
+        finish(.typed)
         self.tally?.recordDictation()
         UsageCounts.shared.record(.used(.dictation))
         FirstStepsModel.shared.note(.dictate)
         self.statusMessage = reason == .reachedLimit
-            ? String(localized: "Stopped at the two-minute limit.") : nil
+            ? String(localized: "Stopped at the \(finishedLimitMinutes)-minute limit.") : nil
+        lastTyped = keeping.secure ? nil : text
+        // Only after Airlock typed, and only into where it typed. A saved
+        // text is the person's own words already: nothing to learn from it.
+        guard !commands.isSavedText else { return }
+        fixWatcher.watch(typed: text) { [weak self] learned in
+            self?.offerToRemember(learned)
+        }
+    }
 
+    /// The spoken commands, in the dictation's languages, by the switches
+    /// in Settings › Voice.
+    private func spokenCommands(_ spoken: String) -> SpokenCommands.Outcome {
+        let languages = [resolvedLocale, resolvedSecondaryLocale].compactMap { $0?.identifier }
+            + (localeIdentifier.isEmpty ? [] : [localeIdentifier])
+        return SpokenCommands.apply(spoken, switches: DictationWordsStore.commandSwitches(),
+                                    saved: DictationWordsStore.savedTexts(), languages: languages)
+    }
+
+    /// Backspaces over what the last dictation typed, only when the box with
+    /// the focus still ends with exactly that text. Anything else (another
+    /// box, words typed since, a box that can't be read) leaves it alone.
+    /// Backspaces only when the text just BEFORE THE CURSOR is still what
+    /// was typed: nothing selected, nothing typed since, the cursor not
+    /// moved. Checking the end of the whole box was not enough: a letter
+    /// typed elsewhere left the end unchanged, and the backspaces then
+    /// landed wherever the cursor was.
+    private func eraseLastTyped() async -> Bool {
+        guard let last = lastTyped, !last.isEmpty else { return false }
+        lastTyped = nil
+        fixWatcher.stop()
+        guard let field = DictationFixWatcher.focusedField(),
+              let value = DictationFixWatcher.text(of: field) else {
+            dictationLog("  scratch that: the box can't be read")
+            return false
+        }
+        guard let caret = DictationFixWatcher.caret(of: field) else {
+            dictationLog("  scratch that: no cursor, or text is selected")
+            return false
+        }
+        let units = Array(value.utf16)
+        guard caret <= units.count else { return false }
+        let beforeCaret = String(decoding: units[..<caret], as: UTF16.self)
+        let normalised = beforeCaret.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        guard normalised.hasSuffix(last) else {
+            dictationLog("  scratch that: the text before the cursor has changed")
+            return false
+        }
+        return await TypeService.erase(count: last.count)
     }
 
     // MARK: - Routing
@@ -1260,6 +1545,11 @@ final class DictationModel {
             guard let self, !Task.isCancelled else { return }
             self.route = DictationRoute.decide(probe)
             dictationLog("  focus probe → \(probe.shortDescription) route=\(self.route.rawValue)")
+            if case .focused(let snapshot) = probe, FocusTarget.containsPasswordField(snapshot) {
+                dictationLog("  password field — this dictation is not kept")
+                self.historySecure = true
+                self.forgetHistoryEntry()
+            }
         }
     }
 
@@ -1356,6 +1646,7 @@ final class DictationModel {
         // start — the one that crashed the app. See `MicrophoneSettle`.
         await capture.stopWhenSettled()
         await session.abandon()
+        forgetHistoryEntry()
         isListening = false
         liveText = ""
         inputLevels = []
@@ -1364,6 +1655,42 @@ final class DictationModel {
         // A tap is not an error. Saying "too short" every time someone brushes
         // the key would be nagging about a non-event.
         if reason == .cancelled { statusMessage = nil }
+    }
+
+    /// Escape while a dictation is running: stop, type nothing, copy nothing.
+    private func escapePressed() {
+        guard gesture.isRecording else { return }
+        dictationLog("Escape — dictation cancelled, nothing typed")
+        handle(.cancel)
+    }
+
+    /// A locked dictation that has heard nothing at all was a brush of the
+    /// key, not somebody about to talk. Ends it quietly, like any other tap.
+    private func endStrayLockIfSilent() {
+        guard gesture.isLocked else { return }
+        let heardWords = !session.transcript.display
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard HoldGesture.lockLooksStray(runningFor: gesture.heldFor(at: Date()),
+                                         heardWords: heardWords,
+                                         peak: capture.peakLevel) else { return }
+        dictationLog("locked on and silent for \(Int(HoldGesture.strayLockWindow))s — taken for a stray tap")
+        handle(.cancel)
+    }
+
+    /// The start and stop sounds. Silent with the switch off, and while call
+    /// notes are recording: the sound would be in the recording.
+    ///
+    /// The stop sound only answers a start sound: a press that never got as
+    /// far as opening the notch ends as silently as it began.
+    private func playCue(started: Bool) {
+        if started {
+            guard !cueStarted, playsSounds, isCallRecording?() != true else { return }
+            cueStarted = true
+            Sounds.play("AirlockDictationStart")
+        } else if cueStarted {
+            cueStarted = false
+            Sounds.play("AirlockDictationStop")
+        }
     }
 
     private func cancelEverything() {
@@ -1388,6 +1715,10 @@ final class DictationModel {
         holdGeneration &+= 1
         finishStartedAt = nil
         chain = nil
+        // The record stays unfinished on purpose: the next launch transcribes
+        // its recording again and shows it as recovered.
+        historyEntry = nil
+        historyRecorder = nil
         isListening = false
         liveText = ""
         inputLevels = []
@@ -1414,6 +1745,7 @@ final class DictationModel {
         let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.handle(.tick(at: Date(), isPhysicallyDown: true))
+                self?.endStrayLockIfSilent()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -1444,3 +1776,178 @@ final class DictationModel {
 
 /// Small typed wrappers, matching `ClipboardWidgetModel`.
 
+
+// MARK: - History
+
+/// What one hold leaves in the History list, handed from the microphone to
+/// delivery so a later hold cannot change it.
+struct HistoryKeeping {
+    var entry: DictationEntry?
+    /// Into a password field: no text kept, not even as "last dictation".
+    var secure = false
+}
+
+extension DictationModel {
+    /// A record for this hold, and a recorder when recordings are kept. None
+    /// at all when macOS says a password is being typed somewhere.
+    func beginHistoryEntry() {
+        historySecure = SecureInput.isEnabled
+        historyEntry = nil
+        historyRecorder = nil
+        guard !historySecure, keepsHistory else { return }
+        let records = keepsHistory && keepsRecordings
+        guard let entry = history.begin(app: destinationName, recording: records) else { return }
+        historyEntry = entry
+        if records { historyRecorder = DictationRecorder(url: history.recordingURL(entry.id)) }
+    }
+
+    /// Hands this hold's record to delivery and clears it here.
+    func takeHistoryEntry() -> HistoryKeeping {
+        defer {
+            historyEntry = nil
+            historyRecorder = nil
+        }
+        return HistoryKeeping(entry: historyEntry, secure: historySecure)
+    }
+
+    /// A hold that was discarded or went into a password field: its record and
+    /// its audio go at once.
+    func forgetHistoryEntry() {
+        let entry = historyEntry
+        let recorder = historyRecorder
+        historyEntry = nil
+        historyRecorder = nil
+        guard let entry else { return }
+        Task { @MainActor [history] in
+            // The recorder first, so it can't write the file again after it goes.
+            await recorder?.discard()
+            history.remove(entry.id)
+        }
+    }
+
+    // MARK: Try again and recovery
+
+    /// Listens to a saved recording again, with the same recogniser and the
+    /// same word list and tidy step as a dictation. Nil when there is no
+    /// recording, no recogniser yet, or nothing was heard.
+    private func transcribeRecording(_ id: UUID) async -> (heard: String, text: String)? {
+        guard let locale = resolvedLocale, let format = analyzerFormat else { return nil }
+        guard let buffers = DictationRecorder.buffers(from: history.recordingURL(id), as: format) else {
+            dictationLog("history: a recording could not be read")
+            return nil
+        }
+        let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
+        for buffer in buffers { continuation.yield(AnalyzerInput(buffer: buffer)) }
+        continuation.finish()
+        let again = SpeechSession()
+        do {
+            try await again.begin(locale: locale, secondary: resolvedSecondaryLocale,
+                                  vocabulary: DictationWordsStore.load().spellings, input: stream)
+        } catch {
+            dictationLog("history: the recogniser would not start — \(error.localizedDescription)")
+            return nil
+        }
+        let heard = await again.finish(within: .seconds(60))
+        guard let spoken = DictationText.prepared(heard) else { return nil }
+        let commands = spokenCommands(spoken)
+        // A saved text never goes into the history; its name stands for it.
+        guard !commands.isSavedText, !commands.text.isEmpty else { return (spoken, spoken) }
+        let polished = await polish(commands.text, showsProgress: false)
+        return (spoken, polished.text)
+    }
+
+    /// "Try again": the entry gets the new words and keeps the old ones one
+    /// click away. Nothing heard leaves it as it was.
+    func tryAgain(_ id: UUID) async {
+        guard let entry = history.entry(id), entry.hasRecording,
+              !history.retrying.contains(id) else { return }
+        history.retrying.insert(id)
+        defer { history.retrying.remove(id) }
+        guard let result = await transcribeRecording(id), let current = history.entry(id) else { return }
+        history.put(DictationHistory.retried(current, heard: result.heard, text: result.text))
+    }
+
+    /// Dictations cut off before their words reached anywhere (a crash, a
+    /// force quit, a power cut) are transcribed from their recording and kept
+    /// as "Recovered". One with no recording or no words is removed.
+    func recoverCutOff() async {
+        history.loadIfNeeded()
+        for entry in DictationHistory.toRecover(history.entries) {
+            // The hold happening right now is unfinished too, and is not lost.
+            guard entry.id != historyEntry?.id else { continue }
+            guard entry.hasRecording, let result = await transcribeRecording(entry.id) else {
+                history.remove(entry.id)
+                continue
+            }
+            var recovered = entry
+            recovered.heard = result.heard
+            recovered.text = result.text
+            recovered.finished = true
+            recovered.recovered = true
+            recovered.delivery = .none
+            history.put(recovered)
+            dictationLog("history: recovered a dictation that was cut off")
+        }
+    }
+
+    // MARK: Typing again
+
+    /// Copies an entry's words.
+    func copyHistoryText(_ text: String) {
+        onCopyTranscript?(text)
+    }
+
+    /// "Type it again where the cursor is", from Settings: Airlock steps
+    /// aside so the app underneath has the cursor back, then types.
+    func typeAgain(_ text: String) {
+        NSApp.hide(nil)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self else { return }
+            if await !TypeService.type(text) { self.onCopyTranscript?(text) }
+        }
+    }
+
+    /// The newest dictation's words: from History, or from this run when
+    /// History is off.
+    var lastDictationText: String? {
+        if keepsHistory {
+            history.loadIfNeeded()
+            if let last = DictationHistory.last(history.entries) { return last.text }
+        }
+        return lastTranscript
+    }
+
+    /// The paste-again shortcut. Waits for its keys to come up first, or the
+    /// app in front would read the typing as ⌃⌥⌘ shortcuts.
+    func pasteLast() {
+        guard let text = lastDictationText, !text.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        Task { @MainActor [weak self] in
+            for _ in 0..<30 where !NSEvent.modifierFlags.intersection([.control, .option, .command, .shift]).isEmpty {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard let self else { return }
+            if await !TypeService.type(text) { self.onCopyTranscript?(text) }
+        }
+    }
+
+    func applyPasteLastHotkey() {
+        pasteLastRegistration.unregister()
+        guard isEnabled, pastesLast else {
+            pasteLastHotkeyError = nil
+            return
+        }
+        pasteLastRegistration.register(pasteLastHotkey) { [weak self] in self?.pasteLast() }
+        pasteLastHotkeyError = pasteLastRegistration.lastError
+    }
+
+    /// "Clear history": every record and every recording.
+    func clearHistory() {
+        history.clear()
+        lastTranscript = nil
+        lastTyped = nil
+    }
+}

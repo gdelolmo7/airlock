@@ -158,12 +158,26 @@ final class TranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(TranscriptCleanup.vetted(raw: raw, cleaned: cleaned), cleaned)
     }
 
-    /// "Cleaned:\n\ntext" folds to one line; dictation types a single run.
-    func testNewlinesCollapse() {
-        XCTAssertEqual(
+    /// A new line the speaker never said is the model's, not theirs: the
+    /// raw transcript is typed instead.
+    func testANewLineTheSpeakerDidNotSayIsRefused() {
+        XCTAssertNil(
             TranscriptCleanup.vetted(raw: "first point and then the second point",
-                                     cleaned: "First point,\nand then the second point."),
-            "First point, and then the second point.")
+                                     cleaned: "First point,\nand then the second point."))
+    }
+
+    /// "new line" said aloud survives the tidy step, and spaces around it fold.
+    func testNewLinesTheSpeakerSaidStay() {
+        XCTAssertEqual(
+            TranscriptCleanup.vetted(raw: "um first point\nand uh then the second point",
+                                     cleaned: "First point  \n  and then the second point."),
+            "First point\nand then the second point.")
+    }
+
+    func testADroppedNewLineIsRefused() {
+        XCTAssertNil(
+            TranscriptCleanup.vetted(raw: "dear team\n\nthe build is green again today",
+                                     cleaned: "Dear team, the build is green again today."))
     }
 
     func testApostrophesDoNotCountAsWrappingQuotes() {

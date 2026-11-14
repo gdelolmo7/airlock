@@ -55,7 +55,7 @@ final class LearnMoreTests: XCTestCase {
     /// The site has no page about these, and a link to the home page would
     /// read as one about this page.
     func testPagesWithoutAFeaturePageShowNone() {
-        for pane in [SettingsPane.general, .permissions, .license] {
+        for pane in [SettingsPane.general, .addOns, .permissions, .license] {
             XCTAssertEqual(pane.learnMore, [], "\(pane)")
         }
     }

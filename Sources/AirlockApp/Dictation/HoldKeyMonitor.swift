@@ -88,6 +88,20 @@ final class HoldKeyMonitor {
     /// Asked about every other input during a hold. True means it ended the
     /// hold, and the release that follows must end silently.
     private var onInterrupt: ((HoldInterruption) -> Bool)?
+    private var onEscape: (() -> Void)?
+
+    /// Set by the model for exactly as long as a dictation is running.
+    ///
+    /// **The one exception to "nothing about these events is read".** While
+    /// this is true — and only then — a key-down's key code is compared with
+    /// Escape's, so Escape can cancel a dictation that is locked on with no
+    /// key held. The code is compared and dropped: never kept, never logged.
+    /// With no dictation running the callback reads the type alone, as before.
+    ///
+    /// The tap is listen-only, so Escape still reaches the app in front.
+    var watchesEscape = false
+
+    /// Escape's virtual key code (`kVK_Escape`).
 
     var isRunning: Bool { tap != nil }
 
@@ -147,12 +161,14 @@ final class HoldKeyMonitor {
     /// `health()` is what says whether events will arrive.
     @discardableResult
     func start(key: Key, onDown: @escaping () -> Void, onUp: @escaping () -> Void,
-               onInterrupt: @escaping (HoldInterruption) -> Bool) -> Bool {
+               onInterrupt: @escaping (HoldInterruption) -> Bool,
+               onEscape: @escaping () -> Void = {}) -> Bool {
         stop()
         self.key = key
         self.onDown = onDown
         self.onUp = onUp
         self.onInterrupt = onInterrupt
+        self.onEscape = onEscape
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -188,6 +204,8 @@ final class HoldKeyMonitor {
         onDown = nil
         onUp = nil
         onInterrupt = nil
+        onEscape = nil
+        watchesEscape = false
     }
 
     /// Called from the tap callback, already on the main run loop.
@@ -230,6 +248,13 @@ final class HoldKeyMonitor {
         }
     }
 
+    /// Escape during a dictation. With the hold key still down, its release
+    /// must end silently: the dictation is already called off.
+    fileprivate func handleEscape() {
+        if isDown { cancelled = true }
+        onEscape?()
+    }
+
     /// The four modifiers people actually build shortcuts from.
     ///
     /// `.maskSecondaryFn` is deliberately absent: macOS sets it for arrow keys,
@@ -252,6 +277,9 @@ final class HoldKeyMonitor {
     }
 }
 
+/// Escape on every Mac keyboard layout.
+private let escapeKeyCode: Int64 = 53
+
 /// A C function pointer: no captures, so the monitor arrives via `userInfo`.
 private let holdKeyCallback: CGEventTapCallBack = { _, type, event, userInfo in
     guard let userInfo else { return Unmanaged.passUnretained(event) }
@@ -263,10 +291,23 @@ private let holdKeyCallback: CGEventTapCallBack = { _, type, event, userInfo in
     case .flagsChanged:
         let flags = event.flags
         MainActor.assumeIsolated { monitor.handle(flags: flags) }
-    case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
+    case .keyDown:
+        // The TYPE only, with one exception: while a dictation is running,
+        // whether this key is Escape (`watchesEscape`). Nothing else about
+        // the event is read — not the character, not any other key code.
+        // Compared here and kept as a yes or no; the code itself goes nowhere.
+        let isEscape = event.getIntegerValueField(.keyboardEventKeycode) == escapeKeyCode
+        MainActor.assumeIsolated {
+            if monitor.watchesEscape, isEscape {
+                monitor.handleEscape()
+            } else {
+                monitor.handleOtherInput(.keyOrClick)
+            }
+        }
+    case .leftMouseDown, .rightMouseDown, .otherMouseDown:
         // The TYPE only. Nothing about the event's content is read — not the
-        // key code, not the character, not the click location, not the scroll
-        // delta. All it needs to know is that something else happened.
+        // click location, not the scroll delta. All it needs to know is that
+        // something else happened.
         MainActor.assumeIsolated { monitor.handleOtherInput(.keyOrClick) }
     case .scrollWheel:
         MainActor.assumeIsolated { monitor.handleOtherInput(.scroll) }

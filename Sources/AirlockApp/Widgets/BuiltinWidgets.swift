@@ -3,12 +3,15 @@ import SwiftUI
 /// Git status for the checkouts agents are working in.
 ///
 /// On the agents tab, not home: it is meaningless without a session, since the
-/// whole premise is that the working directory is already known. That also
-/// makes it follow the agents toggle for free — someone who does not run agents
-/// never sees a git row for a repo nobody is touching.
+/// whole premise is that the working directory is already known.
+///
+/// It follows the agents switch, and has to say so: on by default and on the
+/// Agents tab, it used to count as something on that tab, so switching Coding
+/// agents off left the tab in the strip with this card as its only reason.
 @MainActor
 struct RepositoryWidget: NotchWidget {
     let repository: RepositoryWidgetModel
+    let agents: AgentsWidgetModel
 
     var id: String { "repository" }
     var displayName: String { String(localized: "Repository") }
@@ -20,8 +23,12 @@ struct RepositoryWidget: NotchWidget {
         nonmutating set { repository.isEnabled = newValue }
     }
 
+    /// Only while the Agents tab is there for agents' own sake. A request
+    /// waiting with agents off brings the tab up for that card alone.
+    var isVisible: Bool { isEnabled && AgentsWidget.showsTabAtRest(agents) }
+
     func panelSection() -> AnyView? {
-        guard isEnabled, !repository.repositories.isEmpty else { return nil }
+        guard isVisible, !repository.repositories.isEmpty else { return nil }
         return AnyView(RepositorySectionView().environment(repository))
     }
 }
@@ -133,6 +140,7 @@ struct KeyMapWidget: NotchWidget {
     let dictation: DictationModel
     let clipboard: ClipboardWidgetModel
     let agents: AgentsWidgetModel
+    let tray: TrayModel
 
     var id: String { "keymap" }
     /// Home, not Dashboard, and that is what keeps it a fallback in practice.
@@ -156,7 +164,8 @@ struct KeyMapWidget: NotchWidget {
         return AnyView(KeyMapSectionView()
             .environment(dictation)
             .environment(clipboard)
-            .environment(agents))
+            .environment(agents)
+            .environment(tray))
     }
 }
 
@@ -179,12 +188,13 @@ struct MediaWidget: NotchWidget {
     }
 
     func panelSection() -> AnyView? {
-        // A quit player leaves the card DORMANT rather than removing it — see
-        // `MediaWidgetModel.dormant`. Returning nil here was what made the tab
-        // reflow the moment the music stopped, which reads as the panel
-        // breaking rather than as Spotify closing.
-        guard media.isEnabled,
-              media.state != nil || media.refusedPlayer != nil || media.dormant != nil else { return nil }
+        // The card is always there while the widget is on. A quit player leaves
+        // it DORMANT (see `MediaWidgetModel.dormant`), and with no recent track
+        // it becomes the idle card, which opens a player (`IdlePlayerCard`).
+        // Returning nil here made the tab reflow the moment the music stopped,
+        // and a day later the card was simply gone, which read as Airlock
+        // having lost it rather than as Spotify being closed.
+        guard media.isEnabled else { return nil }
         return AnyView(MediaSectionView().environment(media))
     }
 }
@@ -353,17 +363,20 @@ struct TrayWidget: NotchWidget {
     var id: String { "tray" }
     var displayName: String { String(localized: "Shelf") }
     var tier: WidgetTier { .ambient }
-    /// The tab would be empty without it, so it isn't optional.
-    var isToggleable: Bool { false }
+    /// Its switch is the whole Shelf, tab and all: the tab has nothing else
+    /// on it, so with this off the registry drops the tab (`visibleTabs`).
+    /// The files stay on disk either way; see `TrayModel.isEnabled`.
+    var isToggleable: Bool { true }
     var isEnabled: Bool {
-        get { true }
-        nonmutating set {}
+        get { tray.isEnabled }
+        nonmutating set { tray.isEnabled = newValue }
     }
     var tab: NotchTab { .tray }
 
     func panelSection() -> AnyView? {
-        // Always renders: the drop target IS the empty state.
-        AnyView(TraySectionView().environment(tray))
+        // Renders even when empty, because the drop target IS the empty state.
+        guard isEnabled else { return nil }
+        return AnyView(TraySectionView().environment(tray))
     }
 }
 

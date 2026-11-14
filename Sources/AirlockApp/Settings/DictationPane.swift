@@ -1,13 +1,16 @@
 import SwiftUI
 import AirlockCore
 
-/// The Voice page, the first page in the notch's look.
+/// The Dictation page, and the Meeting notes page: two add-ons that share a
+/// microphone, the language they listen for and the words they know, so one
+/// type draws both (`Part`).
 ///
-/// Six rows say what most people come here for: the two keys, the language,
-/// tidying, music, and whether macOS has allowed it all. Everything else,
-/// and every explanation longer than a line, is behind "More options". The
-/// page used to open on a paragraph under every switch, which is how a
-/// settings window tells a stranger it was not written for them.
+/// Dictation: the key, the language, tidying, music, and whether macOS has
+/// allowed it all. Meeting notes: the language on calls, past calls, where
+/// notes are written and telling voices apart. Everything else, and every
+/// explanation longer than a line, is behind "More options". The page used to
+/// open on a paragraph under every switch, which is how a settings window
+/// tells a stranger it was not written for them.
 ///
 /// The language picker is not a nicety. `Locale.current` on the machine this was
 /// built on reads `en_US@rg=eszzzz` — US language, Spain region — which resolves
@@ -15,6 +18,9 @@ import AirlockCore
 /// nonsense. Nothing in a region subtag can say which language you intend to
 /// *speak*, so it has to be asked.
 struct DictationPane: View {
+    enum Part { case dictation, meetingNotes }
+
+    let part: Part
     @AppStorage(AdvancedSwitch.key) private var advanced = false
     /// Call notes: on unless switched off here. Their other rows show only
     /// while they are on.
@@ -61,8 +67,9 @@ struct DictationPane: View {
     /// pictures, which never start one.
     private let voiceDownload: CallVoiceDownload.State?
 
-    init(moreOptions: Bool = false, callListeners: CallListeners? = nil, knownWords: [String]? = nil,
-         voiceDownload: CallVoiceDownload.State? = nil) {
+    init(part: Part = .dictation, moreOptions: Bool = false, callListeners: CallListeners? = nil,
+         knownWords: [String]? = nil, voiceDownload: CallVoiceDownload.State? = nil) {
+        self.part = part
         _moreOptions = State(initialValue: moreOptions)
         _callListeners = State(initialValue: callListeners ?? .none)
         asksCallListeners = callListeners == nil
@@ -71,108 +78,95 @@ struct DictationPane: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
-                LookPageHeader(title: String(localized: "Voice"), subtitle: String(localized: "Hold a key, talk, and your words are typed."),
-                               learnMore: SettingsPane.voice.learnMore)
-                    .padding(.horizontal, 4)
-                    .padding(.bottom, 8)
-                keyRows
-                languageRow
-                callNotesRow
-                if callNotesOn {
-                    callLanguageRow
-                    pastCallsRow
-                    if offersNotesOnline { notesOnlineRow } else if showsNotesOnlineTag { notesOnlineTagRow }
-                    KnownWordsRow(words: knownWords)
-                        .settingsAnchor(.knownWords)
-                    callVoicesRows
-                }
-                tidyRow
-                LookToggleRow("Pause music while I talk", isOn: Bindable(dictation).pausesMusic)
-                    .settingsAnchor(.pauseMusic)
-                // Off, nothing is measured (the hold key isn't watched), so
-                // "All set" would be a guess; switching it on brings the rows.
-                if dictation.isEnabled { permissionRows }
-                LookMoreButton(isOpen: $moreOptions)
-                    .padding(.top, 6)
-                if moreOptions {
-                    VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
-                        microphoneOptions
-                        languageOptions
-                        tidyOptions
-                        advancedOptions
-                    }
-                    .transition(.opacity)
-                }
+        Group {
+            switch part {
+            case .dictation: dictationPage
+            case .meetingNotes: meetingNotesPage
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .padding(.bottom, 24)
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
         }
-        .background(SettingsLook.ground)
-        .environment(\.colorScheme, .dark)
-        .environment(\.problemCardLook, .notch)
-        .onAppear(perform: openForReveal)
-        .onChange(of: settings?.revealRequest?.serial) { openForReveal() }
-        // Input Monitoring is granted in System Settings, outside this process,
-        // with nothing to observe. Re-measuring on the way back is what stops
-        // this page insisting the key is dead after the user has just fixed it —
-        // and it rebuilds the taps, which is the part that actually makes a
-        // granted permission take effect.
-        .onReceive(NotificationCenter.default.publisher(
-            for: NSApplication.didBecomeActiveNotification)) { _ in
-            dictation.recheckHoldKey()
-        }
-        // And while System Settings sits beside this page, not only once
-        // Airlock is clicked again.
-        .watchingPermissions { _ in dictation.recheckHoldKey() }
         .sheet(isPresented: $editingCleanup) {
             CleanupInstructionsSheet(dictation: dictation) { editingCleanup = false }
         }
     }
 
-    private func openForReveal() {
-        guard let anchor = settings?.revealRequest?.anchor,
-              Self.anchorsInMoreOptions.contains(anchor) else { return }
-        moreOptions = true
+    // The add-on page re-measures the hold key on the way back from System
+    // Settings, and while it sits beside this page: Input Monitoring is
+    // granted outside this process, with nothing to observe, and rebuilding
+    // the taps is what makes a granted permission take effect.
+    private var dictationPage: some View {
+        AddOnPage(.dictation, subtitle: String(localized: "Hold a key, talk, and your words are typed."),
+                  learnMore: SettingsPane.voice.learnMore, moreOptions: $moreOptions,
+                  anchorsInMoreOptions: Self.anchorsInMoreOptions, showsMissing: false) {
+            keyRows
+            languageRow
+            LookGroupLabel("While you talk")
+            tidyRow
+            LookToggleRow("Pause music while I talk", isOn: Bindable(dictation).pausesMusic)
+                .settingsAnchor(.pauseMusic)
+            LookToggleRow("Tap the key to start and stop", isOn: Bindable(dictation).tapToLock)
+            LookToggleRow("Play a sound at the start and the end", isOn: Bindable(dictation).playsSounds)
+            LookGroupLabel("Words")
+            KnownWordsRow(page: .dictation, preview: knownWords.map { .init(words: $0) })
+                .settingsAnchor(.dictationWords)
+            LearnFromFixesRows()
+                .settingsAnchor(.learnFromFixes)
+            DictationHistoryRow()
+            LookGroupLabel("Spoken commands")
+            SpokenCommandsRows()
+            LookGroupLabel("Permissions")
+            permissionRows
+        } more: {
+            microphoneOptions
+            languageOptions
+            tidyOptions
+            DictationHistoryOptions()
+            advancedOptions
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification)) { _ in
+            dictation.recheckHoldKey()
+        }
+        .watchingPermissions { _ in dictation.recheckHoldKey() }
+    }
+
+    /// The big switch is the one switch for everything calls do: the offer
+    /// to take notes as a call starts, the Calls tab, past calls in the menu
+    /// bar, and every row here. Off, a call is only a call again.
+    private var meetingNotesPage: some View {
+        AddOnPage(.meetingNotes,
+                  subtitle: String(localized: "Offers to take notes when a call starts. ") + notesPlace.settingsLine,
+                  learnMore: SettingsPane.callNotes.learnMore, moreOptions: $moreOptions) {
+            callLanguageRow
+            pastCallsRow
+            LookGroupLabel("Notes")
+            if offersNotesOnline { notesOnlineRow } else if showsNotesOnlineTag { notesOnlineTagRow }
+            KnownWordsRow(words: knownWords)
+                .settingsAnchor(.knownWords)
+            OwnKeyRow(preview: knownWords != nil)
+                .settingsAnchor(.ownClaudeKey)
+            LookNote("With a key saved, a finished call's transcript goes from this Mac straight to Anthropic, and never through Airlock's server. The key stays in this Mac's keychain. If the key doesn't work, the notes are written the usual way and say why.")
+            callVoicesRows
+        } more: {
+            LookGroupLabel("Language")
+            callLanguageOptions
+        }
     }
 
     // MARK: - The six rows
 
     @ViewBuilder private var keyRows: some View {
         LookRow("Hold to dictate") {
-            LookMenu(dictation.isEnabled ? dictation.holdKey.displayName : String(localized: "Off")) {
-                Picker("Hold to dictate", selection: dictateChoice) {
+            LookMenu(dictation.holdKey.displayName) {
+                Picker("Hold to dictate", selection: Bindable(dictation).holdKey) {
                     ForEach(HoldKeyMonitor.Key.allCases) { key in
-                        Text(key.displayName).tag(HoldKeyMonitor.Key?.some(key))
+                        Text(key.displayName).tag(key)
                     }
-                    Divider()
-                    Text("Off").tag(HoldKeyMonitor.Key?.none)
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
             }
         }
         .settingsAnchor(.holdToDictate)
-    }
-
-    /// Off is a key choice, not a second switch: "which key?" with "none" as
-    /// an answer reads as one question, where a switch beside a picker read
-    /// as two.
-    private var dictateChoice: Binding<HoldKeyMonitor.Key?> {
-        Binding(
-            get: { dictation.isEnabled ? dictation.holdKey : nil },
-            set: { key in
-                if let key {
-                    dictation.holdKey = key
-                    dictation.isEnabled = true
-                } else {
-                    dictation.isEnabled = false
-                }
-            })
     }
 
     private var languageRow: some View {
@@ -220,16 +214,6 @@ struct DictationPane: View {
             guard asksCallListeners, callNotesOn else { return }
             callListeners = await CallListeners.current()
         }
-    }
-
-    /// The one switch for everything calls do: the offer to take notes as a
-    /// call starts, the Calls tab, past calls in the menu bar, and the rows
-    /// under this one. Off, a call is only a call again.
-    private var callNotesRow: some View {
-        LookToggleRow("Call notes",
-                      subtitle: String(localized: "Offers to take notes when a call starts. ") + notesPlace.settingsLine,
-                      isOn: $callNotesOn)
-            .settingsAnchor(.callNotes)
     }
 
     /// A subscriber's: "Write notes online" shows.
@@ -381,7 +365,7 @@ struct DictationPane: View {
     /// hold key has no symptom, so this is the row that has to say it.
     @ViewBuilder private var permissionRows: some View {
         let missing = missingPermissions
-        LookRow("Permissions") {
+        LookRow("Status") {
             LookStatus(ok: missing == 0,
                        text: missing == 0 ? String(localized: "All set") : (missing == 1 ? String(localized: "1 needs you") : String(localized: "\(missing) need you")))
         }
@@ -493,7 +477,6 @@ struct DictationPane: View {
         .disabled(!dictation.isEnabled)
         LookNote(localeNote)
         LookNote("For when you switch between two languages as you speak. Airlock listens for both and types whichever it understood better. Dictation takes a moment longer, and your Mac downloads the language the first time you pick it.")
-        if callNotesOn { callLanguageOptions }
     }
 
     /// The call's second language, only once calls have a language of their
@@ -533,24 +516,8 @@ struct DictationPane: View {
     }
 
     @ViewBuilder private var advancedOptions: some View {
+        // The "Last dictation" box that lived here is the History list now.
         AdvancedSwitch()
-        // Kept for the permission case it was written for, shown only to
-        // somebody looking for it.
-        if advanced, let last = dictation.lastTranscript {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Last dictation")
-                    .font(Theme.chrome(12))
-                    .foregroundStyle(Theme.textPrimary)
-                Text(last)
-                    .font(Theme.chrome(11.5))
-                    .foregroundStyle(Theme.textSecondary)
-                    .textSelection(.enabled)
-                Text("Kept so a transcript is never lost to a permission problem.")
-                    .font(Theme.chrome(11))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-            .lookRowBox()
-        }
     }
 
     // MARK: - Words
@@ -649,14 +616,19 @@ struct LookNote: View {
     @_disfavoredOverload
     init<S: StringProtocol>(_ text: S) { self.text = Text(text) }
 
+    @Environment(\.lookInCard) private var inCard
+
     var body: some View {
         text
             .font(Theme.chrome(11))
             .foregroundStyle(Theme.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 2)
+            // Lined up with the rows' text: a card's rows sit 14 in.
+            .padding(.horizontal, inCard ? 14 : 12)
+            .padding(.top, 2)
+            .padding(.bottom, inCard ? 10 : 2)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .containerValue(\.lookAttached, true)
     }
 }
 
@@ -706,5 +678,18 @@ private struct CleanupInstructionsSheet: View {
             .frame(width: 380)
         }
         .padding(20)
+    }
+}
+
+/// The Meeting notes page: the call half of `DictationPane`.
+struct MeetingNotesPane: View {
+    var moreOptions = false
+    var callListeners: CallListeners?
+    var knownWords: [String]?
+    var voiceDownload: CallVoiceDownload.State?
+
+    var body: some View {
+        DictationPane(part: .meetingNotes, moreOptions: moreOptions, callListeners: callListeners,
+                      knownWords: knownWords, voiceDownload: voiceDownload)
     }
 }

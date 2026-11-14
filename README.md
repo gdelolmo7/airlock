@@ -77,8 +77,11 @@ The notch auto-handles the boring 90% and only interrupts you for the risky
 swift run NotchSetup init-policy   # writes a commented starter policy
 ```
 
-Rules live in `~/.airlock/policy.yaml` (global) merged with
-`<project>/.airlock/policy.yaml` (per-project). Format:
+Rules live in `~/.airlock/policy.yaml` (global), merged with your own rules
+for the project in `~/.airlock/projects/<folder>-<id>/policy.yaml`. A
+project's own `<project>/.airlock/policy.yaml` is read too, but **only its
+`deny` rules count**: a repository you download can make Airlock stricter,
+never looser. Format:
 
 ```yaml
 version: 1
@@ -99,8 +102,12 @@ even when an allow rule matches) → `allow` rules → ask.
 
 - Auto-denied agents are told **which rule** denied them and where the policy
   file lives, so they can explain instead of flailing.
-- The **Always** button persists an exact allow rule (project policy when the
-  session has a cwd, global otherwise) — textually, preserving your comments.
+- The **Always** button persists an allow rule (your rules for that project
+  when the session has a cwd, global otherwise) — textually, preserving your
+  comments.
+- A wildcard rule never approves a chained, piped or redirected command, or a
+  path that climbs out with `..`; only a rule naming it exactly does. Changes
+  to Airlock's own rule files are always asked about.
 - A malformed policy file **fails loud** (parse errors name the line and land
   in the log), never silently as "no rules".
 

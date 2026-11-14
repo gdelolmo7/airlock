@@ -30,6 +30,46 @@ enum TypeService {
             return true // nothing to type is not a failure
         }
 
+        // A new line said aloud is Shift-Return, not Return: in a chat box
+        // Return sends the message, and half a message sent is worse than
+        // one that waits for the person to send it.
+        let lines = text.components(separatedBy: "\n")
+        for (index, line) in lines.enumerated() {
+            if index > 0 {
+                guard press(36, flags: .maskShift, source: source) else { return false }
+                try? await Task.sleep(nanoseconds: 8_000_000)
+            }
+            guard await typeRun(line, source: source) else { return false }
+        }
+        return true
+    }
+
+    /// Backspace, `count` times: takes back what dictation just typed.
+    @discardableResult
+    static func erase(count: Int) async -> Bool {
+        guard isTrusted, count > 0, let source = CGEventSource(stateID: .combinedSessionState) else {
+            return false
+        }
+        for _ in 0..<count {
+            guard press(51, flags: [], source: source) else { return false }
+            try? await Task.sleep(nanoseconds: 4_000_000)
+        }
+        return true
+    }
+
+    private static func press(_ key: CGKeyCode, flags: CGEventFlags, source: CGEventSource) -> Bool {
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false)
+        else { return false }
+        // Only the flags asked for: a modifier held right now must not ride along.
+        down.flags = flags
+        up.flags = flags
+        down.post(tap: .cgAnnotatedSessionEventTap)
+        up.post(tap: .cgAnnotatedSessionEventTap)
+        return true
+    }
+
+    private static func typeRun(_ text: String, source: CGEventSource) async -> Bool {
         for chunk in DictationText.chunked(text) {
             var units = Array(chunk.utf16)
             guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),

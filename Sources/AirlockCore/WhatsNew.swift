@@ -54,6 +54,14 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.3.0", title: String(localized: "Add-ons, and notes your way"), items: [
+            Item("puzzlepiece.extension", String(localized: "Settings › Add-ons shows what Airlock can do. Remove what you don't use, add it back with the +.")),
+            Item("person.2", String(localized: "In meetings in the room, the loudest voice shows as you. Name people from the Calls window too.")),
+            // The privacy page promises a new outbound request is in the notes
+            // of the version that adds it.
+            Item("key", String(localized: "Have a Claude key? Add it in Settings › Meeting notes and your calls go to Anthropic for notes.")),
+            Item("widget.small", String(localized: "New desktop widgets: your next call, to-dos, the shelf, what you copied and your agents.")),
+        ]),
         Notes(version: "1.2.2", title: String(localized: "Windows across your screens"), items: [
             Item("rectangle.on.rectangle", String(localized: "With Plus, press ⌃⌥ and an arrow twice quickly to send the window to the screen on that side.")),
             Item("rectangle.grid.2x2", String(localized: "Press ⌃⌥A to arrange every window on your screen so they share the space.")),

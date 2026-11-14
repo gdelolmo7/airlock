@@ -105,9 +105,12 @@ public struct MeetingShadowLine: Codable, Equatable, Sendable {
     }
 }
 
-/// A name the person gave one voice once the meeting was over: "Person 2"
-/// is Ana, or, in the room, "Person 2" is me. Given by hand, never guessed:
-/// a wrong name is worse than none, so the app only ever suggests one.
+/// A name the person gave one voice: "Person 2" is Ana, or, in the room,
+/// "Person 2" is me. A name is given by hand, never guessed: a wrong name
+/// is worse than none, so the app only ever suggests one. The one
+/// exception is "You" in the room (`guessed`): the voice nearest the Mac,
+/// clearly the loudest, is the person taking the notes, until they say
+/// otherwise.
 public struct MeetingVoiceName: Codable, Equatable, Sendable {
     /// The voice: its person number, or `MeetingRecord.otherSide` for the
     /// other side of a call heard as one voice.
@@ -116,11 +119,35 @@ public struct MeetingVoiceName: Codable, Equatable, Sendable {
     public var name: String
     /// "That's me": in the room, the voice of the person the notes are for.
     public var isYou: Bool
+    /// "You" worked out from how loud each voice was on the Mac's
+    /// microphone, not said by the person. Each pass of telling voices
+    /// apart may move or drop it; any name given by hand replaces it.
+    public var guessed: Bool
 
-    public init(voice: Int, name: String, isYou: Bool = false) {
+    public init(voice: Int, name: String, isYou: Bool = false, guessed: Bool = false) {
         self.voice = voice
         self.name = isYou ? "" : name
         self.isYou = isYou
+        self.guessed = isYou && guessed
+    }
+
+    private enum CodingKeys: String, CodingKey { case voice, name, isYou, guessed }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        voice = try container.decode(Int.self, forKey: .voice)
+        name = try container.decode(String.self, forKey: .name)
+        isYou = try container.decode(Bool.self, forKey: .isYou)
+        // Names saved before guesses existed were all given by hand.
+        guessed = try container.decodeIfPresent(Bool.self, forKey: .guessed) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(voice, forKey: .voice)
+        try container.encode(name, forKey: .name)
+        try container.encode(isYou, forKey: .isYou)
+        if guessed { try container.encode(guessed, forKey: .guessed) }
     }
 }
 
@@ -247,10 +274,17 @@ public struct MeetingNotesWriter: Codable, Equatable, Sendable {
     /// because they were used up (`MacWhy.allowanceUsed`). Only said on the
     /// page: unlike `notBefore`, nothing waits for it.
     public var backOn: Date?
+    /// Written by Claude with the person's own Anthropic key (`OwnKeyNotes`),
+    /// not by Airlock's online notes service.
+    public var ownKey: Bool
+    /// Why the person's own key couldn't write them, when it was asked and
+    /// the notes were written the usual way instead: said under the date.
+    public var ownKeyProblem: OwnKeyNotes.Problem?
 
     public init(place: Place, model: String?, writtenAt: Date, waitsForOnline: Bool = false,
                 onlineTries: Int = 0, noNotesYet: NoNotesYet? = nil, notBefore: Date? = nil,
-                why: MacWhy? = nil, plan: PlanSnapshot? = nil, backOn: Date? = nil) {
+                why: MacWhy? = nil, plan: PlanSnapshot? = nil, backOn: Date? = nil,
+                ownKey: Bool = false, ownKeyProblem: OwnKeyNotes.Problem? = nil) {
         self.place = place
         self.model = model
         self.writtenAt = writtenAt
@@ -261,6 +295,8 @@ public struct MeetingNotesWriter: Codable, Equatable, Sendable {
         self.why = why
         self.plan = plan
         self.backOn = backOn
+        self.ownKey = ownKey
+        self.ownKeyProblem = ownKeyProblem
     }
 
     public static func mac(at date: Date, waitsForOnline: Bool = false, why: MacWhy? = nil,
@@ -273,11 +309,22 @@ public struct MeetingNotesWriter: Codable, Equatable, Sendable {
         MeetingNotesWriter(place: .online, model: model, writtenAt: date, plan: plan)
     }
 
+    /// Notes Claude wrote with the person's own key.
+    public static func ownKey(model: String?, at date: Date, plan: PlanSnapshot? = nil) -> MeetingNotesWriter {
+        MeetingNotesWriter(place: .online, model: model ?? OwnKeyNotes.model, writtenAt: date, plan: plan,
+                           ownKey: true)
+    }
+
     /// A page with no notes, on a Mac that can't write them, waiting for
     /// them to be written online.
     public static func noNotes(_ why: NoNotesYet, at date: Date, notBefore: Date? = nil) -> MeetingNotesWriter {
         MeetingNotesWriter(place: .mac, model: nil, writtenAt: date, waitsForOnline: true,
                            noNotesYet: why, notBefore: notBefore)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case place, model, writtenAt, waitsForOnline, onlineTries, noNotesYet, notBefore, why, plan, backOn
+        case ownKey, ownKeyProblem
     }
 
     /// Fields missing from an older file read as nothing waiting; a reason
@@ -293,7 +340,29 @@ public struct MeetingNotesWriter: Codable, Equatable, Sendable {
                   notBefore: try container.decodeIfPresent(Date.self, forKey: .notBefore),
                   why: (try? container.decodeIfPresent(MacWhy.self, forKey: .why)) ?? nil,
                   plan: (try? container.decodeIfPresent(PlanSnapshot.self, forKey: .plan)) ?? nil,
-                  backOn: try container.decodeIfPresent(Date.self, forKey: .backOn))
+                  backOn: try container.decodeIfPresent(Date.self, forKey: .backOn),
+                  ownKey: (try? container.decodeIfPresent(Bool.self, forKey: .ownKey)) ?? false,
+                  ownKeyProblem: (try? container.decodeIfPresent(OwnKeyNotes.Problem.self,
+                                                                  forKey: .ownKeyProblem)) ?? nil)
+    }
+
+    /// As the synthesised encoding, except that notes not written with the
+    /// person's own key say nothing about it, so every other file stays
+    /// what it was.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(place, forKey: .place)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encode(writtenAt, forKey: .writtenAt)
+        try container.encode(waitsForOnline, forKey: .waitsForOnline)
+        try container.encode(onlineTries, forKey: .onlineTries)
+        try container.encodeIfPresent(noNotesYet, forKey: .noNotesYet)
+        try container.encodeIfPresent(notBefore, forKey: .notBefore)
+        try container.encodeIfPresent(why, forKey: .why)
+        try container.encodeIfPresent(plan, forKey: .plan)
+        try container.encodeIfPresent(backOn, forKey: .backOn)
+        if ownKey { try container.encode(ownKey, forKey: .ownKey) }
+        try container.encodeIfPresent(ownKeyProblem, forKey: .ownKeyProblem)
     }
 }
 
@@ -384,6 +453,10 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
     /// first 30 were written without them, which the offer to write them
     /// again says. Nil on every call that was never locked.
     public var openedMinutes: Int?
+    /// The name the person gave the call in the notes window. It names the
+    /// call before anything else does (`MeetingFiles.title(of:)`); nil until
+    /// they rename it.
+    public var givenTitle: String?
 
     public init(bundleID: String, appName: String, site: MeetingLink.Provider? = nil,
                 startedAt: Date, endedAt: Date? = nil, languages: [String] = [],
@@ -447,6 +520,7 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
             stoppedAtLimit: try container.decodeIfPresent(TimeInterval.self, forKey: .stoppedAtLimit),
             locked: try container.decodeIfPresent(LockedPart.self, forKey: .locked))
         openedMinutes = try container.decodeIfPresent(Int.self, forKey: .openedMinutes)
+        givenTitle = try container.decodeIfPresent(String.self, forKey: .givenTitle)
     }
 
     /// The name people know the call by: the meeting service when the call is
@@ -620,18 +694,25 @@ public struct MeetingRecord: Codable, Equatable, Sendable {
     /// for (only ever in the room: on a call your side is your microphone).
     /// A blank name with no `isYou` takes the name away, back to "Person 2".
     public mutating func name(_ voice: Int, as name: String?, isYou: Bool = false) {
+        give(voice, name, isYou: isYou, guessed: false)
+    }
+
+    /// `name`, keeping whether "You" was a guess. "You" said by hand takes
+    /// any guessed "You" away: there is only one of you.
+    mutating func give(_ voice: Int, _ name: String?, isYou: Bool, guessed: Bool) {
         let name = MeetingText.oneLine(name ?? "")
         let you = isYou && isInPerson
         names.removeAll { $0.voice == voice }
+        if you && !guessed { names.removeAll(where: \.guessed) }
         guard you || !name.isEmpty else { return }
-        names.append(MeetingVoiceName(voice: voice, name: name, isYou: you))
+        names.append(MeetingVoiceName(voice: voice, name: name, isYou: you, guessed: guessed))
     }
 
     /// Every voice named as `names` says, and any voice they leave out
     /// back to its number.
     public mutating func replaceNames(with names: [MeetingVoiceName]) {
         self.names = []
-        for given in names { name(given.voice, as: given.name, isYou: given.isYou) }
+        for given in names { give(given.voice, given.name, isYou: given.isYou, guessed: given.guessed) }
     }
 
     // MARK: - Jots, marks and pauses

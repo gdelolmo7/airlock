@@ -57,8 +57,11 @@ final class CallsPage {
     /// The call notes are being taken of, drawn as it is written, and the
     /// window beside the call that "Open in a window" opens.
     func follow(_ live: CallNotesLive, openWindow: @escaping @MainActor () -> Void,
-                isPaused: @escaping @MainActor () -> Bool) {
-        library.live = CallNotesLibrary.Live(call: live, openWindow: openWindow, isPaused: isPaused)
+                isPaused: @escaping @MainActor () -> Bool,
+                canName: @escaping @MainActor (Int) -> Bool = { _ in false },
+                name: @escaping @MainActor ([MeetingVoiceName]) -> Void = { _ in }) {
+        library.live = CallNotesLibrary.Live(call: live, openWindow: openWindow, isPaused: isPaused,
+                                             canName: canName, name: name)
     }
 
     /// The "Take notes" button at the foot of the list: what it says now, and
@@ -111,7 +114,17 @@ final class CallNotesLibrary {
         let record: MeetingRecord
         /// What the notes file says; nil before it is written.
         let page: String?
+        /// The page as Airlock wrote it, with the names given since put in:
+        /// what the person's edits are told apart from. Nil for notes from
+        /// before it was kept, and in the gallery.
+        var written: String? = nil
         var id: String { folder.lastPathComponent }
+
+        /// Whether the person changed the notes since Airlock wrote them.
+        var hasEdits: Bool {
+            guard let written, let page else { return false }
+            return page != written
+        }
     }
 
     enum Tab: Hashable { case notes, transcript }
@@ -257,6 +270,8 @@ final class CallNotesLibrary {
     private func rewrite(_ call: Call, with offering: Offering) {
         redoing = call.id
         redone = nil
+        editing = nil
+        let edited = call.hasEdits
         Task { @MainActor [weak self] in
             let result = await offering.redo(call)
             guard let self else { return }
@@ -264,7 +279,14 @@ final class CallNotesLibrary {
             if let said = Self.said(result, plan: offering.plan()) {
                 redone = Redone(call: call.id, said: said)
             }
-            if result == .written { reload(selecting: nil) }
+            if result == .written {
+                // Undo can't reach past notes written again.
+                undoPages[call.id] = nil
+                if edited, let file = Self.newestEarlier(in: call.folder) {
+                    keptEdits = (call.id, file)
+                }
+                reload(selecting: nil)
+            }
         }
     }
 
@@ -303,6 +325,10 @@ final class CallNotesLibrary {
         let call: CallNotesLive
         let openWindow: @MainActor () -> Void
         let isPaused: @MainActor () -> Bool
+        /// Whether a voice of the call can be named while it is being
+        /// written, and naming them: the same as the window beside the call.
+        let canName: @MainActor (Int) -> Bool
+        let name: @MainActor ([MeetingVoiceName]) -> Void
     }
 
     /// `call` as it stands: while it is being written, the notes model's
@@ -414,7 +440,8 @@ final class CallNotesLibrary {
         if copied, let call = calls.first { self.copied = Copied(call: call.id, tab: tab) }
         if live, let call = calls.first {
             self.live = Live(call: CallNotesLive(previewing: call.record, folder: call.folder, hearing: hearing),
-                             openWindow: {}, isPaused: { false })
+                             openWindow: {}, isPaused: { false },
+                             canName: { _ in true }, name: { _ in })
         }
         if let entry, let call = calls.first { renaming = Renaming(call: call.id, entry: entry) }
         if let time, let call = calls.first,
@@ -470,7 +497,10 @@ final class CallNotesLibrary {
         loading?.cancel()
         loading = Task { [weak self] in
             let found = await Task.detached(priority: .userInitiated) {
-                store.calls().map { Call(folder: $0.folder, record: $0.record, page: store.notesPage(in: $0.folder)) }
+                store.calls().map { found in
+                    Call(folder: found.folder, record: found.record, page: store.notesPage(in: found.folder),
+                         written: store.writtenNotes(in: found.folder).map { MeetingNaming.apply(found.record, to: $0) })
+                }
             }.value
             guard !Task.isCancelled, let self else { return }
             if found != calls { calls = found }
@@ -530,10 +560,15 @@ final class CallNotesLibrary {
         if let index = calls.firstIndex(where: { $0.id == call.id }) {
             // The gallery has no files to read again: its page is named here.
             let page = preview ? call.page.map { MeetingNaming.apply(record, to: $0) } : call.page
-            calls[index] = Call(folder: call.folder, record: record, page: page)
+            calls[index] = Call(folder: call.folder, record: record, page: page,
+                                written: call.written)
         }
         guard !preview else { return }
-        if let saveNames {
+        if isLive(call), let live {
+            // The notes model keeps the call being written: names go through
+            // it, so the next line it saves carries them too.
+            live.name(record.names)
+        } else if let saveNames {
             saveNames(call.folder, record.names)
         } else {
             try? store.saveNames(of: record, in: call.folder)
@@ -554,7 +589,9 @@ final class CallNotesLibrary {
                 MeetingWordCheck.use(answer.best, for: forms, in: &record)
             }
             calls[index] = Call(folder: call.folder, record: record, page: MeetingWordCheck.answer(
-                page, best: answer.best, heard: answer.heard, use: answer.use, listed: answer.listed))
+                page, best: answer.best, heard: answer.heard, use: answer.use, listed: answer.listed),
+                written: call.written.map { MeetingWordCheck.answer(
+                    $0, best: answer.best, heard: answer.heard, use: answer.use, listed: answer.listed) })
         }
         guard !preview else { return }
         if let checkWord {
@@ -598,6 +635,132 @@ final class CallNotesLibrary {
         let file = call.folder.appendingPathComponent(name)
         let target = FileManager.default.fileExists(atPath: file.path) ? file : call.folder
         NSWorkspace.shared.activateFileViewerSelecting([target])
+    }
+
+    // MARK: Editing the notes
+
+    /// What is being typed into now: a line of the notes, a line being
+    /// added to a card, or the call's name. One at a time.
+    enum Editing: Hashable {
+        case line(call: String, lines: Range<Int>)
+        case adding(call: String, at: Int)
+        case title(call: String)
+    }
+
+    var editing: Editing?
+    /// The pages each call had before its last edits, the newest last:
+    /// what Undo goes back to. Kept while the app runs.
+    private(set) var undoPages: [String: [String]] = [:]
+    /// How many edits Undo can go back through, per call.
+    static let undoDepth = 100
+    /// A redo wrote over edited notes: the call, and the file the edited
+    /// page was kept in, one click away.
+    private(set) var keptEdits: (call: String, file: URL)?
+
+    /// Whether `call`'s notes can be changed now: written, and not being
+    /// written down or written again.
+    func canEdit(_ call: Call) -> Bool {
+        call.page != nil && !isLive(call) && redoing != call.id && !isRead(call)
+    }
+
+    func canUndo(_ call: Call) -> Bool { !(undoPages[call.id] ?? []).isEmpty }
+
+    /// A to-do ticked, or unticked.
+    func toggle(_ call: Call, lines: Range<Int>) {
+        guard let page = call.page else { return }
+        edit(call, to: MeetingPageEdit.toggle(page, lines: lines))
+    }
+
+    /// A line of the notes reading `text` instead; empty takes it off.
+    func replace(_ call: Call, lines: Range<Int>, with text: String) {
+        editing = nil
+        guard let page = call.page else { return }
+        edit(call, to: MeetingPageEdit.replace(page, lines: lines, with: text))
+    }
+
+    func delete(_ call: Call, lines: Range<Int>) {
+        editing = nil
+        guard let page = call.page else { return }
+        edit(call, to: MeetingPageEdit.delete(page, lines: lines))
+    }
+
+    /// A line the person typed, added before page line `at`.
+    func add(_ call: Call, at index: Int, text: String, todo: Bool) {
+        editing = nil
+        guard let page = call.page else { return }
+        edit(call, to: MeetingPageEdit.add(page, at: index, text: text, todo: todo))
+    }
+
+    /// The last edit taken back.
+    func undo(_ call: Call) {
+        guard var pages = undoPages[call.id], let page = pages.popLast() else { return }
+        undoPages[call.id] = pages
+        editing = nil
+        save(call, page: page)
+    }
+
+    /// "Back to what Airlock wrote": the edits gone, as one edit Undo can
+    /// take back.
+    func restoreWritten(_ call: Call) {
+        guard let written = call.written else { return }
+        editing = nil
+        edit(call, to: written)
+    }
+
+    /// The call named `title` by the person; empty gives it back its name.
+    func retitle(_ call: Call, as title: String) {
+        editing = nil
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title != MeetingFiles.title(of: call.record) else { return }
+        var record = call.record
+        record.givenTitle = title.isEmpty ? nil : title
+        let heading = MeetingFiles.title(of: record, inFile: true)
+        if let index = calls.firstIndex(where: { $0.id == call.id }) {
+            calls[index] = Call(folder: call.folder, record: record,
+                                page: call.page.map { MeetingPageEdit.retitled($0, as: heading) },
+                                written: call.written.map { MeetingPageEdit.retitled($0, as: heading) })
+        }
+        guard store.root.path != "/var/empty" else { return }
+        try? store.saveGivenTitle(title, in: call.folder)
+        reload(selecting: nil)
+    }
+
+    /// `call`'s page changed to `page`, the one before kept for Undo.
+    private func edit(_ call: Call, to page: String) {
+        guard let before = call.page, page != before else { return }
+        var pages = undoPages[call.id] ?? []
+        pages.append(before)
+        if pages.count > Self.undoDepth { pages.removeFirst(pages.count - Self.undoDepth) }
+        undoPages[call.id] = pages
+        save(call, page: page)
+    }
+
+    /// Shown at once, and written to the notes file: the file is the notes.
+    private func save(_ call: Call, page: String) {
+        guard let index = calls.firstIndex(where: { $0.id == call.id }) else { return }
+        let now = calls[index]
+        calls[index] = Call(folder: now.folder, record: now.record, page: page, written: now.written)
+        guard store.root.path != "/var/empty" else { return }
+        try? store.saveEditedNotes(page, in: call.folder)
+    }
+
+    /// The newest earlier version of `call`'s notes kept in its folder.
+    private static func newestEarlier(in folder: URL) -> URL? {
+        let stem = (MeetingFiles.earlierNotesFirstName as NSString).deletingPathExtension
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        return files.filter { $0.lastPathComponent.hasPrefix(stem) }
+            .max { modified($0) < modified($1) }
+    }
+
+    private static func modified(_ url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+    }
+
+    /// The kept edited notes, opened in the Mac's app for them.
+    func openKeptEdits() {
+        guard let keptEdits else { return }
+        NSWorkspace.shared.open(keptEdits.file)
     }
 
     /// What Copy puts on the clipboard from the Transcript tab: what the tab
@@ -1057,6 +1220,8 @@ private struct CallNotesHeader: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let call: CallNotesLibrary.Call
     let live: Bool
+    @State private var askingRestore = false
+    @State private var titleHovered = false
 
     var body: some View {
         @Bindable var library = library
@@ -1065,12 +1230,7 @@ private struct CallNotesHeader: View {
             HStack(spacing: 14) {
                 CallAppTile(kind: CallGlyph.kind(for: call.record), size: 40)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(Theme.chrome(21, .bold))
-                        .foregroundStyle(Theme.textPrimary)
-                        .lineLimit(1)
-                        .help(title)
-                        .accessibilityAddTraits(.isHeader)
+                    titleLine(title)
                     meta
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1100,10 +1260,70 @@ private struct CallNotesHeader: View {
         }
     }
 
-    /// Name people (once the call is over and has voices), Copy, Show in
+    /// The call's name; a click on it, once the call is over, makes it a
+    /// field to give it another. Empty gives it back the name it had.
+    @ViewBuilder private func titleLine(_ title: String) -> some View {
+        if library.editing == .title(call: call.id) {
+            CallNotesTitleField(initial: title) { text in
+                if let text { library.retitle(call, as: text) } else { library.editing = nil }
+            }
+        } else if call.record.endedAt != nil, !live {
+            Button {
+                library.editing = .title(call: call.id)
+            } label: {
+                HStack(spacing: 8) {
+                    titleText(title)
+                    Image(systemName: "pencil")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .opacity(titleHovered ? 1 : 0)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                withAnimation(MotionEffect.pointer) { titleHovered = inside }
+            }
+            .help(String(localized: "Rename this call"))
+            .accessibilityHint("Gives this call a name of your own")
+        } else {
+            titleText(title).help(title)
+        }
+    }
+
+    private func titleText(_ title: String) -> some View {
+        Text(title)
+            .font(Theme.chrome(21, .bold))
+            .foregroundStyle(Theme.textPrimary)
+            .lineLimit(1)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// Name people (once the call is over and has voices), Undo and "Back to
+    /// what Airlock wrote" once the notes were changed here, Copy, Show in
     /// Finder.
     private func tools(compact: Bool, nameCompact: Bool = false) -> some View {
         HStack(spacing: 8) {
+            if library.tab == .notes, library.canEdit(call) {
+                if library.canUndo(call), library.editing == nil {
+                    CallNotesTool(String(localized: "Undo"), symbol: "arrow.uturn.backward", compact: compact) {
+                        library.undo(call)
+                    }
+                    .keyboardShortcut("z", modifiers: .command)
+                }
+                if call.hasEdits {
+                    CallNotesTool(String(localized: "Back to what Airlock wrote"), symbol: "clock.arrow.circlepath",
+                                  compact: compact) { askingRestore = true }
+                        .confirmationDialog("Go back to the notes as Airlock wrote them?",
+                                            isPresented: $askingRestore) {
+                            Button("Go back") { library.restoreWritten(call) }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("Your changes to these notes go. Undo brings them back while this window is open.")
+                        }
+                }
+            }
             if CallNotesLibrary.canName(call.record) {
                 CallNotesTool(String(localized: "Name people"), symbol: "person.2", tone: .take, compact: nameCompact) {
                     withAnimation(Motion.open.animation(reduceMotion: reduceMotion)) { library.naming = call.id }
@@ -1168,6 +1388,42 @@ private struct CallNotesHeader: View {
                 .lineLimit(1)
         }
         .fixedSize()
+    }
+}
+
+/// The call's name being changed, in the header's own type.
+private struct CallNotesTitleField: View {
+    let initial: String
+    let done: (String?) -> Void
+    @State private var text = ""
+    @State private var finished = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField(String(localized: "Name this call"), text: $text)
+            .textFieldStyle(.plain)
+            .font(Theme.chrome(21, .bold))
+            .foregroundStyle(Theme.textPrimary)
+            .focused($focused)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.06)))
+            .padding(.horizontal, -6)
+            .onSubmit { finish(text) }
+            .onExitCommand { finish(nil) }
+            .onChange(of: focused) { _, now in
+                if !now { finish(text) }
+            }
+            .onAppear {
+                text = initial
+                focused = true
+            }
+    }
+
+    private func finish(_ words: String?) {
+        guard !finished else { return }
+        finished = true
+        done(words)
     }
 }
 
@@ -1364,7 +1620,8 @@ private struct CallNotesPage: View {
 
     var body: some View {
         if let page = call.page {
-            let placed = MeetingPage.placed(MeetingPage.body(of: page, header: MeetingFiles.header(of: call.record)))
+            let placed = MeetingPage.placed(page: page, header: MeetingFiles.header(of: call.record),
+                                            written: call.written)
             let page = MeetingPage.sections(placed)
             // The lines under the date that say how the notes came to be
             // are drawn as notices, not as text.
@@ -1713,6 +1970,9 @@ struct CallNotesCard: View {
             } else {
                 list(lines, look: look)
             }
+            if let call, let at = MeetingPageEdit.end(of: section), Self.takesNewLines(look) {
+                CallNotesAddLine(call: call, at: at, todo: look.kind == .todos)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, look.kind == .summary ? 14 : (look.kind == .loose ? 0 : 12))
@@ -1740,10 +2000,21 @@ struct CallNotesCard: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// The cards a line of the person's own can be added to: lists, not the
+    /// summary, the words to check or the lines above the first heading.
+    private static func takesNewLines(_ look: CallNotesCardLook) -> Bool {
+        switch look.kind {
+        case .todos, .list, .yours: return true
+        case .summary, .words, .loose: return false
+        }
+    }
+
     /// Lines one under the other, a hairline between list lines.
     private func list(_ lines: [MeetingPage.Placed], look: CallNotesCardLook, grouped: Bool = false) -> some View {
         ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-            draw(line, look: look, grouped: grouped)
+            CallNotesEditableLine(call: call, line: line, look: look) {
+                draw(line, look: look, grouped: grouped)
+            }
                 .overlay(alignment: .top) {
                     if index > 0, Self.isItem(line), Self.isItem(lines[index - 1]) {
                         Rectangle().fill(Color.white.opacity(0.04)).frame(height: 1)
@@ -1779,7 +2050,7 @@ struct CallNotesCard: View {
         case .paragraph(let text):
             Text(CallNotesItem.inline(MeetingNotesShown.line(text)))
                 .font(Theme.chrome(look.kind == .summary ? 14 : 13.5))
-                .foregroundStyle(paragraphInk(look, yours: line.isYours))
+                .foregroundStyle(paragraphInk(look, yours: line.isYours || line.changed))
                 .lineSpacing(look.kind == .summary ? 4 : 3)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, look.kind == .summary ? 0 : 4)
@@ -1791,7 +2062,8 @@ struct CallNotesCard: View {
             let others = shared ? MeetingOwners.others(owner) : []
             let detail = question?.context ?? (others.isEmpty ? nil : String(localized: "with \(others.map(MeetingRecord.shownLabel).joined(separator: ", "))"))
             let item = CallNotesItem(text: question?.text ?? text, checked: checked, owner: shared ? nil : owner,
-                                     said: said, look: look, yours: line.isYours, people: people, detail: detail)
+                                     said: said, look: look, yours: line.isYours || line.changed, people: people,
+                                     detail: detail, tick: tick(line))
             if let at, let call {
                 CallNotesJump(call: call, at: at) { item }
             } else {
@@ -1819,6 +2091,18 @@ struct CallNotesCard: View {
             EmptyView()
         }
     }
+
+    /// What a click on a to-do's circle does: ticks it, saved at once.
+    /// Nil where the notes can't be changed now.
+    private func tick(_ line: MeetingPage.Placed) -> (() -> Void)? {
+        guard let call, let lines = line.lines else { return nil }
+        return { [library] in
+            guard let library, library.canEdit(call) else { return }
+            library.toggle(call, lines: lines)
+        }
+    }
+
+    @Environment(CallNotesLibrary.self) private var library: CallNotesLibrary?
 
     private func paragraphInk(_ look: CallNotesCardLook, yours: Bool) -> Color {
         if yours { return Theme.textPrimary }
@@ -2182,12 +2466,14 @@ private struct CallNotesTopicRow: View {
             let words = point.lead.map { "**\($0):** \(point.rest)" } ?? point.rest
             let said = call.flatMap { call in at.map { CallsCard.time($0, into: call.record.startedAt) } }
             let item = CallNotesItem(text: words, checked: nil, owner: nil, said: said,
-                                     look: CallNotesCardLook(MeetingFiles.topicsHeading), yours: false,
+                                     look: CallNotesCardLook(MeetingFiles.topicsHeading), yours: line.changed,
                                      people: [], decided: point.decided)
-            if let at, let call {
-                CallNotesJump(call: call, at: at) { item }
-            } else {
-                item
+            CallNotesEditableLine(call: call, line: line, look: CallNotesCardLook(MeetingFiles.topicsHeading)) {
+                if let at, let call {
+                    CallNotesJump(call: call, at: at) { item }
+                } else {
+                    item
+                }
             }
         }
     }
@@ -2233,7 +2519,9 @@ private struct CallNotesClosing: View {
             .foregroundStyle(Theme.textTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .environment(\.openURL, OpenURLAction { url in
-                guard url == Self.seePlusLink else { return .systemAction }
+                guard url == Self.seePlusLink else {
+                    return LinkPolicy.isAllowed(url) ? .systemAction : .discarded
+                }
                 library.offering?.showComparison()
                 return .handled
             })
@@ -2273,12 +2561,14 @@ private struct CallNotesRedoButton: View {
     let call: CallNotesLibrary.Call
     let offers: CallNotesOffers
     var title = String(localized: "Redo with better notes")
+    @State private var asking = false
 
     var body: some View {
         let busy = library.redoing == call.id
         VStack(alignment: .trailing, spacing: 6) {
             Button {
-                library.redo(call)
+                // Notes the person changed are asked about first.
+                if call.hasEdits { asking = true } else { library.redo(call) }
             } label: {
                 HStack(spacing: 7) {
                     if busy {
@@ -2304,6 +2594,24 @@ private struct CallNotesRedoButton: View {
             .disabled(library.redoing != nil)
             .help(offers.redoTagged ? "Plus writes better notes online."
                                     : "Writes these notes again online. Counts toward this month's online notes.")
+            .confirmationDialog("Write these notes again?", isPresented: $asking) {
+                Button("Write them again") { library.redo(call) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You changed these notes. The new notes take their place, and your version is kept in the call's folder as \u{201C}Notes (earlier version)\u{201D}.")
+            }
+            if let kept = library.keptEdits, kept.call == call.id {
+                Button {
+                    library.openKeptEdits()
+                } label: {
+                    Text("Open your earlier version")
+                        .font(Theme.chrome(11.5, .medium))
+                        .foregroundStyle(CallsLook.takeText)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                .clickable()
+            }
             if let redone = library.redone, redone.call == call.id {
                 Text(redone.said)
                     .font(Theme.chrome(11))
@@ -2648,6 +2956,8 @@ private struct CallNotesItem: View {
     let people: [CallPeople.Person]
     var detail: String?
     var decided = false
+    /// Ticks or unticks the to-do, when it can be.
+    var tick: (() -> Void)? = nil
 
     /// Half the cap height of 13.5pt text: how far above the baseline a
     /// marker's middle sits, so it lines up with the first line.
@@ -2717,26 +3027,204 @@ private struct CallNotesItem: View {
                     .alignmentGuide(.firstTextBaseline) { $0.height / 2 + Self.capMiddle }
                     .accessibilityHidden(true)
             case false?:
-                Circle()
+                box(Circle()
                     .strokeBorder(CallsLook.openBox, lineWidth: 1.5)
-                    .frame(width: 15, height: 15)
-                    .alignmentGuide(.firstTextBaseline) { $0.height / 2 + Self.capMiddle }
-                    .accessibilityLabel("To-do")
+                    .frame(width: 15, height: 15), done: false)
             case true?:
-                Image(systemName: "checkmark.circle.fill")
+                box(Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 15))
                     .foregroundStyle(Theme.done)
-                    .frame(width: 15, height: 15)
-                    .alignmentGuide(.firstTextBaseline) { $0.height / 2 + Self.capMiddle }
-                    .accessibilityLabel("Done")
+                    .frame(width: 15, height: 15), done: true)
             }
+        }
+    }
+
+    /// A to-do's circle: a click ticks it, ahead of the line's own click
+    /// that opens the transcript.
+    @ViewBuilder private func box(_ mark: some View, done: Bool) -> some View {
+        let shown = mark
+            .contentShape(Rectangle().inset(by: -4))
+            .alignmentGuide(.firstTextBaseline) { $0.height / 2 + Self.capMiddle }
+        if let tick {
+            shown
+                .highPriorityGesture(TapGesture().onEnded { tick() })
+                .clickable()
+                .help(done ? "Mark as not done" : "Mark as done")
+                .accessibilityLabel(done ? "Done" : "To-do")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(named: done ? "Mark as not done" : "Mark as done", tick)
+        } else {
+            shown.accessibilityLabel(done ? "Done" : "To-do")
         }
     }
 
     /// Bold and italics inside a line; the words as written when that fails.
     static func inline(_ text: String) -> AttributedString {
+        // Notes are written by a model from what was said: only web and mail
+        // links stay clickable.
         (try? AttributedString(markdown: text, options: .init(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+            interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            .map { LinkPolicy.strippingDisallowedLinks($0) } ?? AttributedString(text)
+    }
+}
+
+/// A line of the notes the person can change: a pencil and a bin show
+/// beside it under the pointer; the pencil turns it into a field with its
+/// words. Enter keeps them, Esc leaves it as it was, nothing takes it off.
+/// Without a call, or while the notes are being written, it is the line.
+private struct CallNotesEditableLine<Content: View>: View {
+    let call: CallNotesLibrary.Call?
+    let line: MeetingPage.Placed
+    let look: CallNotesCardLook
+    @ViewBuilder var content: Content
+    @Environment(CallNotesLibrary.self) private var library: CallNotesLibrary?
+    @State private var hovered = false
+
+    var body: some View {
+        if let library, let call, let lines = line.lines, let words = MeetingPageEdit.editable(line.block),
+           library.canEdit(call) {
+            if library.editing == .line(call: call.id, lines: lines) {
+                CallNotesLineField(initial: words, prompt: String(localized: "Write the line, or leave it empty to take it off"),
+                                   summary: look.kind == .summary) { text in
+                    if let text { library.replace(call, lines: lines, with: text) } else { library.editing = nil }
+                }
+                .padding(.vertical, 4)
+            } else {
+                HStack(alignment: .top, spacing: 4) {
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 2) {
+                        CallNotesLineTool(symbol: "pencil", help: String(localized: "Edit this line")) {
+                            library.editing = .line(call: call.id, lines: lines)
+                        }
+                        CallNotesLineTool(symbol: "trash", help: String(localized: "Delete this line")) {
+                            library.delete(call, lines: lines)
+                        }
+                    }
+                    .padding(.top, look.kind == .summary ? 0 : 4)
+                    .opacity(hovered ? 1 : 0)
+                    .accessibilityHidden(!hovered)
+                }
+                .onHover { inside in
+                    withAnimation(MotionEffect.pointer) { hovered = inside }
+                }
+                .accessibilityAction(named: "Edit this line") {
+                    library.editing = .line(call: call.id, lines: lines)
+                }
+                .accessibilityAction(named: "Delete this line") { library.delete(call, lines: lines) }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// A small icon button beside a line of notes.
+private struct CallNotesLineTool: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(hovered ? Theme.textPrimary : Theme.textTertiary)
+                .frame(width: 22, height: 22)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(hovered ? 0.08 : 0)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .clickable()
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+/// The field a line of notes is written in. `done` is given the words on
+/// Enter or when the field is left, nil on Esc.
+private struct CallNotesLineField: View {
+    let initial: String
+    let prompt: String
+    var summary = false
+    let done: (String?) -> Void
+    @State private var text = ""
+    @State private var finished = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField(prompt, text: $text, axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(Theme.chrome(summary ? 14 : 13.5))
+            .foregroundStyle(Theme.textPrimary)
+            .lineSpacing(3)
+            .focused($focused)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(CallsLook.yours.opacity(0.55), lineWidth: 1))
+            .onSubmit { finish(text) }
+            .onExitCommand { finish(nil) }
+            .onChange(of: focused) { _, now in
+                if !now { finish(text) }
+            }
+            .onAppear {
+                text = initial
+                focused = true
+            }
+    }
+
+    private func finish(_ words: String?) {
+        guard !finished else { return }
+        finished = true
+        done(words)
+    }
+}
+
+/// "Add a line" at the end of a card, or "Add a to-do" on the to-dos:
+/// the person's own line, with no time to jump to, marked as theirs.
+private struct CallNotesAddLine: View {
+    let call: CallNotesLibrary.Call
+    let at: Int
+    let todo: Bool
+    @Environment(CallNotesLibrary.self) private var library: CallNotesLibrary?
+    @State private var hovered = false
+
+    var body: some View {
+        if let library, library.canEdit(call) {
+            if library.editing == .adding(call: call.id, at: at) {
+                CallNotesLineField(initial: "", prompt: todo ? String(localized: "A to-do of your own")
+                                                             : String(localized: "A line of your own")) { text in
+                    if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        library.add(call, at: at, text: text, todo: todo)
+                    } else {
+                        library.editing = nil
+                    }
+                }
+                .padding(.vertical, 6)
+            } else {
+                Button {
+                    library.editing = .adding(call: call.id, at: at)
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10.5, weight: .bold))
+                        Text(todo ? "Add a to-do" : "Add a line")
+                            .font(Theme.chrome(12.5, .medium))
+                    }
+                    .foregroundStyle(hovered ? Theme.textPrimary : Theme.textTertiary)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { hovered = $0 }
+                .clickable()
+            }
+        }
     }
 }
 
@@ -2832,7 +3320,9 @@ private struct CallTranscript: View {
             let headed = CallLive.headed(entries, hearing: others, in: call.record)
             // Asked once for the whole call: it reads every line, so asked
             // for each turn as it scrolled in, a long call stuttered.
-            let nameable = CallNotesLibrary.canName(call.record)
+            let ended = CallNotesLibrary.canName(call.record)
+            let liveNaming = live ? library.live : nil
+            let nameable: (Int) -> Bool = { voice in ended || (liveNaming?.canName(voice) ?? false) }
             let offering = library.offering
             let voicesHint = offering.flatMap { offering in
                 FreeVoicesHint.shows(for: call.record, plan: offering.plan())
@@ -2930,7 +3420,7 @@ private struct CallTranscript: View {
     /// what the same person is saying now, at the end of their turn.
     @ViewBuilder
     private func row(_ entry: MeetingTimeline.Entry, index: Int, people: [CallPeople.Person],
-                     newest: Bool, headed: Bool, nameable: Bool, carryingOn: String? = nil) -> some View {
+                     newest: Bool, headed: Bool, nameable: (Int) -> Bool, carryingOn: String? = nil) -> some View {
         switch entry {
         case .speech(let turn, let marked) where !headed:
             VStack(alignment: .leading, spacing: 4) {
@@ -2961,7 +3451,7 @@ private struct CallTranscript: View {
                 CallPersonAvatar(name: name, seat: seat, size: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        if nameable, let voice = call.record.voice(of: turn) {
+                        if let voice = call.record.voice(of: turn), nameable(voice) {
                             CallTranscriptName(call: call, voice: voice, entry: index, name: name, seat: seat)
                         } else {
                             Text(MeetingRecord.shownLabel(name))

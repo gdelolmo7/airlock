@@ -104,6 +104,11 @@ final class AgentsWidgetModel {
         static let choice = "widget.agents.enabled"
     }
 
+    /// The choice key, read by the launch seed as a sign this Mac's Airlock
+    /// has been used (`AddOnSwitches.seedAtLaunch`). Writes go through
+    /// `choose(_:)`.
+    static let choiceKey = Keys.choice
+
     /// Agents that are set up on this Mac but not wired to us — their own config
     /// file exists and our hooks are not in it.
     ///

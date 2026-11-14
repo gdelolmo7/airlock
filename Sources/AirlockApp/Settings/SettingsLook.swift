@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import AirlockCore
 
@@ -32,27 +33,198 @@ enum SettingsLook {
 
 /// Title and one sentence saying what the page is for, and "Learn more" at
 /// the end of the title's line when the website has a page about it.
-struct LookPageHeader: View {
+struct LookPageHeader<Accessory: View>: View {
     let title: String
     let subtitle: String
     var learnMore: [FeaturePage] = []
+    /// The page's tile, as its sidebar row wears it.
+    var symbol: String?
+    var tint: Color?
+    @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title)
-                    .font(Theme.chrome(15, .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                LookLearnMore(pages: learnMore)
+        HStack(alignment: .center, spacing: 14) {
+            if let symbol {
+                LookTile(symbol: symbol, tint: tint, size: 44)
             }
-            Text(subtitle)
-                .font(Theme.chrome(12))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title)
+                        .font(Theme.chrome(21, .bold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 0)
+                    LookLearnMore(pages: learnMore)
+                }
+                Text(subtitle)
+                    .font(Theme.chrome(12))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            accessory()
         }
+        .padding(.bottom, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(SettingsLook.rowStroke).frame(height: 1)
+        }
+    }
+}
+
+extension LookPageHeader where Accessory == EmptyView {
+    init(title: String, subtitle: String, learnMore: [FeaturePage] = [],
+         symbol: String? = nil, tint: Color? = nil) {
+        self.init(title: title, subtitle: subtitle, learnMore: learnMore,
+                  symbol: symbol, tint: tint, accessory: { EmptyView() })
+    }
+}
+
+/// The rounded square a page wears, in the sidebar and in its header: the
+/// add-on's colour, dark behind a bright symbol, or plain grey for the
+/// pages that are the app itself.
+struct LookTile: View {
+    let symbol: String
+    var tint: Color?
+    var size: CGFloat = 20
+    var dimmed = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.46, weight: .semibold))
+            .foregroundStyle(dimmed ? Color(white: 0.45) : (tint.map(LookTint.bright) ?? Color(white: 0.85)))
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
+                .fill(dimmed || tint == nil ? Color(white: 0.15) : LookTint.deep(tint!)))
+            .accessibilityHidden(true)
+    }
+}
+
+/// The two shades of a page's colour: a deep one for a tile's ground and a
+/// bright one for what is drawn on it, and for card titles.
+enum LookTint {
+    static func bright(_ tint: Color) -> Color { mix(tint, with: .white, 0.38) }
+    static func deep(_ tint: Color) -> Color { mix(tint, with: NSColor(white: 0.08, alpha: 1), 0.72) }
+
+    private static func mix(_ tint: Color, with other: NSColor, _ fraction: CGFloat) -> Color {
+        let base = NSColor(tint).usingColorSpace(.sRGB) ?? .gray
+        return Color(nsColor: base.blended(withFraction: fraction, of: other) ?? base)
+    }
+}
+
+extension ContainerValues {
+    /// Set by `LookGroupLabel`: on a page, a label starts a new card and
+    /// becomes its title.
+    @Entry var lookCardTitle: Text?
+    /// A row drawn on its own between cards, never inside one: the island
+    /// picture, a problem that needs fixing.
+    @Entry var lookStandalone = false
+    /// A note that belongs to the row above it, so no hairline between them.
+    @Entry var lookAttached = false
+}
+
+extension EnvironmentValues {
+    /// Inside a card a row drops its own box: the card is the box.
+    @Entry var lookInCard = false
+    /// The page's colour, for its card titles.
+    @Entry var lookTint: Color?
+    /// The page being drawn, so its header can wear the sidebar's tile.
+    @Entry var lookPane: SettingsPane?
+}
+
+extension View {
+    /// Drawn on its own between a page's cards (see `lookStandalone`).
+    func lookStandalone() -> some View {
+        environment(\.lookInCard, false).containerValue(\.lookStandalone, true)
+    }
+}
+
+/// A page's rows in cards, Calls-style: each `LookGroupLabel` starts a new
+/// card and is its title, rows before the first label share an untitled
+/// card, and rows are parted by hairlines rather than each in its own box.
+/// Pages keep writing plain rows and labels; this does the grouping.
+struct LookCards<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        // A subview keeps the environment it was declared in, not the one
+        // it is placed in, so "in a card" is set here, before the split.
+        // Standalone pieces take it back off themselves.
+        Group(subviews: content.environment(\.lookInCard, true)) { subviews in
+            ForEach(LookCardSection.split(subviews)) { section in
+                if section.standalone {
+                    ForEach(section.rows) { $0 }
+                } else {
+                    LookCard(title: section.title, rows: section.rows)
+                }
+            }
+        }
+    }
+}
+
+private struct LookCardSection: Identifiable {
+    let id: Int
+    var title: Text?
+    var standalone = false
+    var rows: [Subview] = []
+
+    static func split(_ subviews: SubviewsCollection) -> [LookCardSection] {
+        var sections: [LookCardSection] = []
+        var current: LookCardSection?
+        func close() {
+            if let done = current, !done.rows.isEmpty || done.title != nil { sections.append(done) }
+            current = nil
+        }
+        for (index, subview) in subviews.enumerated() {
+            let values = subview.containerValues
+            if let title = values.lookCardTitle {
+                close()
+                current = LookCardSection(id: index, title: title)
+            } else if values.lookStandalone {
+                close()
+                sections.append(LookCardSection(id: index, standalone: true, rows: [subview]))
+            } else {
+                if current == nil { current = LookCardSection(id: index) }
+                current?.rows.append(subview)
+            }
+        }
+        close()
+        return sections
+    }
+}
+
+private struct LookCard: View {
+    let title: Text?
+    let rows: [Subview]
+    @Environment(\.lookTint) private var tint
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let title {
+                title
+                    .font(Theme.chrome(12, .bold))
+                    .foregroundStyle(tint.map(LookTint.bright) ?? Theme.textSecondary)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 11)
+                    .padding(.bottom, rows.isEmpty ? 11 : 1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                if index > 0 && !row.containerValues.lookAttached {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.06))
+                        .frame(height: 1)
+                        .padding(.horizontal, 14)
+                }
+                row
+            }
+        }
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.03)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+        .padding(.bottom, 6)
     }
 }
 
@@ -74,13 +246,14 @@ struct LookGroupLabel: View {
             .padding(.top, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
+            .containerValue(\.lookCardTitle, text)
     }
 }
 
 /// A whole page: the header, the rows most people come for, then "More
 /// options" over everything else. Every page is built on this, so they all
 /// open the same way.
-struct LookPage<Rows: View, More: View>: View {
+struct LookPage<Rows: View, More: View, Accessory: View>: View {
     let title: String
     let subtitle: String
     /// The website's pages about what this page sets up (`LookLearnMore`).
@@ -91,13 +264,19 @@ struct LookPage<Rows: View, More: View>: View {
     var anchorsInMoreOptions: Set<SettingsAnchor> = []
     @ViewBuilder var rows: () -> Rows
     @ViewBuilder var more: () -> More
+    /// Beside the header's title: an add-on page's big switch.
+    @ViewBuilder var accessory: () -> Accessory
+    /// No "More options" at all: an add-on that is off has none to show.
+    @Environment(\.lookHidesMore) private var hidesMore
 
     /// Optional so the state gallery can draw a page without the window.
     @Environment(SettingsModel.self) private var settings: SettingsModel?
+    @Environment(\.lookPane) private var pane
 
     init(_ title: String, subtitle: String, learnMore: [FeaturePage] = [], moreOptions: Binding<Bool>,
          anchorsInMoreOptions: Set<SettingsAnchor> = [],
-         @ViewBuilder rows: @escaping () -> Rows, @ViewBuilder more: @escaping () -> More) {
+         @ViewBuilder rows: @escaping () -> Rows, @ViewBuilder more: @escaping () -> More,
+         @ViewBuilder accessory: @escaping () -> Accessory) {
         self.title = title
         self.subtitle = subtitle
         self.learnMore = learnMore
@@ -105,22 +284,24 @@ struct LookPage<Rows: View, More: View>: View {
         self.anchorsInMoreOptions = anchorsInMoreOptions
         self.rows = rows
         self.more = more
+        self.accessory = accessory
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
-                LookPageHeader(title: title, subtitle: subtitle, learnMore: learnMore)
+                LookPageHeader(title: title, subtitle: subtitle, learnMore: learnMore,
+                               symbol: pane?.symbol, tint: pane?.tint, accessory: accessory)
                     .padding(.horizontal, 4)
-                    .padding(.bottom, 8)
-                rows()
-                if More.self != EmptyView.self {
+                    .padding(.bottom, 10)
+                LookCards { rows() }
+                if More.self != EmptyView.self, !hidesMore {
                     LookMoreButton(isOpen: $moreOptions)
-                        .padding(.top, 6)
                     if moreOptions {
                         VStack(alignment: .leading, spacing: SettingsLook.rowSpacing) {
-                            more()
+                            LookCards { more() }
                         }
+                        .padding(.top, 4)
                         .transition(.opacity)
                     }
                 }
@@ -134,6 +315,7 @@ struct LookPage<Rows: View, More: View>: View {
         .background(SettingsLook.ground)
         .environment(\.colorScheme, .dark)
         .environment(\.problemCardLook, .notch)
+        .environment(\.lookTint, pane?.tint)
         .onAppear(perform: openForReveal)
         .onChange(of: settings?.revealRequest?.serial) { openForReveal() }
     }
@@ -145,12 +327,22 @@ struct LookPage<Rows: View, More: View>: View {
     }
 }
 
-extension LookPage where More == EmptyView {
+extension LookPage where Accessory == EmptyView {
+    init(_ title: String, subtitle: String, learnMore: [FeaturePage] = [], moreOptions: Binding<Bool>,
+         anchorsInMoreOptions: Set<SettingsAnchor> = [],
+         @ViewBuilder rows: @escaping () -> Rows, @ViewBuilder more: @escaping () -> More) {
+        self.init(title, subtitle: subtitle, learnMore: learnMore, moreOptions: moreOptions,
+                  anchorsInMoreOptions: anchorsInMoreOptions, rows: rows, more: more,
+                  accessory: { EmptyView() })
+    }
+}
+
+extension LookPage where More == EmptyView, Accessory == EmptyView {
     /// A page short enough to have nothing behind "More options".
     init(_ title: String, subtitle: String, learnMore: [FeaturePage] = [],
          @ViewBuilder rows: @escaping () -> Rows) {
         self.init(title, subtitle: subtitle, learnMore: learnMore, moreOptions: .constant(false),
-                  rows: rows, more: { EmptyView() })
+                  rows: rows, more: { EmptyView() }, accessory: { EmptyView() })
     }
 }
 
@@ -312,14 +504,32 @@ struct LookToggleRow: View {
 
 extension View {
     /// The box a row sits in: the island card's fill and hairline.
+    /// Inside a page's card (`LookCards`) it is only the padding: the card
+    /// is the box, and its hairlines part the rows.
     func lookRowBox() -> some View {
-        padding(.vertical, 9)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: SettingsLook.rowRadius, style: .continuous)
-                .fill(SettingsLook.rowFill))
-            .overlay(RoundedRectangle(cornerRadius: SettingsLook.rowRadius, style: .continuous)
-                .strokeBorder(SettingsLook.rowStroke, lineWidth: 1))
+        modifier(LookRowBox())
+    }
+}
+
+private struct LookRowBox: ViewModifier {
+    @Environment(\.lookInCard) private var inCard
+
+    func body(content: Content) -> some View {
+        if inCard {
+            content
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            content
+                .padding(.vertical, 9)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: SettingsLook.rowRadius, style: .continuous)
+                    .fill(SettingsLook.rowFill))
+                .overlay(RoundedRectangle(cornerRadius: SettingsLook.rowRadius, style: .continuous)
+                    .strokeBorder(SettingsLook.rowStroke, lineWidth: 1))
+        }
     }
 }
 
@@ -509,20 +719,24 @@ struct LookStatus: View {
 
 /// The notch's switch: a small capsule, green when on.
 struct LookSwitchStyle: ToggleStyle {
+    /// The big one at the top of an add-on's page, for the whole add-on.
+    var large = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         let on = configuration.isOn
+        let width: CGFloat = large ? 44 : 30
+        let height: CGFloat = large ? 26 : 18
         Button {
             withAnimation(Motion.swap.animation(reduceMotion: reduceMotion)) { configuration.isOn.toggle() }
         } label: {
             Capsule()
                 .fill(on ? SettingsLook.on : Color.white.opacity(0.14))
-                .frame(width: 30, height: 18)
+                .frame(width: width, height: height)
                 .overlay(alignment: on ? .trailing : .leading) {
                     Circle()
                         .fill(Color.white)
-                        .frame(width: 14, height: 14)
+                        .frame(width: height - 4, height: height - 4)
                         .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
                         .padding(2)
                 }
@@ -571,48 +785,65 @@ struct LookMoreButton: View {
 /// With `calls`, the Airlock window's column: Calls first, then the Settings
 /// pages under their label. One highlight slides between all of them.
 struct LookSideTabs: View {
-    let pages: [SettingsPane]
+    let groups: [SettingsPane.SidebarGroup]
     @Binding var selection: SettingsPane
     /// Whether Calls is the row chosen; nil leaves the row out (call notes
     /// are off, or this is Settings on its own, as in the gallery).
     var calls: Binding<Bool>?
+    /// Whether each add-on is on, for its row's dot. Nil draws no dots.
+    var isOn: ((AddOn) -> Bool)?
     @Namespace private var highlight
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let onCalls = calls?.wrappedValue == true
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             if let calls {
-                tab(String(localized: "Calls"), symbol: "phone",
+                tab(String(localized: "Calls"), symbol: "phone", tint: LookSideTabs.callsTint,
                     help: String(localized: "Every call's notes, what was said, and its recording."),
                     selected: onCalls) { calls.wrappedValue = true }
-                LookGroupLabel("Settings")
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
             }
-            ForEach(pages) { page in
-                tab(page.tabTitle, symbol: page.symbol, help: page.blurb,
-                    selected: !onCalls && selection == page) { selection = page }
+            ForEach(groups) { group in
+                LookGroupLabel(group.title)
+                    .padding(.top, group.id == groups.first?.id && calls == nil ? 0 : 8)
+                    .padding(.bottom, 3)
+                ForEach(group.panes) { page in
+                    let on = page.addOn.map { isOn?($0) ?? true }
+                    tab(page.tabTitle, symbol: page.symbol, tint: page.tint,
+                        help: page.blurb, selected: !onCalls && selection == page,
+                        on: isOn == nil ? nil : on) { selection = page }
+                }
             }
         }
     }
 
-    private func tab(_ title: String, symbol: String, help: String, selected: Bool,
-                     choose: @escaping () -> Void) -> some View {
-        Button {
+    /// The Calls row's green, the colour the call pages use for a call.
+    static let callsTint = Color(nsColor: NSColor(srgbRed: 0.13, green: 0.55, blue: 0.30, alpha: 1))
+
+    /// One row. `on` is nil for a page that is not an add-on: no dot.
+    private func tab(_ title: String, symbol: String, tint: Color?, help: String, selected: Bool,
+                     on: Bool? = nil, choose: @escaping () -> Void) -> some View {
+        let dimmed = on == false && !selected
+        return Button {
             withAnimation(Motion.swap.animation(reduceMotion: reduceMotion)) { choose() }
         } label: {
             HStack(spacing: 9) {
-                Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 18)
+                LookTile(symbol: symbol, tint: tint, size: 20, dimmed: dimmed)
                 Text(title)
                     .font(Theme.chrome(12.5, selected ? .semibold : .medium))
                     .lineLimit(1)
+                Spacer(minLength: 0)
+                if let on {
+                    Circle()
+                        .fill(on ? Theme.done : Color(white: 0.24))
+                        .frame(width: 6, height: 6)
+                        .accessibilityLabel(on ? Text("On") : Text("Off"))
+                }
             }
-            .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .foregroundStyle(selected ? Theme.textPrimary : (dimmed ? Theme.textTertiary : Theme.textSecondary))
+            .padding(.leading, 6)
+            .padding(.trailing, 9)
+            .padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 if selected {
@@ -635,9 +866,10 @@ struct LookSideTabs: View {
 /// The window's left column: search at the top, the pages under it, and
 /// with `calls` the Calls row above them.
 struct LookSidebar: View {
-    let pages: [SettingsPane]
+    var groups: [SettingsPane.SidebarGroup] = SettingsPane.sidebarGroups
     @Binding var selection: SettingsPane
     var calls: Binding<Bool>?
+    var isOn: ((AddOn) -> Bool)?
     @Binding var query: String
     /// Changes when ⌘F is pressed; the field takes the cursor.
     var focusRequest = 0
@@ -648,7 +880,9 @@ struct LookSidebar: View {
             // above their list.
             LookSearchField(text: $query, hint: calls == nil ? String(localized: "Search") : String(localized: "Search settings"),
                             focusRequest: focusRequest)
-            LookSideTabs(pages: pages, selection: $selection, calls: calls)
+            ScrollView(.vertical, showsIndicators: false) {
+                LookSideTabs(groups: groups, selection: $selection, calls: calls, isOn: isOn)
+            }
             Spacer(minLength: 0)
         }
         // The window's title bar is already above this (the safe area), and
@@ -663,7 +897,7 @@ struct LookSidebar: View {
         }
     }
 
-    static let width: CGFloat = 176
+    static let width: CGFloat = 192
 }
 
 /// "Search", in the row box's fill. Esc clears it.

@@ -24,7 +24,7 @@ final class BloubPlacementTests: XCTestCase {
             .copiedNowhereToType,
             .copiedAfterKeyOrClick,
             .copiedCantTypeYet,
-            .reachedLimit,
+            .reachedLimit(minutes: 5),
             .tidyingFailed,
             .secureInput(holder: nil),
         ]

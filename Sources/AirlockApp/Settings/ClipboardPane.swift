@@ -22,10 +22,8 @@ struct ClipboardPane: View {
 
     var body: some View {
         @Bindable var clipboard = clipboard
-        LookPage(String(localized: "Clipboard"), subtitle: String(localized: "Everything you copy, kept on this Mac."),
-                 learnMore: SettingsPane.clipboard.learnMore, moreOptions: $moreOptions) {
-            LookToggleRow("Record clipboard history", isOn: $clipboard.isEnabled)
-                .settingsAnchor(.clipboardHistory)
+        AddOnPage(.clipboard, subtitle: String(localized: "Everything you copy, kept on this Mac."),
+                  learnMore: SettingsPane.clipboard.learnMore, moreOptions: $moreOptions) {
 
             // What shows on this plan. The choice itself is kept as it was
             // made, and comes back on a plan that shows it; a plan's limit
@@ -48,6 +46,7 @@ struct ClipboardPane: View {
                     .labelsHidden()
                 }
             }
+            .settingsAnchor(.clipboardHistory)
             .disabled(!clipboard.isEnabled)
 
             // The buttons sit on the row with the number they act on. A count

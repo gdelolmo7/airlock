@@ -7,7 +7,7 @@ final class DictationHoldNoticeTests: XCTestCase {
     private static let every: [DictationHoldNotice] = [
         .microphoneDenied, .noSpeechModel(locale: "en_US"), .notBundled, .microphoneFailedToStart,
         .microphoneAllowed(key: "⌃ Control"), .nothingCaught(key: "⌃ Control"), .copiedNowhereToType,
-        .copiedAfterKeyOrClick, .reachedLimit, .tidyingFailed, .secureInput(holder: "1Password"), .secureInput(holder: nil),
+        .copiedAfterKeyOrClick, .reachedLimit(minutes: 5), .reachedLimit(minutes: 10), .tidyingFailed, .secureInput(holder: "1Password"), .secureInput(holder: nil),
     ]
 
     func testTheSentencesTheNotchShows() {
@@ -97,7 +97,11 @@ final class DictationHoldNoticeTests: XCTestCase {
         XCTAssertEqual(DictationHoldNotice.afterDelivery(copied: true, reachedLimit: true, tidyingFailed: true),
                        .copiedNowhereToType)
         XCTAssertEqual(DictationHoldNotice.afterDelivery(copied: false, reachedLimit: true, tidyingFailed: true),
-                       .reachedLimit)
+                       .reachedLimit(minutes: 5))
+        XCTAssertEqual(DictationHoldNotice.afterDelivery(copied: false, reachedLimit: true, limitMinutes: 10,
+                                                         tidyingFailed: false),
+                       .reachedLimit(minutes: 10))
+        XCTAssertTrue(DictationHoldNotice.reachedLimit(minutes: 10).sentence.contains("10 minutes"))
         XCTAssertEqual(DictationHoldNotice.afterDelivery(copied: false, reachedLimit: false, tidyingFailed: true),
                        .tidyingFailed)
     }

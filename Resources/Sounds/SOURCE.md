@@ -53,3 +53,11 @@ Read from ElevenLabs' own terms on 2026-10-06:
 Sources: https://elevenlabs.io/terms-of-use,
 https://elevenlabs.io/sound-effects-terms,
 https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform
+
+## The two dictation sounds
+
+`AirlockDictationStart.wav` and `AirlockDictationStop.wav` are not from
+ElevenLabs. They are made on this Mac by `scripts/make-dictation-sounds.py`:
+plain arithmetic (two soft notes, up to start and down to stop), so nobody
+else has any right in them. Same format and loudness as the four above. The
+script also writes the other pairs they were picked from, to listen to.

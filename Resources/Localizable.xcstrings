@@ -81,6 +81,16 @@
         }
       }
     },
+    "New desktop widgets: your next call, to-dos, the shelf, what you copied and your agents." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuevos widgets de escritorio: tu próxima llamada, tareas, el estante, lo copiado y tus agentes."
+          }
+        }
+      }
+    },
     "\"%@\" is not a web address, a folder, or a settings pane — that row will be ignored." : {
       "localizations" : {
         "es" : {
@@ -3613,12 +3623,12 @@
         }
       }
     },
-    "Airlock never asks for a permission on launch. Each one is asked for the first time the feature that needs it is used, so saying no only ever costs you that one feature." : {
+    "Airlock never asks for a permission on launch. Each one is asked for when you add the feature that needs it, or the first time it is used, so saying no only ever costs you that one feature." : {
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Airlock nunca pide permisos al abrirse. Cada uno se pide la primera vez que se usa la función que lo necesita, así que decir que no solo te cuesta esa función."
+            "value" : "Airlock nunca pide permisos al abrirse. Cada uno se pide al añadir la función que lo necesita, o la primera vez que se usa, así que decir que no solo te cuesta esa función."
           }
         }
       }
@@ -7123,12 +7133,12 @@
         }
       }
     },
-    "Dictation stops at two minutes. Everything before that was typed." : {
+    "Dictation stops at %lld minutes. Everything before that was typed." : {
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El dictado se detiene a los dos minutos. Todo lo anterior se ha escrito."
+            "value" : "El dictado se detiene a los %lld minutos. Todo lo anterior se ha escrito."
           }
         }
       }
@@ -15209,6 +15219,46 @@
         }
       }
     },
+    "Play a sound at the start and the end" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reproducir un sonido al empezar y al terminar"
+          }
+        }
+      }
+    },
+    "Tap the key to start and stop" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tocar la tecla para empezar y parar"
+          }
+        }
+      }
+    },
+    "Tap %@ to copy it · Esc cancels" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toca %@ para copiarlo · Esc cancela"
+          }
+        }
+      }
+    },
+    "Tap %@ to type into %@ · Esc cancels" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toca %1$@ para escribir en %2$@ · Esc cancela"
+          }
+        }
+      }
+    },
     "Reload" : {
       "localizations" : {
         "es" : {
@@ -17265,12 +17315,12 @@
         }
       }
     },
-    "Stopped at the two-minute limit." : {
+    "Stopped at the %lld-minute limit." : {
       "localizations" : {
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Detenido al llegar al límite de dos minutos."
+            "value" : "Detenido al llegar al límite de %lld minutos."
           }
         }
       }
@@ -25547,6 +25597,1006 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Devolverla a su sitio, en cualquiera de esas ventanas, las deja todas como estaban."
+          }
+        }
+      }
+    },
+    "Add-ons" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Complementos"
+          }
+        }
+      }
+    },
+    "Add what you need. Anything you remove stops running." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade lo que necesites. Lo que quites deja de funcionar."
+          }
+        }
+      }
+    },
+    "Always there" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siempre ahí"
+          }
+        }
+      }
+    },
+    "Added" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadidos"
+          }
+        }
+      }
+    },
+    "Add more" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir más"
+          }
+        }
+      }
+    },
+    "Home and Dashboard. " : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inicio y Panel. "
+          }
+        }
+      }
+    },
+    "Music, quick controls, sound, your calendar and This Mac." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Música, controles rápidos, sonido, tu calendario y Este Mac."
+          }
+        }
+      }
+    },
+    "Nothing added yet. Pick one below and it shows up in the notch." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aún no has añadido nada. Elige uno abajo y aparecerá en el notch."
+          }
+        }
+      }
+    },
+    "Options" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opciones"
+          }
+        }
+      }
+    },
+    "Needs %@" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Necesita %@"
+          }
+        }
+      }
+    },
+    "macOS asks next. If you say no, it stays added and you can allow it later." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Después pregunta macOS. Si dices que no, se queda añadido y puedes permitirlo más tarde."
+          }
+        }
+      }
+    },
+    "Add and allow" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añadir y permitir"
+          }
+        }
+      }
+    },
+    "What Airlock adds to the notch" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo que Airlock añade al notch"
+          }
+        }
+      }
+    },
+    "Meeting notes" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notas de llamadas"
+          }
+        }
+      }
+    },
+    "Drop files on the notch to keep them close at hand." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suelta archivos en el notch para tenerlos a mano."
+          }
+        }
+      }
+    },
+    "Everything you copied, a shortcut away." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todo lo que has copiado, a un atajo de distancia."
+          }
+        }
+      }
+    },
+    "A transcript and notes for your calls." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transcripción y notas de tus llamadas."
+          }
+        }
+      }
+    },
+    "Answer Claude Code and other coding agents from the notch." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Responde a Claude Code y a otros agentes de código desde el notch."
+          }
+        }
+      }
+    },
+    "Snap windows into place with a shortcut or a drag." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coloca las ventanas en su sitio con un atajo o arrastrándolas."
+          }
+        }
+      }
+    },
+    "Hold a key and talk to type anywhere." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantén pulsada una tecla y habla para escribir en cualquier sitio."
+          }
+        }
+      }
+    },
+    "Adds a Shelf tab" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade una pestaña Estante"
+          }
+        }
+      }
+    },
+    "Adds a Clipboard tab" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade una pestaña Portapapeles"
+          }
+        }
+      }
+    },
+    "Adds a Calls tab" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade una pestaña Llamadas"
+          }
+        }
+      }
+    },
+    "Adds Agents, by the gear" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade Agentes, junto al engranaje"
+          }
+        }
+      }
+    },
+    "No tab: drag a window to the notch" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin pestaña: arrastra una ventana al notch"
+          }
+        }
+      }
+    },
+    "No tab, just the key" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin pestaña, solo la tecla"
+          }
+        }
+      }
+    },
+    "Asks for nothing" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No pide nada"
+          }
+        }
+      }
+    },
+    "Asks for the microphone and system audio" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pide el micrófono y el audio del sistema"
+          }
+        }
+      }
+    },
+    "Asks for nothing; connects to Claude Code" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No pide nada; se conecta a Claude Code"
+          }
+        }
+      }
+    },
+    "Asks for Accessibility" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pide Accesibilidad"
+          }
+        }
+      }
+    },
+    "Asks for the microphone, Input Monitoring and Accessibility" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pide el micrófono, la Monitorización de los dispositivos de entrada y la Accesibilidad"
+          }
+        }
+      }
+    },
+    "Plus for full notes" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus para notas completas"
+          }
+        }
+      }
+    },
+    "System audio" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio del sistema"
+          }
+        }
+      }
+    },
+    "To hear you and the other side of your calls. macOS asks about the microphone now, and about the other side's sound on your first call." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para oírte a ti y a la otra parte de tus llamadas. macOS pregunta ahora por el micrófono, y por el sonido de la otra parte en tu primera llamada."
+          }
+        }
+      }
+    },
+    "To move and resize your windows." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para mover y cambiar el tamaño de tus ventanas."
+          }
+        }
+      }
+    },
+    "To hear you, to notice the key you hold, and to type what you said." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para oírte, notar la tecla que mantienes pulsada y escribir lo que dijiste."
+          }
+        }
+      }
+    },
+    "Turned off on this Mac by its administrator: %@." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desactivado en este Mac por su administrador: %@."
+          }
+        }
+      }
+    },
+    "Not working yet. Still to allow: %@." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aún no funciona. Falta permitir: %@."
+          }
+        }
+      }
+    },
+    "Everything starts on. Switch off what you don't use and it stops running." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todo empieza activado. Desactiva lo que no uses y deja de funcionar."
+          }
+        }
+      }
+    },
+    "Your add-ons" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus complementos"
+          }
+        }
+      }
+    },
+    "macOS asks next. If you say no, it stays on and you can allow it later." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Después pregunta macOS. Si dices que no, se queda activado y puedes permitirlo más tarde."
+          }
+        }
+      }
+    },
+    "Nothing playing" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No suena nada"
+          }
+        }
+      }
+    },
+    "Add-ons, and notes your way" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Complementos, y notas a tu manera"
+          }
+        }
+      }
+    },
+    "Settings › Add-ons shows what Airlock can do. Remove what you don't use, add it back with the +." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes › Complementos muestra lo que hace Airlock. Quita lo que no uses y recupéralo con el +."
+          }
+        }
+      }
+    },
+    "In meetings in the room, the loudest voice shows as you. Name people from the Calls window too." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En reuniones en persona, la voz más fuerte sale como tú. Y nombra a la gente desde Llamadas."
+          }
+        }
+      }
+    },
+    "Have a Claude key? Add it in Settings › Meeting notes and your calls go to Anthropic for notes." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Tienes clave de Claude? Ponla en Ajustes › Notas de llamadas y Anthropic escribe tus notas."
+          }
+        }
+      }
+    },
+    "Still learning who's who" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aún aprendiendo quién es quién"
+          }
+        }
+      }
+    },
+    "Lines may move to the right person in the first few minutes." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En los primeros minutos, algunas frases pueden pasar a la persona correcta."
+          }
+        }
+      }
+    },
+    "With a key saved, a finished call's transcript goes from this Mac straight to Anthropic, and never through Airlock's server. The key stays in this Mac's keychain. If the key doesn't work, the notes are written the usual way and say why." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Con una clave guardada, la transcripción de cada llamada terminada va de este Mac directamente a Anthropic, nunca por el servidor de Airlock. La clave se queda en el llavero de este Mac. Si la clave no funciona, las notas se escriben de la forma habitual y dicen por qué."
+          }
+        }
+      }
+    },
+    "Your own Claude key" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu propia clave de Claude"
+          }
+        }
+      }
+    },
+    "Paste an Anthropic access key and Claude writes your call notes and to-dos, billed to your Anthropic account. The call's words go straight from this Mac to Anthropic" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pega una clave de acceso de Anthropic y Claude escribe las notas y tareas de tus llamadas, cobradas a tu cuenta de Anthropic. Lo que se dice en la llamada va directamente de este Mac a Anthropic"
+          }
+        }
+      }
+    },
+    "%@ writes your call notes and to-dos, billed to your Anthropic account. The call's words go straight from this Mac to Anthropic" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ escribe las notas y tareas de tus llamadas, cobradas a tu cuenta de Anthropic. Lo que se dice en la llamada va directamente de este Mac a Anthropic"
+          }
+        }
+      }
+    },
+    "Model" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modelo"
+          }
+        }
+      }
+    },
+    "Model: %@" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modelo: %@"
+          }
+        }
+      }
+    },
+    "Key ending %@" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clave que termina en %@"
+          }
+        }
+      }
+    },
+    "Anthropic access key" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clave de acceso de Anthropic"
+          }
+        }
+      }
+    },
+    "Checking with Anthropic…" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprobando con Anthropic…"
+          }
+        }
+      }
+    },
+    "The key works. Your next call's notes come from Claude" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La clave funciona. Las notas de tu próxima llamada las escribe Claude"
+          }
+        }
+      }
+    },
+    "That doesn't look like an Anthropic access key. It starts with sk-ant-" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eso no parece una clave de acceso de Anthropic. Empieza por sk-ant-"
+          }
+        }
+      }
+    },
+    "The keychain didn't take the key. Try again" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El llavero no ha guardado la clave. Vuelve a intentarlo"
+          }
+        }
+      }
+    },
+    "Recommended" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recomendado"
+          }
+        }
+      }
+    },
+    "Strongest, slower, uses more credit" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El más potente, más lento, gasta más crédito"
+          }
+        }
+      }
+    },
+    "Fastest, plainer notes" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El más rápido, notas más sencillas"
+          }
+        }
+      }
+    },
+    "Anthropic refused this key. Copy it again from your Anthropic account." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anthropic ha rechazado esta clave. Cópiala de nuevo desde tu cuenta de Anthropic."
+          }
+        }
+      }
+    },
+    "The key works, but the account has no credit left." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La clave funciona, pero a la cuenta no le queda crédito."
+          }
+        }
+      }
+    },
+    "This key can't use this model. Pick another one." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta clave no puede usar este modelo. Elige otro."
+          }
+        }
+      }
+    },
+    "Anthropic is busy. Try again in a minute." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anthropic está ocupado. Vuelve a intentarlo en un minuto."
+          }
+        }
+      }
+    },
+    "Your Mac is offline. Try again once it's back online." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu Mac no tiene conexión. Vuelve a intentarlo cuando la recupere."
+          }
+        }
+      }
+    },
+    "Anthropic didn't answer. Try again in a minute." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anthropic no ha respondido. Vuelve a intentarlo en un minuto."
+          }
+        }
+      }
+    },
+    "Written by %@, with your own Anthropic key." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escritas por %@, con tu propia clave de Anthropic."
+          }
+        }
+      }
+    },
+    "Your Claude key was refused, so these notes were written the usual way. Check it in Settings › Meeting notes." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu clave de Claude ha sido rechazada, así que estas notas se han escrito de la forma habitual. Revísala en Ajustes › Notas de llamadas."
+          }
+        }
+      }
+    },
+    "Your Anthropic account has no credit left, so these notes were written the usual way." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A tu cuenta de Anthropic no le queda crédito, así que estas notas se han escrito de la forma habitual."
+          }
+        }
+      }
+    },
+    "Your Claude key can't use the model picked in Settings, so these notes were written the usual way." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu clave de Claude no puede usar el modelo elegido en Ajustes, así que estas notas se han escrito de la forma habitual."
+          }
+        }
+      }
+    },
+    "This call was too long to send to Claude, so these notes were written the usual way." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta llamada era demasiado larga para enviarla a Claude, así que estas notas se han escrito de la forma habitual."
+          }
+        }
+      }
+    },
+    "Claude was too busy just then, so these notes were written the usual way." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude estaba demasiado ocupado en ese momento, así que estas notas se han escrito de la forma habitual."
+          }
+        }
+      }
+    },
+    "Claude didn't answer, so these notes were written the usual way." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude no ha respondido, así que estas notas se han escrito de la forma habitual."
+          }
+        }
+      }
+    },
+    "Your Mac was offline when the call ended, so Claude couldn't write these notes." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu Mac no tenía conexión cuando terminó la llamada, así que Claude no ha podido escribir estas notas."
+          }
+        }
+      }
+    },
+    "Claude's notes didn't match the transcript, so these notes were written the usual way." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las notas de Claude no cuadraban con la transcripción, así que estas notas se han escrito de la forma habitual."
+          }
+        }
+      }
+    },
+    "Call to-dos" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tareas de las llamadas"
+          }
+        }
+      }
+    },
+    "The to-dos from today's calls. Tick them off here." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las tareas de las llamadas de hoy. Márcalas aquí."
+          }
+        }
+      }
+    },
+    "To-dos from today's calls" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tareas de las llamadas de hoy"
+          }
+        }
+      }
+    },
+    "From today's calls" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De las llamadas de hoy"
+          }
+        }
+      }
+    },
+    "All done" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todo hecho"
+          }
+        }
+      }
+    },
+    "left from today's calls" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pendientes de las llamadas de hoy"
+          }
+        }
+      }
+    },
+    "No to-dos yet" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aún no hay tareas"
+          }
+        }
+      }
+    },
+    "To-dos from today's calls will show here." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aquí aparecerán las tareas de las llamadas de hoy."
+          }
+        }
+      }
+    },
+    "Tick" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marcar"
+          }
+        }
+      }
+    },
+    "Untick" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desmarcar"
+          }
+        }
+      }
+    },
+    "%lld left" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quedan %lld"
+          }
+        }
+      }
+    },
+    "%lld of %lld done" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld de %2$lld hechas"
+          }
+        }
+      }
+    },
+    "%lld of %lld ticked today" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld de %2$lld marcadas hoy"
+          }
+        }
+      }
+    },
+    "1 thing from 1 call, ticked." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 cosa de 1 llamada, marcada."
+          }
+        }
+      }
+    },
+    "%lld things from 1 call, all ticked." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld cosas de 1 llamada, todas marcadas."
+          }
+        }
+      }
+    },
+    "%lld things from %lld calls, all ticked." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld cosas de %2$lld llamadas, todas marcadas."
+          }
+        }
+      }
+    },
+    "1 thing from 1 call" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 cosa de 1 llamada"
+          }
+        }
+      }
+    },
+    "%lld things from 1 call" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld cosas de 1 llamada"
+          }
+        }
+      }
+    },
+    "%lld things from %lld calls" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld cosas de %2$lld llamadas"
+          }
+        }
+      }
+    },
+    "Tick a to-do" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marcar una tarea"
+          }
+        }
+      }
+    },
+    "Call folder" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carpeta de la llamada"
+          }
+        }
+      }
+    },
+    "Place on the page" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lugar en la página"
           }
         }
       }

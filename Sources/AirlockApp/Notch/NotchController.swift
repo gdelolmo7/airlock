@@ -52,6 +52,9 @@ final class NotchUIState {
     @ObservationIgnored var takeKeyboardForAnswer: () -> Void = {}
     /// "Got it" on the new version's card. Set by the controller.
     @ObservationIgnored var dismissWhatsNew: () -> Void = {}
+    /// The "+" at the end of the tab row: Settings › Add-ons, and the notch
+    /// closes. Set by the controller.
+    @ObservationIgnored var openAddOns: () -> Void = {}
     /// A button on the crash-reports question: true is "Send reports".
     /// Set by the controller.
     @ObservationIgnored var answerCrashQuestion: (Bool) -> Void = { _ in }
@@ -290,6 +293,9 @@ final class NotchController {
     /// Set by the app delegate: the controller is built before the settings
     /// window exists, so the gear can't be wired at construction.
     var onOpenSettings: (() -> Void)?
+    /// Settings opened on the Add-ons page. Set by the app delegate, for the
+    /// same reason.
+    var onOpenAddOns: (() -> Void)?
     private let uiState = NotchUIState()
     /// Setup, a new version's card or a one-time question fills the panel,
     /// for Free's reminders (`NotchUIState.panelIsTaken`).
@@ -472,6 +478,7 @@ final class NotchController {
         self.repository = repository
         self.license = license
         self.registry = registry
+        lendPanelToSystemQuestions()
         let pin: () -> Void = { [weak self] in
             self?.stickyExpand = true
             self?.openingByHand = true
@@ -493,6 +500,12 @@ final class NotchController {
         let uiState = self.uiState
         uiState.takeKeyboardForAnswer = { [weak self] in self?.takeKeyboardForAnswer() }
         uiState.dismissWhatsNew = { [weak self] in self?.whatsNewGotIt() }
+        uiState.openAddOns = { [weak self] in
+            guard let self else { return }
+            onOpenAddOns?()
+            // Another window taking focus, as with the gear.
+            collapseExplicitly()
+        }
         uiState.answerCrashQuestion = { [weak self] send in self?.endCrashQuestion(send: send) }
         uiState.answerUsageQuestion = { [weak self] share in self?.endUsageQuestion(share: share) }
         uiState.tabChanged = { [weak self] in
@@ -692,6 +705,7 @@ final class NotchController {
             }
 
         tray.onChange = { [weak self] in self?.apply() }
+        tray.onSwitch = { [weak self] in self?.shelfSwitched() }
         tray.onDragOut = { [weak self] in self?.pinForDragOut() }
         model.onStateChange = { [weak self] in self?.apply() }
         media.onChange = { [weak self] in self?.apply() }
@@ -824,7 +838,8 @@ final class NotchController {
             }
         )
         dropCatcher?.install()
-        watchForFileInHand()
+        dropCatcher?.takeDrops(tray.isEnabled)
+        if tray.isEnabled { watchForFileInHand() }
         observeDisplayChanges()
         observeReduceMotion()
         listenToMoments()
@@ -1060,12 +1075,32 @@ final class NotchController {
     /// calls it for the rebuilds nobody here asked for, which change no state
     /// and would otherwise leave the panel at the kit's own `.screenSaver` with
     /// the system's appearance.
+    /// Set while one of macOS's own questions is on screen over the panel.
+    private var stepAsideLevel: NSWindow.Level?
+
+    /// Lend `SystemQuestionWatch` the panel: its frame to compare against,
+    /// and the one way to move it below a question and back.
+    private func lendPanelToSystemQuestions() {
+        let watch = SystemQuestionWatch.shared
+        watch.panelFrame = { [weak self] in
+            guard let window = self?.notch?.windowController?.window, window.isVisible else { return nil }
+            return window.frame
+        }
+        watch.onLevel = { [weak self] level in
+            guard let self else { return }
+            stepAsideLevel = level
+            notch?.windowController?.window?.level = level ?? .statusBar
+        }
+    }
+
     private func adoptRebuiltPanel(for presentation: IslandPresentation? = nil) {
         // The kit parks its panel at .screenSaver, which is ABOVE the system's
         // dragging window — so a file dragged at the notch renders behind the
         // panel. .statusBar still clears the menu bar but sits under the drag
         // image.
-        notch?.windowController?.window?.level = .statusBar
+        // Unless macOS is asking something over it (`SystemQuestionWatch`):
+        // a rebuild then must not put the panel back on top of the question.
+        notch?.windowController?.window?.level = stepAsideLevel ?? .statusBar
         // Hide from the Dock icon (there is one while a full window is open)
         // hides every window that allows it, and the kit's state machine never
         // orders a panel it thinks is showing back in: the island would be
@@ -1243,7 +1278,7 @@ final class NotchController {
     private func followPointer() {
         guard let screen = NotchScreen.catching else { return }
         let canRest = (NotchScreen.target?.islandCanRest ?? false) && !frontIsFullScreen
-        let mayOpen = canRest && applied != .expanded
+        let mayOpen = canRest && applied != .expanded && tray.isEnabled
         let was = dropPocket.phase
         if dropPocket.follow(pointer: NSEvent.mouseLocation,
                              screen: screen.frame,
@@ -1669,6 +1704,37 @@ final class NotchController {
         apply()
     }
 
+    /// A click on the Shelf desktop widget: the panel opens on the Shelf and
+    /// stays, like a keypress, since the click was a request to see it. With
+    /// the Shelf switched off it opens on Home, where the switch is.
+    func showShelf() {
+        uiState.selectedTab = tray.isEnabled ? .tray : .home
+        hoverSuppressed = false
+        stickyExpand = true
+        apply()
+    }
+
+    /// A click on the Last copied desktop widget, anywhere but a copy: the
+    /// panel opens on the Clipboard and stays, like `showShelf`. With
+    /// clipboard history switched off it opens on Home, where the switch is.
+    func showClipboard() {
+        uiState.selectedTab = clipboard.isEnabled ? .clipboard : .home
+        hoverSuppressed = false
+        stickyExpand = true
+        apply()
+    }
+
+    /// A click on the AI agents desktop widget: the panel opens on Agents and
+    /// stays, like `showShelf`, with the waiting card on top where there is
+    /// one. With Agents switched off and nothing waiting it opens on Home,
+    /// where the switch is; a waiting card shows whatever the switch says.
+    func showAgents() {
+        uiState.selectedTab = agents.isEnabled || model.attentionCount > 0 ? .agents : .home
+        hoverSuppressed = false
+        stickyExpand = true
+        apply()
+    }
+
     /// What the clipboard hotkey does. Pressing it lands you on the clipboard
     /// tab from anywhere, including from hidden; pressing it again while you are
     /// already there closes up, so one key is both the way in and the way out.
@@ -1933,6 +1999,7 @@ final class NotchController {
     /// button is down, and `FileInHand` keeps the work on each to a timestamp
     /// once the press is decided.
     private func watchForFileInHand() {
+        guard fileInHandMonitors.isEmpty else { return }
         let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
         if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
             let type = event.type
@@ -1947,6 +2014,23 @@ final class NotchController {
         }) {
             fileInHandMonitors.append(local)
         }
+    }
+
+    /// The Shelf switched on or off. Off means stopped, not hidden: the
+    /// catcher stops being a drag destination, the mouse monitors that watch
+    /// for a file in hand come off, and a strip or box already up for one goes.
+    /// The files on the shelf stay where they are; switching back on finds
+    /// them, and puts the watch back.
+    private func shelfSwitched() {
+        dropCatcher?.takeDrops(tray.isEnabled)
+        if tray.isEnabled {
+            watchForFileInHand()
+        } else {
+            for monitor in fileInHandMonitors { NSEvent.removeMonitor(monitor) }
+            fileInHandMonitors = []
+            if fileInHand.released() { fileInHandChanged() }
+        }
+        apply()
     }
 
     private func fileGesture(_ type: NSEvent.EventType, insideAirlock: Bool) {

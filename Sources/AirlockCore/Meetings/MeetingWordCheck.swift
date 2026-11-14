@@ -140,6 +140,24 @@ public enum MeetingWordCheck {
         !best.contains(where: \.isNumber) && !MeetingKnownWords.key(best).isEmpty
     }
 
+    /// The words "Check these words" lists on `page`, in order.
+    public static func listed(in page: String) -> [(best: String, heard: [String])] {
+        var section: String?
+        var found: [(best: String, heard: [String])] = []
+        for line in page.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let heading = heading(trimmed) {
+                section = heading
+                continue
+            }
+            if trimmed == "---" || trimmed == "***" { section = nil }
+            if section == MeetingFiles.wordsHeading, let word = word(in: trimmed) {
+                found.append(word)
+            }
+        }
+        return found
+    }
+
     // MARK: - Lines
 
     /// A line of the list read back, its time left out.

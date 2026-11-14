@@ -13,11 +13,14 @@ import Observation
 final class WindowLayoutModel {
     static let shared = WindowLayoutModel()
 
+    /// Named so the add-on list (`AddOnSwitches`) reads the same key this does.
+    static let enabledKey = "windowLayouts.enabled"
+
     /// Everything off: no strip under the notch, no shortcuts.
-    var isEnabled: Bool = Defaults.bool("windowLayouts.enabled", default: true) {
+    var isEnabled: Bool = Defaults.bool(WindowLayoutModel.enabledKey, default: true) {
         didSet {
             guard isEnabled != oldValue else { return }
-            Defaults.set(isEnabled, "windowLayouts.enabled")
+            Defaults.set(isEnabled, WindowLayoutModel.enabledKey)
             applyShortcuts()
         }
     }
@@ -122,6 +125,8 @@ final class WindowLayoutModel {
     ///
     /// Only the keys count presses: a menu row chosen twice is two choices.
     private func pressed(_ action: WindowLayoutAction) {
+        // The repeat press moves a window without going through `perform`.
+        guard isEnabled else { return }
         let run = presses.press(action, at: ProcessInfo.processInfo.systemUptime)
         guard run > 1, case .layout(let layout) = action, let direction = layout.direction else {
             return perform(action)
@@ -134,6 +139,11 @@ final class WindowLayoutModel {
 
     /// A shortcut or a menu row: the front window, on the screen it is on.
     func perform(_ action: WindowLayoutAction) {
+        // Off means stopped, not hidden. The shortcuts and the menu rows are
+        // already gone when the switch is off, but this is the one door every
+        // way in shares, so a path that forgot to check cannot move a window
+        // for someone who said no.
+        guard isEnabled else { return }
         if case .tileAll = action { return tileAll() }
         guard movesWindows, let window = WindowMover.frontWindow() else { return }
         switch action {

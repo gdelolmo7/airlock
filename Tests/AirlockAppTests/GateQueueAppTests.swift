@@ -159,7 +159,7 @@ final class GateQueueAppTests: XCTestCase {
         // seen, and the card said "3 of 3 waiting" over a queue holding one.
         XCTAssertNil(session.queueCounter, "one waiting is nothing to count")
         XCTAssertEqual(model.attentionCount, 1)
-        let policy = try String(contentsOfFile: project + "/.airlock/policy.yaml", encoding: .utf8)
+        let policy = try String(contentsOf: PolicyStore().projectFileURL(projectRoot: project), encoding: .utf8)
         XCTAssertTrue(policy.contains("Bash(npm *)"))
 
         // Wait for BOTH entries: each is logged when its own reply is

@@ -52,6 +52,7 @@ public enum MeetingNotesShown {
     /// `text` in the app's language, or nil when it isn't one of Airlock's.
     static func shown(_ text: String) -> String? {
         if let fixed = fixed(text) { return fixed }
+        if let problem = ownKeyProblem(text) { return problem }
         if text.hasSuffix(footerTail) {
             let by = String(text.dropLast(footerTail.count)).trimmingCharacters(in: .whitespaces)
             return writtenBy(by).map { $0 + " " + String(localized: "No audio was kept. The summary is written by AI and can be wrong; check the transcript before relying on it.") }
@@ -101,10 +102,42 @@ public enum MeetingNotesShown {
             return String(localized: "The online notes service didn't answer, so these were written on your Mac.")
         case "Written on this Mac by Airlock.": return String(localized: "Written on this Mac by Airlock.")
         default:
+            if let mine = ownKeyFooter(by) { return mine }
             let lead = "Written online by Airlock, with "
             guard by.hasPrefix(lead), by.hasSuffix(".") else { return nil }
             let maker = String(by.dropFirst(lead.count).dropLast())
             return String(localized: "Written online by Airlock, with \(maker).")
+        }
+    }
+
+    /// "Written by Claude Sonnet, with your own Anthropic key."
+    private static func ownKeyFooter(_ by: String) -> String? {
+        let lead = "Written by ", tail = ", with your own Anthropic key."
+        guard by.hasPrefix(lead), by.hasSuffix(tail) else { return nil }
+        let model = String(by.dropFirst(lead.count).dropLast(tail.count))
+        return String(localized: "Written by \(model), with your own Anthropic key.")
+    }
+
+    /// Why Claude couldn't write the notes with the person's key.
+    private static func ownKeyProblem(_ text: String) -> String? {
+        guard let problem = OwnKeyNotes.Problem.allCases.first(where: { $0.line == text }) else { return nil }
+        switch problem {
+        case .badKey:
+            return String(localized: "Your Claude key was refused, so these notes were written the usual way. Check it in Settings › Meeting notes.")
+        case .noCredit:
+            return String(localized: "Your Anthropic account has no credit left, so these notes were written the usual way.")
+        case .notAllowed:
+            return String(localized: "Your Claude key can't use the model picked in Settings, so these notes were written the usual way.")
+        case .tooLong:
+            return String(localized: "This call was too long to send to Claude, so these notes were written the usual way.")
+        case .busy:
+            return String(localized: "Claude was too busy just then, so these notes were written the usual way.")
+        case .unavailable:
+            return String(localized: "Claude didn't answer, so these notes were written the usual way.")
+        case .offline:
+            return String(localized: "Your Mac was offline when the call ended, so Claude couldn't write these notes.")
+        case .nothingHeldUp:
+            return String(localized: "Claude's notes didn't match the transcript, so these notes were written the usual way.")
         }
     }
 

@@ -7,7 +7,7 @@ import Foundation
 /// another app, and the notch is the only part of Airlock you were watching.
 /// These sentences used to live only in `DictationModel.statusMessage`, which
 /// only Settings › Dictation draws — so a denied microphone, a missing speech
-/// model or a two-minute cut-off looked exactly like the key doing nothing.
+/// model or a cut-off at the limit looked exactly like the key doing nothing.
 /// The notch opened (or did not) and closed again without a word.
 ///
 /// The sentences live here rather than beside the view so they can be tested,
@@ -42,14 +42,22 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// listening, and the words went to the clipboard rather than to wherever
     /// that key or click left the cursor (`HoldInterruption`).
     case copiedAfterKeyOrClick
-    /// The hold reached `HoldGesture.maximumHold` and was typed up to there.
-    case reachedLimit
+    /// The dictation reached its ceiling and was typed up to there. `minutes`
+    /// is that ceiling: five for a hold, ten when locked on by a tap.
+    case reachedLimit(minutes: Int)
     /// Tidying up failed or was refused, so the words went in as spoken.
     case tidyingFailed
     /// Another app holds secure keyboard input — a password field, usually —
     /// which is why this hold took a second to open. `holder` is that app's
     /// name when it can be found.
     case secureInput(holder: String?)
+    /// The person fixed a dictated word by hand, and Airlock offers to keep
+    /// the new spelling (`DictationCorrection`). One tap on the button keeps it;
+    /// doing nothing keeps nothing.
+    case rememberWord(String)
+    /// The same, with "Add without asking" on: already kept, and this says so
+    /// once, so a word never joins the list unseen.
+    case rememberedWord(String)
 
     /// The one thing the card's button does, when it has one.
     public enum Fix: Equatable, Sendable {
@@ -62,6 +70,8 @@ public enum DictationHoldNotice: Equatable, Sendable {
         /// Asks for Accessibility and opens its list in System Settings,
         /// the only place macOS turns it on.
         case letAirlockType
+        /// Puts the fixed word on "Words to know".
+        case rememberWord
 
         public var button: String {
             switch self {
@@ -69,6 +79,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
             case .chooseInput: return String(localized: "Choose input…")
             case .chooseLanguage: return String(localized: "Choose language…")
             case .letAirlockType: return String(localized: "Let Airlock type")
+            case .rememberWord: return String(localized: "Remember")
             }
         }
     }
@@ -106,8 +117,8 @@ public enum DictationHoldNotice: Equatable, Sendable {
             return String(localized: "Airlock isn't allowed to type yet, so your words are on the clipboard.")
         case .copiedAfterKeyOrClick:
             return String(localized: "You pressed a key or clicked while talking, so your words are on the clipboard.")
-        case .reachedLimit:
-            return String(localized: "Dictation stops at two minutes. Everything before that was typed.")
+        case .reachedLimit(let minutes):
+            return String(localized: "Dictation stops at \(minutes) minutes. Everything before that was typed.")
         case .tidyingFailed:
             return Self.tidyingFailedSentence
         case .secureInput(let holder):
@@ -115,6 +126,10 @@ public enum DictationHoldNotice: Equatable, Sendable {
                 return String(localized: "\(holder) is keeping your typing private, so the notch waits a second before it opens.")
             }
             return String(localized: "Another app is keeping your typing private, so the notch waits a second before it opens.")
+        case .rememberWord(let word):
+            return String(localized: "You changed a word. Spell it “\(word)” from now on?")
+        case .rememberedWord(let word):
+            return String(localized: "“\(word)” is in your words now. Dictation will spell it your way.")
         }
     }
 
@@ -124,6 +139,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case .microphoneFailedToStart: return .chooseInput
         case .noSpeechModel: return .chooseLanguage
         case .copiedCantTypeYet: return .letAirlockType
+        case .rememberWord: return .rememberWord
         default: return nil
         }
     }
@@ -133,7 +149,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case .microphoneDenied, .noSpeechModel, .notBundled, .microphoneFailedToStart, .copiedCantTypeYet:
             return .problem
         case .microphoneAllowed, .nothingCaught, .copiedNowhereToType, .copiedAfterKeyOrClick,
-             .reachedLimit, .tidyingFailed, .secureInput:
+             .reachedLimit, .tidyingFailed, .secureInput, .rememberWord, .rememberedWord:
             return .note
         }
     }
@@ -153,6 +169,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case .reachedLimit: return "timer"
         case .tidyingFailed: return "wand.and.stars"
         case .secureInput: return "lock"
+        case .rememberWord, .rememberedWord: return "character.book.closed"
         }
     }
 
@@ -183,15 +200,15 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// What to say once a transcript has been delivered, if anything.
     ///
     /// One at a time, so where the words went comes first: a sentence that
-    /// was not typed matters more than one typed at two minutes or typed
+    /// was not typed matters more than one typed up to the limit or typed
     /// untidied, and saying "everything before that was typed" over words
     /// that went to the clipboard would be false. `afterKeyOrClick` says why
     /// they were copied, when they were.
     public static func afterDelivery(copied: Bool, afterKeyOrClick: Bool = false,
-                                     reachedLimit: Bool,
+                                     reachedLimit: Bool, limitMinutes: Int = 5,
                                      tidyingFailed: Bool) -> DictationHoldNotice? {
         if copied { return afterKeyOrClick ? .copiedAfterKeyOrClick : .copiedNowhereToType }
-        if reachedLimit { return .reachedLimit }
+        if reachedLimit { return .reachedLimit(minutes: limitMinutes) }
         if tidyingFailed { return .tidyingFailed }
         return nil
     }

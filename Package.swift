@@ -14,6 +14,7 @@ let package = Package(
         .executable(name: "AirlockApp", targets: ["AirlockApp"]),
         .executable(name: "airlock-hook", targets: ["NotchHook"]),
         .executable(name: "airlock-setup", targets: ["NotchSetup"]),
+        .executable(name: "AirlockWidgets", targets: ["AirlockWidgets"]),
         .library(name: "AirlockCore", targets: ["AirlockCore"]),
     ],
     // TWO external dependencies, and the rule they break is worth restating.
@@ -64,6 +65,27 @@ let package = Package(
                 "CWebP",
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
+            ]
+        ),
+
+        // The desktop widgets (WidgetKit). Built here like everything else,
+        // then wrapped into Contents/PlugIns/AirlockWidgets.appex by
+        // package-app.sh, so there is no Xcode project. Sandboxed, as every
+        // widget must be: it sees only the App Group folder the app fills
+        // (`DeskShelf`).
+        //
+        // It starts at `NSExtensionMain`, as Xcode links every extension.
+        // That entry calls our `main` and then keeps the process up, serving
+        // the widget host. Started at our own `main`, the widget sets itself
+        // up, returns, and exits(0) 30ms later: the gallery never lists it.
+        // Release only, which is what packaging builds: that entry refuses
+        // to run from a shell, and a debug build is how `--desk-shots` runs.
+        .executableTarget(
+            name: "AirlockWidgets",
+            dependencies: ["AirlockCore"],
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-e", "-Xlinker", "_NSExtensionMain"],
+                             .when(configuration: .release)),
             ]
         ),
 

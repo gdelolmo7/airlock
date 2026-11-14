@@ -31,7 +31,7 @@ struct SettingsColumn: View {
                 if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                     SettingsSearchResults(query: query) { query = "" }
                 } else {
-                    page
+                    page.environment(\.lookPane, model.pane.resolved)
                 }
             }
             .padding(.top, 2)
@@ -47,16 +47,19 @@ struct SettingsColumn: View {
         switch model.pane.resolved {
         case .general: GeneralPane()
         case .appearance: NotchPane()
+        case .tray: ShelfPane()
         case .clipboard: ClipboardPane()
-        case .voice: DictationPane()
+        case .callNotes: MeetingNotesPane()
         case .agents: AgentsPane()
+        case .windowLayouts: WindowLayoutsPane()
+        case .voice: DictationPane()
         case .permissions: PermissionsPane()
         case .license: PlansPane()
         // The screen guide's two panes, which are gone; never in the column.
         case .guide, .privacy: EmptyView()
         // `resolved` never returns these; they are listed so the switch
         // stays exhaustive if a case is ever un-folded.
-        case .widgets, .policy, .tray, .about: EmptyView()
+        case .addOns, .widgets, .policy, .about: EmptyView()
         }
     }
 
@@ -356,13 +359,12 @@ private struct NotchPane: View {
                 islandPreview()
                     .lookRowBox()
                     .padding(.bottom, 4)
+                    .lookStandalone()
             }
             NotchLookRows()
             WidgetRows()
             LookGroupLabel("Keep awake")
             KeepAwakeSection(controls: controls)
-            LookGroupLabel("Window layouts")
-            WindowLayoutsSection(layouts: .shared)
         } more: {
             NotchLookNotes()
             WidgetNotes()
@@ -625,9 +627,7 @@ private struct WidgetRows: View {
     @Environment(CalendarWidgetModel.self) private var calendar
     @Environment(BatteryWidgetModel.self) private var battery
     @Environment(SystemStatsWidgetModel.self) private var system
-    @Environment(AgentsWidgetModel.self) private var agents
     @Environment(RepositoryWidgetModel.self) private var repository
-    @Environment(TrayModel.self) private var tray
     @State private var choosingCalendars = false
 
     var body: some View {
@@ -673,34 +673,7 @@ private struct WidgetRows: View {
             ProblemCard(sentence: String(localized: "Sound is switched off above, so the levels still apply but the mixer isn't in the notch."))
         }
 
-        // Reads the SURFACE, not the stored flag. While the answer is still
-        // derived and no hooks exist, the Agents tab is on screen asking to be
-        // set up (`AgentsWidget.isUnconfigured`) — and a switch reading "off"
-        // beside a visible tab is one the user cannot use to dismiss it,
-        // because switching an off switch off is not a gesture. Flipping it
-        // here writes `.chosen(false)`, which is the explicit no that hides it.
-        LookToggleRow("AI agents", subtitle: String(localized: "Claude Code and Codex in the notch"),
-                      isOn: Binding(get: { agents.isEnabled || agents.basis == .noHooksInstalled },
-                                    set: {
-                                        agents.choose($0)
-                                        UsageCounts.shared.record(.widgetSwitched("agents", on: $0))
-                                    }))
-            .settingsAnchor(.agentsSwitch)
-
         calendarsRow
-
-        // The shelf is a widget; it does not need a page of its own.
-        LookRow("Shelf", subtitle: tray.items.count == 1 ? String(localized: "1 item") : String(localized: "\(tray.items.count) items")) {
-            HStack(spacing: 6) {
-                LookButton("Open folder") { tray.openFolder() }
-                LookButton("Clear") { tray.clear() }
-                    .disabled(tray.items.isEmpty)
-            }
-        }
-        .settingsAnchor(.shelf)
-        .sheet(isPresented: $choosingCalendars) {
-            CalendarPickerSheet(calendar: calendar) { choosingCalendars = false }
-        }
     }
 
     // A row and a sheet, not seven toggles inline. Somebody with seven
@@ -723,6 +696,9 @@ private struct WidgetRows: View {
                         subtitle: calendar.selection.summary(amongst: calendar.allCalendars.map(\.id))) {
                     LookButton("Choose…") { choosingCalendars = true }
                 }
+                .sheet(isPresented: $choosingCalendars) {
+                    CalendarPickerSheet(calendar: calendar) { choosingCalendars = false }
+                }
                 .settingsAnchor(.calendars)
             }
         } else {
@@ -740,8 +716,6 @@ private struct WidgetRows: View {
 /// The widgets' explanations, behind "More options".
 private struct WidgetNotes: View {
     @Environment(MediaWidgetModel.self) private var media
-    @Environment(AgentsWidgetModel.self) private var agents
-    @Environment(TrayModel.self) private var tray
 
     var body: some View {
         LookGroupLabel("Widgets")
@@ -751,17 +725,6 @@ private struct WidgetNotes: View {
                  : "Turn media on to make the music bars follow the audio.")
         LookNote("The sound card switches the output device and moves the system level — the things macOS hides behind an Option-click on the menu bar. Per-app volume is the mixer it never shipped: a level and a mute for each app making sound, kept per app and remembered.")
         LookNote("Per-app volume is off by default, because it is the one thing here that takes over the audio path: an app you turn down has its sound passed through Airlock, made quieter and played back, which asks macOS for permission to hear system audio the first time. Nothing is recorded, stored or sent anywhere. Leave it off and Airlock never touches the sound.")
-
-        LookGroupLabel("AI agents")
-        LookNote(agents.explanation)
-        LookNote("Everything for coding agents: the Agents tab with Claude usage and its quick-prompt bar, and the agent icons beside the notch. Everything else — clipboard, Shelf, dictation, calendar, media — works the same either way.")
-
-        LookGroupLabel("Shelf")
-        LookRow("Kept in") {
-            LookValue(tray.directory.path, monospaced: true)
-                .textSelection(.enabled)
-        }
-        LookNote("Clear moves everything to the Trash, so it is recoverable from there. Dropped files are moved in, so a file leaves the folder you dragged it out of — hold Option while dropping to leave the original where it is. A format or action in the drop box never moves anything: it leaves the original alone and puts a new file here. The workspace beside it is where the notch opens a terminal.")
     }
 }
 
@@ -1023,9 +986,9 @@ struct AgentsPane: View {
     }
 
     var body: some View {
-        LookPage(SettingsPane.agents.title,
-                 subtitle: String(localized: "Coding agents, how their requests reach you, and what they may do without asking."),
-                 learnMore: SettingsPane.agents.learnMore, moreOptions: $moreOptions, anchorsInMoreOptions: [.givingUp]) {
+        AddOnPage(.codingAgents,
+                  subtitle: String(localized: "Coding agents, how their requests reach you, and what they may do without asking."),
+                  learnMore: SettingsPane.agents.learnMore, moreOptions: $moreOptions, anchorsInMoreOptions: [.givingUp]) {
             agentRows
         } more: {
             agentNotes
@@ -1160,6 +1123,8 @@ struct AgentsPane: View {
 
     @ViewBuilder private var agentNotes: some View {
         LookGroupLabel("Connected")
+        LookNote(agents.explanation)
+        LookNote("Everything for coding agents: the Agents tab with Claude usage and its quick-prompt bar, and the agent icons beside the notch. Everything else — clipboard, Shelf, dictation, calendar, media — works the same either way.")
         LookNote("If Airlock isn't running, your agents carry on as before and ask you in the terminal.")
         // The file's path is for developers (X24): with Advanced on, or as
         // the conflict row's "Show the file".

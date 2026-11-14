@@ -236,6 +236,9 @@ enum NotchSurface: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The same choice, as the desktop widget reads it.
+    var desk: DeskSurface { DeskSurface(rawValue: rawValue) ?? .black }
+
     /// Flips the whole palette — see `Theme.adaptive`.
     var colorScheme: ColorScheme {
         self == .lightGlass ? .light : .dark

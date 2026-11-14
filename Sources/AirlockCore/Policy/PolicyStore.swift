@@ -1,10 +1,21 @@
+import CryptoKit
 import Foundation
 
 /// Loads and edits policy files.
 ///
 /// Global: `~/.airlock/policy.yaml` (override the directory with
 /// `AIRLOCK_POLICY_HOME` — used by tests and demos).
-/// Project: `<project root>/.airlock/policy.yaml`.
+/// Project, yours: `~/.airlock/projects/<folder>-<id>/policy.yaml`. What
+/// Always and the Rules pane write for one project. Allow and deny both count.
+/// Project, the repository's: `<project root>/.airlock/policy.yaml`. Only its
+/// deny rules count.
+///
+/// Why the split: a repository is something you download. If a file inside it
+/// could allow commands, cloning a stranger's project could pre-approve
+/// whatever its author liked, and an agent could approve itself by writing
+/// one. A file in the repository can still make Airlock stricter, never
+/// looser. Rules that loosen live in your home folder, where a clone cannot
+/// put them.
 ///
 /// "Always allow" appends rules **textually** (insert after the `allow:` line)
 /// so user comments and formatting survive — a parse→serialize round-trip
@@ -22,7 +33,27 @@ public struct PolicyStore: Sendable {
         return URL(fileURLWithPath: home).appendingPathComponent("policy.yaml")
     }
 
+    /// Your own rules for one project: the file Always and the Rules pane
+    /// write. Beside the global file, never inside the project.
+    ///
+    /// Named after the folder for whoever opens it by hand, plus a short hash of
+    /// the full path, so two projects both called `web` stay apart.
     public func projectFileURL(projectRoot: String) -> URL {
+        let path = URL(fileURLWithPath: projectRoot).standardizedFileURL.path
+        let digest = SHA256.hash(data: Data(path.utf8))
+            .prefix(6).map { String(format: "%02x", $0) }.joined()
+        var name = URL(fileURLWithPath: path).lastPathComponent
+            .replacingOccurrences(of: ":", with: "-")
+        if name.isEmpty || name == "/" || name.hasPrefix(".") { name = "project" }
+        return globalFileURL.deletingLastPathComponent()
+            .appendingPathComponent("projects")
+            .appendingPathComponent("\(name)-\(digest)")
+            .appendingPathComponent("policy.yaml")
+    }
+
+    /// The rule file a project carries in its own folder. Read for its deny
+    /// rules only.
+    public func repositoryFileURL(projectRoot: String) -> URL {
         URL(fileURLWithPath: projectRoot)
             .appendingPathComponent(".airlock/policy.yaml")
     }
@@ -45,12 +76,17 @@ public struct PolicyStore: Sendable {
         // global file, which was then read TWICE and merged with itself: every
         // rule counted twice, every parse problem reported twice. A correctness
         // fix for the engine, not only for the pane.
-        let projectFile = projectFileURL(projectRoot: projectRoot)
-        guard projectFile != globalFileURL else {
-            return LoadResult(policy: global, problems: problems)
+        var policy = global.merging(project: read(projectFileURL(projectRoot: projectRoot),
+                                                  problems: &problems))
+        let repositoryFile = repositoryFileURL(projectRoot: projectRoot)
+        if repositoryFile.standardizedFileURL != globalFileURL.standardizedFileURL {
+            // Deny rules only. Its allow rules, its timeout and its version are
+            // ignored: a timeout of 1 second would hand every question straight
+            // back to the agent's own prompt.
+            let repository = read(repositoryFile, problems: &problems)
+            policy = policy.merging(project: Policy(deny: repository.deny))
         }
-        let project = read(projectFile, problems: &problems)
-        return LoadResult(policy: global.merging(project: project), problems: problems)
+        return LoadResult(policy: policy, problems: problems)
     }
 
     /// The rules in ONE file, unmerged.
@@ -184,8 +220,10 @@ public struct PolicyStore: Sendable {
     """
 
     public static let projectTemplate = """
-    # agentic-notch project policy — merged over ~/.airlock/policy.yaml.
-    # Project deny rules always beat global allow rules.
+    # Your Airlock rules for one project, merged over ~/.airlock/policy.yaml.
+    # Kept in your home folder, not in the project, so nothing you download
+    # can add to them. A project's own .airlock/policy.yaml is still read,
+    # but only its deny rules count. Deny rules always beat allow rules.
     version: 1
 
     allow:

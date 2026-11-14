@@ -21,6 +21,9 @@ final class CallNotesLive {
     /// What each side is saying right now, word by word, before it is a
     /// line. Shown at once, never throttled: it is the point of watching.
     private(set) var hearing: [MeetingSpeaker: CallLive.Hearing] = [:]
+    /// In the room, the first minutes of telling voices apart, while who
+    /// said what can still change: the window says so.
+    private(set) var learningVoices = false
 
     /// The longest a line waits to be handed on.
     static let interval: Duration = .milliseconds(400)
@@ -38,8 +41,9 @@ final class CallNotesLive {
 
     /// For the state gallery: this call, as it stands, in `folder`.
     init(previewing record: MeetingRecord?, folder: URL? = nil, outcome: CallLive.Outcome? = nil,
-         hearing: [CallLive.Hearing] = []) {
+         hearing: [CallLive.Hearing] = [], learningVoices: Bool = false) {
         self.record = record
+        self.learningVoices = learningVoices
         handed = record
         self.folder = folder ?? record.map { _ in URL(fileURLWithPath: "/var/empty/live") }
         self.outcome = outcome
@@ -129,6 +133,11 @@ final class CallNotesLive {
     /// The call in `folder` named as `names` say, from the side window: at
     /// once, and once the call is over too, when the notes model no longer
     /// hands its record on.
+    /// Whether the voices in the room are still being learnt.
+    func learning(_ on: Bool) {
+        if learningVoices != on { learningVoices = on }
+    }
+
     func rename(_ names: [MeetingVoiceName], in folder: URL) {
         guard folder == self.folder, var record = pending ?? handed else { return }
         record.replaceNames(with: names)
@@ -386,6 +395,11 @@ struct LiveTranscriptView: View {
                                     scrolledAwayFor: scrolledAwayFor, tail: waiting ? Self.firstLines : nil,
                                     canName: actions.canName, name: { naming = $0 })
                     .frame(maxHeight: .infinity)
+                if stage.isLive, live.learningVoices, named == nil {
+                    LiveTranscriptLearning()
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 6)
+                }
                 if let named {
                     LiveTranscriptNaming(record: record, voice: named, close: { naming = nil },
                                          save: { names in
@@ -420,6 +434,30 @@ struct LiveTranscriptView: View {
         .preferredColorScheme(.dark)
         // Another call is nobody's to name from here.
         .onChange(of: live.folder) { naming = nil }
+    }
+}
+
+/// "Still learning who's who" in the room's first minutes, while lines can
+/// still move from one person to another.
+private struct LiveTranscriptLearning: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: "person.2.wave.2")
+                .font(Theme.chrome(11))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Still learning who's who")
+                    .font(Theme.chrome(12, .medium))
+                Text("Lines may move to the right person in the first few minutes.")
+                    .font(Theme.chrome(11))
+                    .opacity(0.8)
+            }
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(LiveLook.faint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(LiveLook.card))
+        .accessibilityElement(children: .combine)
     }
 }
 

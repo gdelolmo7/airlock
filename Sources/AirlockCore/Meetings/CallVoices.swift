@@ -38,6 +38,55 @@ public enum CallVoices {
         }
     }
 
+    /// How loud the room was on the Mac's microphone, every `step` seconds:
+    /// in the room, the person nearest the Mac, who is the one taking the
+    /// notes, is the loudest voice. Kept for the call only, like the spans,
+    /// and only as one figure every tenth of a second: nothing that could
+    /// be played back.
+    public struct Loudness: Equatable, Sendable {
+        /// Seconds of the meeting at the first step.
+        public let origin: TimeInterval
+        public let step: TimeInterval
+        public let sampleRate: Double
+        /// Mean power (samples squared) of each step.
+        public private(set) var power: [Float] = []
+        private var sum: Float = 0
+        private var count = 0
+
+        public init(origin: TimeInterval, step: TimeInterval = 0.1, sampleRate: Double = 16_000) {
+            self.origin = origin
+            self.step = step
+            self.sampleRate = sampleRate
+        }
+
+        /// The next samples heard, straight after the last.
+        public mutating func add(_ samples: [Float]) {
+            let perStep = max(1, Int((step * sampleRate).rounded()))
+            for sample in samples {
+                sum += sample * sample
+                count += 1
+                if count == perStep {
+                    power.append(sum / Float(count))
+                    sum = 0
+                    count = 0
+                }
+            }
+        }
+
+        /// How loud `from`…`to` was, in decibels, from its louder half: a
+        /// line has breaths and pauses in it, which say nothing about how
+        /// near the voice was. Nil where nothing was measured.
+        public func level(from: TimeInterval, to: TimeInterval) -> Float? {
+            let first = max(0, Int(((from - origin) / step).rounded(.down)))
+            let last = min(power.count, Int(((to - origin) / step).rounded(.up)))
+            guard last > first else { return nil }
+            let loud = power[first..<last].sorted(by: >)
+            let half = loud.prefix(max(1, loud.count / 2))
+            let mean = half.reduce(0, +) / Float(half.count)
+            return 10 * log10(mean + 1e-12)
+        }
+    }
+
     /// What the pass did, for the log.
     public struct Outcome: Equatable, Sendable {
         /// Voices the model heard in the stretch looked at.
@@ -53,6 +102,11 @@ public enum CallVoices {
         /// Seconds of talk each voice had when its share was weighed, the
         /// most first: what a fold is decided on.
         public var talk: [TimeInterval]
+        /// Lines given to a voice first heard just after them, in the room,
+        /// for sounding like it (`movesBack`).
+        public var moved = 0
+        /// The person guessed to be you, in the room (`youGap`).
+        public var guessedYou: Int?
 
         public init(heard: Int = 0, people: Int = 0, folded: Int = 0, split: Int = 0, reason: String? = nil,
                     talk: [TimeInterval] = []) {
@@ -79,6 +133,23 @@ public enum CallVoices {
     /// andas?" in a half-minute chat was folded into the first.
     static let smallestShare = 0.05
     static let shortestTalk: TimeInterval = 1.5
+
+    /// In the room, the voice model needs a while to be sure of a new
+    /// voice, and puts what it said until then under a voice it already
+    /// knows. A line up to this long before a voice is first heard goes to
+    /// that voice when it sounds like it (`sameVoiceGap`).
+    static let movesBack: TimeInterval = 120
+    /// A line sounds like a voice when its level is at least this many
+    /// decibels nearer that voice's than the one it was under, and the two
+    /// voices are themselves `voicesApartGap` apart: otherwise loudness
+    /// cannot tell them apart and the line stays.
+    static let sameVoiceGap: Float = 3
+    static let voicesApartGap: Float = 4
+    /// In the room, the loudest voice is you, the person nearest the Mac,
+    /// when it is this many decibels louder than the next and has said at
+    /// least `youTalk`. Quieter than that, nobody is guessed.
+    static let youGap: Float = 4
+    static let youTalk: TimeInterval = 15
 
     /// The talk a voice needs, out of `total` seconds of the other side's,
     /// to be believed: a second and a half up to half a minute, then a
@@ -157,9 +228,11 @@ public enum CallVoices {
     /// on was listened to from scratch, and nothing says its voices are the
     /// same ones.
     public static func number(_ record: inout MeetingRecord, from: TimeInterval = 0,
-                              spans: [Span], words: [CallLanguageFollow.Timed]) -> Outcome {
+                              spans: [Span], words: [CallLanguageFollow.Timed], loudness: Loudness? = nil,
+                              guessesYou: Bool = true) -> Outcome {
         var numbering = Numbering()
-        return number(&record, from: from, spans: spans, words: words, numbering: &numbering)
+        return number(&record, from: from, spans: spans, words: words, loudness: loudness, guessesYou: guessesYou,
+                      numbering: &numbering)
     }
 
     /// `number`, again and again while the call goes on: only the lines
@@ -171,9 +244,16 @@ public enum CallVoices {
     /// up. Every pass looks at the whole stretch again, so the last one, at
     /// the end of the call, tells the same people apart as one pass alone
     /// would; only their numbers can come in another order.
+    ///
+    /// In the room, `loudness` (the Mac's microphone) does two more things:
+    /// lines said just before a voice was first heard go to it when they
+    /// sound like it, and the clearly loudest voice is guessed to be you,
+    /// unless `guessesYou` is false (the person said it is not) or a name
+    /// given by hand already says who is.
     public static func number(_ record: inout MeetingRecord, from: TimeInterval = 0,
                               through: TimeInterval = .infinity, spans: [Span],
-                              words: [CallLanguageFollow.Timed], numbering: inout Numbering) -> Outcome {
+                              words: [CallLanguageFollow.Timed], loudness: Loudness? = nil,
+                              guessesYou: Bool = true, numbering: inout Numbering) -> Outcome {
         let spans = spans.filter { $0.end > $0.start && $0.start < through }.sorted { $0.start < $1.start }
         var outcome = Outcome(heard: Set(spans.map(\.voice)).count)
         let indices = record.segments.indices.filter {
@@ -259,6 +339,16 @@ public enum CallVoices {
             return outcome
         }
 
+        // In the room: lines that sound like the voice first heard just
+        // after them are that voice's, and the loudest voice may be you.
+        var you: Int?
+        if record.isInPerson, let loudness {
+            let levels = lines.map { loudness.level(from: $0.start, to: $0.end) }
+            let means = meanLevels(levels, lines: lines, owners: owners)
+            outcome.moved = moveBack(&owners, lines: lines, levels: levels, means: means)
+            if guessesYou { you = CallVoices.loudest(means, talk: talk) }
+        }
+
         // Numbered in the order they were first believed, after any earlier
         // stretch's: the order they first spoke, the first time round.
         var firstSpoke: [Int] = []
@@ -287,7 +377,72 @@ public enum CallVoices {
             return line
         })
         if numbers != before { record.replaceNames(with: numbering.carry(record.names, numberedAs: before)) }
+        if record.isInPerson {
+            outcome.guessedYou = you.flatMap { numbers[$0] }
+            guessYou(outcome.guessedYou, in: &record)
+        }
         return outcome
+    }
+
+    /// Each voice's level, weighted by how long each of its lines lasted.
+    static func meanLevels(_ levels: [Float?], lines: [MeetingSegment], owners: [Int?]) -> [Int: Float] {
+        var sums: [Int: (level: Double, seconds: Double)] = [:]
+        for i in lines.indices {
+            guard let owner = owners[i], let level = levels[i] else { continue }
+            let seconds = max(0.1, lines[i].end - lines[i].start)
+            let sum = sums[owner] ?? (0, 0)
+            sums[owner] = (sum.level + Double(level) * seconds, sum.seconds + seconds)
+        }
+        return sums.mapValues { Float($0.level / $0.seconds) }
+    }
+
+    /// Lines said up to `movesBack` before a voice was first heard, given
+    /// to it when they sound like it rather than the voice they were under.
+    /// Decided from the model's own voices every pass, so a pass never
+    /// builds on the one before. Returns how many moved.
+    static func moveBack(_ owners: inout [Int?], lines: [MeetingSegment], levels: [Float?],
+                         means: [Int: Float]) -> Int {
+        var first: [Int: TimeInterval] = [:]
+        for i in lines.indices {
+            guard let owner = owners[i] else { continue }
+            first[owner] = min(first[owner] ?? .infinity, lines[i].start)
+        }
+        let was = owners
+        var moved = 0
+        for i in lines.indices {
+            guard let owner = was[i], let level = levels[i], let ownMean = means[owner] else { continue }
+            var best: (voice: Int, distance: Float)?
+            for (voice, start) in first where voice != owner {
+                guard let mean = means[voice], start > lines[i].start, start - lines[i].start <= movesBack,
+                      abs(mean - ownMean) >= voicesApartGap else { continue }
+                let distance = abs(level - mean)
+                guard distance + sameVoiceGap <= abs(level - ownMean) else { continue }
+                if best == nil || distance < best!.distance { best = (voice, distance) }
+            }
+            if let best {
+                owners[i] = best.voice
+                moved += 1
+            }
+        }
+        return moved
+    }
+
+    /// The voice that is clearly the loudest and has said enough: you.
+    static func loudest(_ means: [Int: Float], talk: [Int: TimeInterval]) -> Int? {
+        let ranked = means.sorted { $0.value > $1.value }
+        guard ranked.count > 1, let top = ranked.first, (talk[top.key] ?? 0) >= youTalk,
+              top.value - ranked[1].value >= youGap else { return nil }
+        return top.key
+    }
+
+    /// The guessed "You" on `person`, or on nobody: never over a "You" or
+    /// a name given by hand.
+    static func guessYou(_ person: Int?, in record: inout MeetingRecord) {
+        var names = record.names.filter { !$0.guessed }
+        if let person, !names.contains(where: { $0.isYou || $0.voice == person }) {
+            names.append(MeetingVoiceName(voice: person, name: "", isYou: true, guessed: true))
+        }
+        if names != record.names { record.replaceNames(with: names) }
     }
 
     /// Nobody to tell apart in the stretch, or nobody any more: its lines
@@ -313,6 +468,8 @@ public enum CallVoices {
         // earlier stretch has people of its own.
         numbering.lone = base == 0 ? lone : nil
         record.replaceNames(with: numbering.carry(record.names, numberedAs: before))
+        // With nobody told apart there is nobody to guess is you.
+        if record.isInPerson { guessYou(nil, in: &record) }
     }
 
     /// The first of `words`, sorted by start, that starts at `time` or later.

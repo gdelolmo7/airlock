@@ -1,5 +1,6 @@
 import AirlockCore
 import AppKit
+import AVFAudio
 import AVFoundation
 import EventKit
 import Foundation
@@ -96,12 +97,19 @@ enum SupportDiagnostics {
         }
     }
 
+    /// Read from the same place the microphone is asked from
+    /// (`AVAudioApplication`). The capture-device reading is cached for the
+    /// life of the process: after a yes given to `requestRecordPermission`
+    /// it went on saying "not asked", so the Add-ons page kept offering a
+    /// question macOS had already had answered.
     private static func microphoneState() -> DiagnosticsReport.PermissionState {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: return .allowed
-        case .denied: return .notAllowed
-        case .restricted: return .restricted
-        case .notDetermined: return .notAsked
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted: return .allowed
+        case .denied:
+            // Denied covers an administrator's block too; only the capture
+            // reading can tell them apart, and "restricted" is not cached.
+            return AVCaptureDevice.authorizationStatus(for: .audio) == .restricted ? .restricted : .notAllowed
+        case .undetermined: return .notAsked
         @unknown default: return .notAsked
         }
     }

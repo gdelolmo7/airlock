@@ -40,6 +40,9 @@ public struct MeetingKnownWords: Equatable, Sendable {
         /// Runs of letters or digits in the spelling: "O'Brien" has two.
         let pieces: Int
         let typed: Bool
+        /// An "always write X as Y" entry: put back whenever it is heard,
+        /// however short, because the person asked for exactly that.
+        var forced = false
     }
 
     /// By `key`.
@@ -51,14 +54,28 @@ public struct MeetingKnownWords: Equatable, Sendable {
 
     /// `typed` as listed in Settings, `names` as found. A name that is also
     /// typed keeps the typed spelling.
-    public init(typed: [String], names: [String] = []) {
+    ///
+    /// `replacements` are "always write X as Y" pairs, heard first. They come
+    /// before everything else, so "write 'jon' as 'Jon'" wins over a typed
+    /// "Jón". A heard side of more than `longestSplit` words is never found.
+    public init(typed: [String], names: [String] = [],
+                replacements: [(heard: String, written: String)] = []) {
         var entries: [String: Entry] = [:]
         var spellings: [String] = []
+        for pair in replacements {
+            let heard = pair.heard.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let written = pair.written.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let key = Self.key(heard)
+            guard !key.isEmpty, !Self.key(written).isEmpty, entries[key] == nil,
+                  heard.split(separator: " ").count <= Self.longestSplit else { continue }
+            entries[key] = Entry(spelling: written, pieces: Self.pieces(heard), typed: true, forced: true)
+            spellings.append(written)
+        }
         func add(_ spelling: String, typed: Bool) {
             let key = Self.key(spelling)
             guard !key.isEmpty, entries[key] == nil else { return }
             entries[key] = Entry(spelling: spelling, pieces: Self.pieces(spelling), typed: typed)
-            spellings.append(spelling)
+            if !spellings.contains(spelling) { spellings.append(spelling) }
         }
         for word in Self.tidied(typed).prefix(Self.mostTyped) { add(word, typed: true) }
         var found = 0
@@ -78,10 +95,14 @@ public struct MeetingKnownWords: Equatable, Sendable {
 
     /// The words for `record`: those typed in Settings, the people invited,
     /// and the names given to voices in it and in `earlier` meetings.
+    /// `replacements` are the "always write X as Y" entries dictation keeps
+    /// on the same list.
     public static func forMeeting(_ record: MeetingRecord, typed: [String],
-                                  earlier: [MeetingRecord] = []) -> MeetingKnownWords {
+                                  earlier: [MeetingRecord] = [],
+                                  replacements: [(heard: String, written: String)] = []) -> MeetingKnownWords {
         let given = ([record] + earlier).flatMap(\.names).filter { !$0.isYou }.map(\.name)
-        return MeetingKnownWords(typed: typed, names: (record.event?.attendees ?? []) + given)
+        return MeetingKnownWords(typed: typed, names: (record.event?.attendees ?? []) + given,
+                                 replacements: replacements)
     }
 
     // MARK: - The list in Settings
@@ -141,7 +162,13 @@ public struct MeetingKnownWords: Equatable, Sendable {
 
     /// `line` with every known word spelled the person's way. The line is
     /// returned exactly as it was when nothing in it is known.
-    public func respelled(_ line: String) -> String {
+    ///
+    /// `sparing` says which single words are ordinary words of the language
+    /// and are left as written, for dictation: "move the cursor" must not
+    /// become "move the Cursor" because the app Cursor is a known word. It
+    /// never spares a split being joined or an "always write X as Y" entry.
+    /// Calls pass nothing and spare nothing.
+    public func respelled(_ line: String, sparing: (String) -> Bool = { _ in false }) -> String {
         guard !isEmpty else { return line }
         let tokens = line.split(whereSeparator: \.isWhitespace).map(Token.init)
         var kept: [String] = []
@@ -150,7 +177,8 @@ public struct MeetingKnownWords: Equatable, Sendable {
         scan: while index < tokens.count {
             // The longest first: "bright well" is one word before it is two.
             for size in stride(from: min(Self.longestSplit, tokens.count - index), through: 1, by: -1) {
-                guard let replacement = replacement(for: tokens[index..<index + size]) else { continue }
+                guard let replacement = replacement(for: tokens[index..<index + size],
+                                                    sparing: sparing) else { continue }
                 kept.append(replacement)
                 changed = true
                 index += size
@@ -164,7 +192,8 @@ public struct MeetingKnownWords: Equatable, Sendable {
 
     /// What `span` should read, or nil when it is not a known word or
     /// already reads right.
-    private func replacement(for span: ArraySlice<Token>) -> String? {
+    private func replacement(for span: ArraySlice<Token>,
+                             sparing: (String) -> Bool) -> String? {
         guard let first = span.first, let last = span.last,
               span.allSatisfy({ !$0.core.isEmpty }),
               // Nothing across punctuation: "bright, well" is two words.
@@ -173,10 +202,13 @@ public struct MeetingKnownWords: Equatable, Sendable {
         let written = span.map(\.core).joined(separator: " ")
         let key = Self.key(written)
         guard let entry = entries[key], written != entry.spelling else { return nil }
-        if Self.pieces(written) > entry.pieces {
+        if entry.forced {
+            // Asked for in so many words: no length rule, nothing spared.
+        } else if Self.pieces(written) > entry.pieces {
             guard key.count >= Self.shortestJoined else { return nil }
         } else {
-            guard entry.typed, key.count >= Self.shortestRespelled else { return nil }
+            guard entry.typed, key.count >= Self.shortestRespelled,
+                  span.count > 1 || !sparing(String(first.core).lowercased()) else { return nil }
         }
         var spelling = entry.spelling
         // Typed in lowercase, written where a sentence starts: the capital

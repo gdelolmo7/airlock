@@ -4,13 +4,16 @@ import AirlockCore
 /// The "Try these" card at the top of Home, for someone's first days.
 ///
 /// Lists only what this Mac can do right now: no dictation line while
-/// dictation is off, no meeting line without calendar access. A line it cannot
+/// dictation is off, no meeting line without calendar access, no copy or drop
+/// line while the Clipboard or the Shelf is switched off. A line it cannot
 /// show is a line it does not wait for either (`FirstSteps.isShowing`).
 @MainActor
 struct FirstStepsWidget: NotchWidget {
     let steps: FirstStepsModel
     let dictation: DictationModel
     let calendar: CalendarWidgetModel
+    let clipboard: ClipboardWidgetModel
+    let tray: TrayModel
 
     var id: String { "firstSteps" }
     var displayName: String { String(localized: "Try these") }
@@ -24,7 +27,9 @@ struct FirstStepsWidget: NotchWidget {
 
     private var available: Set<FirstStep> {
         FirstStepsCard.available(dictation: dictation.isEnabled && dictation.readiness.canWatchHoldKey,
-                                 calendar: calendar.authStatus == .fullAccess)
+                                 calendar: calendar.authStatus == .fullAccess,
+                                 clipboard: clipboard.isEnabled,
+                                 shelf: tray.isEnabled)
     }
 
     func panelSection() -> AnyView? {
@@ -43,8 +48,11 @@ struct FirstStepsCard: View {
     let holdKey: String
     let onHide: () -> Void
 
-    static func available(dictation: Bool, calendar: Bool) -> Set<FirstStep> {
-        var steps: Set<FirstStep> = [.copyTwice, .dropFile]
+    static func available(dictation: Bool, calendar: Bool,
+                          clipboard: Bool, shelf: Bool) -> Set<FirstStep> {
+        var steps: Set<FirstStep> = []
+        if clipboard { steps.insert(.copyTwice) }
+        if shelf { steps.insert(.dropFile) }
         if dictation { steps.insert(.dictate) }
         if calendar { steps.insert(.joinMeeting) }
         return steps

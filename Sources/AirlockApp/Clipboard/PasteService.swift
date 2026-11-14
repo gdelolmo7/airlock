@@ -19,6 +19,7 @@ enum PasteService {
     /// — macOS only offers the dialog once per app signature, after which the
     /// user has to go to Settings themselves.
     static func requestTrust() {
+        SystemQuestionWatch.shared.begin()
         // The literal rather than `kAXTrustedCheckOptionPrompt`, which is a
         // mutable global and so not concurrency-safe to read under Swift 6.
         // Its value is this string and has been for the life of the API.

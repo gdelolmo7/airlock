@@ -159,7 +159,10 @@ final class ClipboardWidgetModel {
     }
     private(set) var hotkeyError: String?
 
-    var isEnabled: Bool = WidgetToggle.stored("widget.clipboard.enabled", default: true) {
+    /// Named so the add-on list (`AddOnSwitches`) reads the same key this does.
+    static let enabledKey = "widget.clipboard.enabled"
+
+    var isEnabled: Bool = WidgetToggle.stored(ClipboardWidgetModel.enabledKey, default: true) {
         didSet {
             guard isEnabled != oldValue else { return }
             toggle.value = isEnabled
@@ -269,7 +272,7 @@ final class ClipboardWidgetModel {
     var onNavigateAway: (() -> Void)?
 
     @ObservationIgnored private let store = ClipboardStore()
-    @ObservationIgnored private let toggle = WidgetToggle(key: "widget.clipboard.enabled", defaultValue: true)
+    @ObservationIgnored private let toggle = WidgetToggle(key: ClipboardWidgetModel.enabledKey, defaultValue: true)
     @ObservationIgnored private let hotkeyRegistration = GlobalHotkey()
     @ObservationIgnored private var classifier = PasteboardClassifier()
     @ObservationIgnored private var timer: Timer?

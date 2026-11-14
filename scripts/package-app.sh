@@ -24,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${AIRLOCK_VERSION:-1.2.2}"
+VERSION="${AIRLOCK_VERSION:-1.3.0}"
 BUILD_NUM="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 BUNDLE_ID="${AIRLOCK_BUNDLE_ID:-com.airlock.app}"
 
@@ -98,8 +98,32 @@ if [[ -d "$APP" ]]; then
   (( ${#RUNNING} )) && echo "▸ note: replacing a running build (pid ${RUNNING[*]})"
 fi
 
+# ── The desktop widget needs a TEAM: its App Group is named after one, and
+#    macOS refuses a group container to a signature that has none. Developer
+#    ID identities carry it in brackets; the self-signed dev cert and ad-hoc
+#    have none, so those builds ship without the widget and say so.
+#    AIRLOCK_TEAM_ID overrides, for an identity named some other way.
+TEAM_ID="${AIRLOCK_TEAM_ID:-}"
+if [[ -z "$TEAM_ID" && "$IDENTITY" == *"("*")" ]]; then
+  TEAM_ID="${${IDENTITY##*\(}%\)}"
+fi
+[[ "$TEAM_ID" =~ '^[A-Z0-9]{10}$' ]] || TEAM_ID=""
+
+# The tick button is an App Intent, and the system only runs one it has been
+# told about in the widget's Metadata.appintents. Xcode makes that from the
+# compiler's constant values; here the compiler is asked for them directly.
+# The list of protocols lives beside the build, never in the bundle.
+BUILD_FLAGS=(-c release)
+if [[ -n "$TEAM_ID" ]]; then
+  PROTOCOLS="$PWD/.build/airlock-intent-protocols.json"
+  mkdir -p .build
+  print -r -- '["AppIntent","EntityQuery","AppEntity","TransientEntity","AppEnum","AppShortcutsProvider","DynamicOptionsProvider","WidgetConfigurationIntent","ControlConfigurationIntent"]' > "$PROTOCOLS"
+  BUILD_FLAGS+=(-Xswiftc -emit-const-values
+    -Xswiftc -Xfrontend -Xswiftc -const-gather-protocols-file -Xswiftc -Xfrontend -Xswiftc "$PROTOCOLS")
+fi
+
 echo "▸ swift build -c release"
-swift build -c release > /dev/null
+swift build "${BUILD_FLAGS[@]}" > /dev/null
 
 rm -rf "$OUT"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -322,6 +346,97 @@ else
   echo "  sparkle: not configured (no updater in this build)"
 fi
 
+# ── The desktop widget (Call to-dos), as Contents/PlugIns/AirlockWidgets.appex.
+#    SwiftPM builds the executable; this is the bundle Xcode would have made
+#    around it. Sandboxed, as every widget must be, and sharing one App Group
+#    folder with the app: the app writes today's to-dos there, the widget
+#    leaves its ticks there. Nothing else crosses.
+APPEX="$APP/Contents/PlugIns/AirlockWidgets.appex"
+if [[ -n "$TEAM_ID" ]]; then
+  APP_GROUP="$TEAM_ID.$BUNDLE_ID"
+  mkdir -p "$APPEX/Contents/MacOS" "$APPEX/Contents/Resources"
+  cp "$BIN/AirlockWidgets" "$APPEX/Contents/MacOS/AirlockWidgets"
+  # Its own copy of the words: String(localized:) reads the widget's bundle.
+  xcrun xcstringstool compile Resources/Localizable.xcstrings \
+    --output-directory "$APPEX/Contents/Resources" --serialization-format binary
+  # Lists for the metadata tool, beside the package (OUT is cleared each run).
+  WIDGET_SOURCES="$OUT/widget-sources.txt"
+  WIDGET_CONSTS="$OUT/widget-consts.txt"
+  print -rl -- "$PWD"/Sources/AirlockWidgets/*.swift > "$WIDGET_SOURCES"
+  print -r -- "$PWD/$BIN/AirlockWidgets.build/AirlockWidgets.swiftconstvalues" > "$WIDGET_CONSTS"
+  xcrun appintentsmetadataprocessor --output "$APPEX/Contents/Resources" \
+    --toolchain-dir "$(dirname "$(dirname "$(dirname "$(xcrun --find swift)")")")" \
+    --module-name AirlockWidgets --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" \
+    --xcode-version "$(xcodebuild -version | awk '/Build version/ {print $3}')" \
+    --platform-family macOS --deployment-target 26.0 --target-triple arm64-apple-macos26.0 \
+    --source-file-list "$WIDGET_SOURCES" --swift-const-vals-list "$WIDGET_CONSTS" \
+    --binary-file "$APPEX/Contents/MacOS/AirlockWidgets" \
+    --force --deployment-aware-processing --no-app-shortcuts-localization > /dev/null 2>&1
+  if ! grep -q TickTodoIntent "$APPEX/Contents/Resources/Metadata.appintents/extract.actionsdata" 2>/dev/null; then
+    echo "✗ widget: Metadata.appintents has no tick action — the tick button would do nothing" >&2
+    exit 1
+  fi
+  cat > "$APPEX/Contents/Info.plist" <<WPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>es</string>
+	</array>
+	<key>CFBundleDisplayName</key>
+	<string>Airlock</string>
+	<key>CFBundleExecutable</key>
+	<string>AirlockWidgets</string>
+	<key>CFBundleIdentifier</key>
+	<string>${BUNDLE_ID}.widgets</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>AirlockWidgets</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${VERSION}</string>
+	<key>CFBundleVersion</key>
+	<string>${BUILD_NUM}</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+	</dict>
+	<key>ALAppGroup</key>
+	<string>${APP_GROUP}</string>
+</dict>
+</plist>
+WPLIST
+  /usr/libexec/PlistBuddy -c "Add :ALAppGroup string $APP_GROUP" "$APP/Contents/Info.plist"
+  WIDGET_ENTITLEMENTS="$OUT/widget.entitlements"
+  cat > "$WIDGET_ENTITLEMENTS" <<WENT
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>${APP_GROUP}</string>
+	</array>
+</dict>
+</plist>
+WENT
+  echo "  widget: Call to-dos embedded, group $APP_GROUP"
+else
+  echo "  widget: left out (the signing identity has no team, and the widget's shared folder needs one)"
+fi
+
 echo "▸ signing as: $IDENTITY"
 ENTITLEMENTS="$(cd "$(dirname "$0")/.." && pwd)/Configuration/airlock.entitlements"
 SIGN_FLAGS=(--force --sign "$IDENTITY")
@@ -366,6 +481,16 @@ codesign "${SIGN_FLAGS[@]}" "$APP/Contents/Frameworks/Sparkle.framework"
 
 codesign "${SIGN_FLAGS[@]}" "$APP/Contents/MacOS/airlock-hook"
 codesign "${SIGN_FLAGS[@]}" "$APP/Contents/MacOS/airlock-setup"
+# The widget, inside-out like the rest: before the app that contains it. The
+# app joins its group, so both see the same folder.
+if [[ -n "$TEAM_ID" ]]; then
+  APP_ENTITLEMENTS="$OUT/app.entitlements"
+  cp "$SIGN_ENTITLEMENTS" "$APP_ENTITLEMENTS"
+  /usr/libexec/PlistBuddy -c "Add :com.apple.security.application-groups array" \
+    -c "Add :com.apple.security.application-groups:0 string $APP_GROUP" "$APP_ENTITLEMENTS" > /dev/null
+  SIGN_ENTITLEMENTS="$APP_ENTITLEMENTS"
+  codesign "${SIGN_FLAGS[@]}" --entitlements "$WIDGET_ENTITLEMENTS" "$APPEX"
+fi
 codesign "${SIGN_FLAGS[@]}" --entitlements "$SIGN_ENTITLEMENTS" "$APP"
 codesign --verify --strict "$APP"
 echo "  codesign verify: OK"

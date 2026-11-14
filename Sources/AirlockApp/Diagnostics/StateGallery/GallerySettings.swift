@@ -65,6 +65,35 @@ enum GallerySettings {
             GalleryState("X6a", area, "General: language", ground: .window, width: paneWidth) {
                 LookColumn { LanguageRow() }
             },
+            GalleryState("X42", area, "Window layouts: switched off, the Switch on card", ground: .window,
+                         width: paneWidth) {
+                addOn(.windowLayouts, AddOnPreview(isOn: false)) { WindowLayoutsPane() }
+            },
+            GalleryState("X42a", area, "Shelf: three files on it", ground: .window, width: paneWidth) {
+                addOn(.tray, AddOnPreview()) {
+                    ShelfPane(moreOptions: true)
+                        .environment(TrayModel(previewing: [shelfItem("Invoice.pdf"), shelfItem("Logo.png"),
+                                                            shelfItem("Notes.txt")],
+                                               layout: WorkspaceLayout(root: URL(fileURLWithPath: "/Users/you/Airlock",
+                                                                                 isDirectory: true))))
+                }
+            },
+            GalleryState("X42b", area, "Dictation: switching on shows what macOS will ask", ground: .window,
+                         width: paneWidth) {
+                voice(moreOptions: false, height: 520, preview: AddOnPreview(confirming: true))
+            },
+            GalleryState("X42c", area, "Window layouts: on, Accessibility refused", ground: .window,
+                         width: paneWidth) {
+                addOn(.windowLayouts, AddOnPreview(missing: [.accessibility])) { WindowLayoutsPane() }
+            },
+            GalleryState("X42d", area, "Meeting notes: on, microphone refused", ground: .window,
+                         width: paneWidth) {
+                voice(.meetingNotes, moreOptions: false, height: 720, store: callNotesStore,
+                      preview: AddOnPreview(missing: [.microphone]))
+            },
+            GalleryState("X42e", area, "Meeting notes: switched off", ground: .window, width: paneWidth) {
+                voice(.meetingNotes, moreOptions: false, height: 420, preview: AddOnPreview(isOn: false))
+            },
             .notYet("X8", area, "The notch: island picture",
                     why: "The page needs a dozen widget models whose switches read the real preferences, and the island picture is wired by the app."),
             .notYet("X9", area, "The notch: width",
@@ -89,26 +118,26 @@ enum GallerySettings {
             },
             .notYet("X14", area, "Voice: keys clash / microphone missing",
                     why: "The Voice page re-checks the hold key's event tap on appear, which can raise the Input Monitoring prompt."),
-            GalleryState("X15", area, "Voice: the six rows", ground: .window, width: paneWidth) {
+            GalleryState("X15", area, "Dictation: the rows", ground: .window, width: paneWidth) {
                 voice(moreOptions: false, height: 500)
             },
-            GalleryState("X15a", area, "Voice: Catalan on calls, a language only dictation knows",
+            GalleryState("X15a", area, "Meeting notes: Catalan on calls, a language only dictation knows",
                          ground: .window, width: paneWidth) {
-                voice(moreOptions: true, height: 2300, store: catalanCallsStore, callListeners: catalanListeners)
+                voice(.meetingNotes, moreOptions: true, height: 1300, store: catalanCallsStore, callListeners: catalanListeners)
             },
             // Dictation types either way; only the tidy-up is out of reach,
             // and it says so with the way to turn it on.
-            GalleryState("X15b", area, "Voice: Apple Intelligence switched off, the tidy-up says so",
+            GalleryState("X15b", area, "Dictation: Apple Intelligence switched off, the tidy-up says so",
                          ground: .window, width: paneWidth) {
                 voice(moreOptions: true, height: 2200, model: .needsAppleIntelligence)
             },
-            GalleryState("X15c", area, "Voice: a Mac that can't run Apple Intelligence",
+            GalleryState("X15c", area, "Dictation: a Mac that can't run Apple Intelligence",
                          ground: .window, width: paneWidth) {
                 voice(moreOptions: false, height: 560, model: .deviceNotEligible)
             },
             .notYet("X16", area, "Voice: Input Monitoring stale",
                     why: "The hold key's fault is private to the dictation model; the row is the same Fix as X34, drawn there."),
-            GalleryState("X17", area, "Voice: more options open", ground: .window, width: paneWidth) {
+            GalleryState("X17", area, "Dictation: more options open", ground: .window, width: paneWidth) {
                 voice(moreOptions: true, height: 2200)
             },
             .notYet("X18", area, "Voice: typed-bar section",
@@ -203,33 +232,33 @@ enum GallerySettings {
             GalleryState("X37", area, "Permissions: footer", ground: .window, width: paneWidth) {
                 permissions(allowed, moreOptions: true, height: 2020)
             },
-            GalleryState("X41", area, "Voice: call notes on, with Open past calls", ground: .window,
+            GalleryState("X41", area, "Meeting notes: on, with Open past calls", ground: .window,
                          width: paneWidth) {
-                voice(moreOptions: false, height: 720, store: callNotesStore)
+                voice(.meetingNotes, moreOptions: false, height: 720, store: callNotesStore)
             },
-            GalleryState("X41a", area, "Voice: call notes on, words to know listed", ground: .window,
+            GalleryState("X41a", area, "Meeting notes: on, words to know listed", ground: .window,
                          width: paneWidth) {
-                voice(moreOptions: false, height: 740, store: callNotesStore,
+                voice(.meetingNotes, moreOptions: false, height: 740, store: callNotesStore,
                       knownWords: ["Brightwell", "Velaroja", "Quintela", "Rosamar Ortiz", "Zentrix CRM"])
             },
-            GalleryState("X41b", area, "Voice: on Free, notes written online carry a Plus tag", ground: .window,
+            GalleryState("X41b", area, "Meeting notes: on Free, notes written online carry a Plus tag", ground: .window,
                          width: paneWidth) {
-                voice(moreOptions: false, height: 760, store: callNotesStore,
+                voice(.meetingNotes, moreOptions: false, height: 760, store: callNotesStore,
                       license: LicenseModel(previewing: .free))
             },
-            GalleryState("X41c", area, "Voice: on Plus, the voice model downloading", ground: .window,
+            GalleryState("X41c", area, "Meeting notes: on Plus, the voice model downloading", ground: .window,
                          width: paneWidth) {
-                voice(moreOptions: false, height: 800, store: callNotesStore,
+                voice(.meetingNotes, moreOptions: false, height: 800, store: callNotesStore,
                       license: LicenseModel(previewing: .licensed(plusLicence)), voiceDownload: .downloading(0.42))
             },
-            GalleryState("X41d", area, "Voice: on Plus, the voice model didn't download", ground: .window,
+            GalleryState("X41d", area, "Meeting notes: on Plus, the voice model didn't download", ground: .window,
                          width: paneWidth) {
-                voice(moreOptions: false, height: 800, store: callNotesStore,
+                voice(.meetingNotes, moreOptions: false, height: 800, store: callNotesStore,
                       license: LicenseModel(previewing: .licensed(plusLicence)), voiceDownload: .failed)
             },
-            GalleryState("X41e", area, "Voice: on Plus, voices told apart", ground: .window,
+            GalleryState("X41e", area, "Meeting notes: on Plus, voices told apart", ground: .window,
                          width: paneWidth) {
-                voice(moreOptions: false, height: 800, store: callNotesStore,
+                voice(.meetingNotes, moreOptions: false, height: 800, store: callNotesStore,
                       license: LicenseModel(previewing: .licensed(plusLicence)), voiceDownload: .ready)
             },
         ]
@@ -240,6 +269,22 @@ enum GallerySettings {
     /// About the width a page is given in the Airlock window: `LookPage`
     /// stops growing at 560.
     private static let paneWidth: CGFloat = 576
+
+    /// An add-on page with fixed values for its switch, its permission card
+    /// and what macOS hasn't allowed: the real page flips real switches.
+    private static func addOn<Page: View>(_ pane: SettingsPane, _ preview: AddOnPreview,
+                                          @ViewBuilder page: () -> Page) -> some View {
+        page()
+            .environment(\.addOnPreview, preview)
+            .environment(\.lookPane, pane)
+            .environment(SettingsModel(previewing: []))
+            .frame(height: preview.isOn ? 720 : 420)
+    }
+
+    private static func shelfItem(_ name: String) -> TrayItem {
+        TrayItem(url: URL(fileURLWithPath: "/Users/you/Airlock/tray/\(name)"), size: 240_000,
+                 modified: Date(timeIntervalSince1970: 1_790_000_000), isDirectory: false)
+    }
 
     private static let mixed: [SettingsModel.AgentRow] = [
         .init(kind: .claudeCode, name: "Claude Code", configPath: "~/.claude/settings.json", status: .installed),
@@ -332,6 +377,7 @@ enum GallerySettings {
     /// last skip is a value.
     private static func clipboard(lastSkip: ClipboardSkipReason? = nil, moreOptions: Bool = false) -> some View {
         ClipboardPane(moreOptions: moreOptions)
+            .environment(\.lookPane, .clipboard)
             .environment(ClipboardWidgetModel(previewing: ClipboardHistory(items: clipboardItems),
                                               lastSkip: lastSkip))
             .environment(SettingsModel(previewing: []))
@@ -342,6 +388,7 @@ enum GallerySettings {
     private static func agents(_ rows: [SettingsModel.AgentRow], policy: SettingsModel.PolicyInfo = noPolicy,
                                advanced: Bool = false, license: LicenseModel? = nil) -> some View {
         AgentsPane(moreOptions: advanced)
+            .environment(\.lookPane, .agents)
             .environment(SettingsModel(previewing: rows, policy: policy))
             .environment(license)
             .environment(AgentsWidgetModel(previewing: .hooksInstalled))
@@ -378,14 +425,18 @@ enum GallerySettings {
     /// `model` stands in for what Apple's on-device model can do here.
     /// `voiceDownload` stands in for the voice model's download, which no
     /// picture starts: before it is here, a fresh Mac's.
-    private static func voice(moreOptions: Bool, height: CGFloat, store: UserDefaults = plainStore,
+    private static func voice(_ part: DictationPane.Part = .dictation, moreOptions: Bool, height: CGFloat,
+                              store: UserDefaults = plainStore,
                               callListeners: CallListeners? = nil, knownWords: [String] = [],
                               model: ModelAvailability? = nil, license: LicenseModel? = nil,
-                              voiceDownload: CallVoiceDownload.State = .idle) -> some View {
+                              voiceDownload: CallVoiceDownload.State = .idle,
+                              preview: AddOnPreview = AddOnPreview()) -> some View {
         let dictation = DictationModel()
         dictation.previewCleanupAvailability = model
-        return DictationPane(moreOptions: moreOptions, callListeners: callListeners, knownWords: knownWords,
-                             voiceDownload: voiceDownload)
+        return DictationPane(part: part, moreOptions: moreOptions, callListeners: callListeners,
+                             knownWords: knownWords, voiceDownload: voiceDownload)
+            .environment(\.addOnPreview, preview)
+            .environment(\.lookPane, part == .dictation ? .voice : .callNotes)
             .environment(dictation)
             .environment(license)
             .environment(SettingsModel(previewing: []))
@@ -414,8 +465,8 @@ enum GallerySettings {
     /// same ones.
     private static var window: some View {
         HStack(alignment: .top, spacing: 0) {
-            LookSidebar(pages: SettingsPane.sidebarCases,
-                        selection: .constant(.voice), calls: .constant(false), query: .constant(""))
+            LookSidebar(selection: .constant(.voice), calls: .constant(false),
+                        isOn: { $0 != .codingAgents }, query: .constant(""))
             voice(moreOptions: false, height: AirlockWindowView.firstSize.height - 30)
                 .padding(.top, 2)
                 .frame(maxWidth: .infinity)

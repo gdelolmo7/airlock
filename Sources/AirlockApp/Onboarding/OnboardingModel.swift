@@ -43,6 +43,11 @@ final class OnboardingModel {
         static let resumeStep = "onboarding.resumeStep"
     }
 
+    /// Read (never written) by the add-ons launch seed: either one being
+    /// there means somebody already set this Mac up with today's features.
+    static let completedKey = Keys.completed
+    static let resumeStepKey = Keys.resumeStep
+
     init(settings: SettingsModel, calendar: CalendarWidgetModel,
          dictation: DictationModel, clipboard: ClipboardWidgetModel,
          agentsWidget: AgentsWidgetModel) {

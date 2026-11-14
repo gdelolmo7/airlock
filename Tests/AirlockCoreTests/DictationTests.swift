@@ -150,6 +150,113 @@ final class HoldGestureTests: XCTestCase {
         XCTAssertFalse(gesture.isRecording)
     }
 
+    // MARK: Tap to lock
+
+    /// Off unless asked for: a tap is still thrown away.
+    func testATapDoesNotLockByDefault() {
+        var gesture = HoldGesture()
+        gesture.apply(.keyDown(at: at(0)))
+        XCTAssertEqual(gesture.apply(.keyUp(at: at(0.1))), .discard(.tooShort))
+        XCTAssertFalse(gesture.isLocked)
+    }
+
+    func testATapLocksAndTheNextTapFinishes() {
+        var gesture = HoldGesture(locksOnTap: true)
+        XCTAssertEqual(gesture.apply(.keyDown(at: at(0))), .startCapture)
+        XCTAssertEqual(gesture.apply(.keyUp(at: at(0.1))), .lock)
+        XCTAssertTrue(gesture.isLocked)
+        XCTAssertTrue(gesture.isRecording)
+        // The key is up, and that is how it is meant to be.
+        XCTAssertNil(gesture.apply(.tick(at: at(30), isPhysicallyDown: false)))
+        XCTAssertNil(gesture.apply(.keyDown(at: at(40))))
+        XCTAssertEqual(gesture.apply(.keyUp(at: at(40.05))), .finish(.released))
+        XCTAssertFalse(gesture.isRecording)
+        XCTAssertFalse(gesture.isLocked)
+    }
+
+    /// Holding still works with the setting on.
+    func testAHoldStillFinishesOnReleaseWhenTapsLock() {
+        var gesture = HoldGesture(locksOnTap: true)
+        gesture.apply(.keyDown(at: at(0)))
+        XCTAssertEqual(gesture.apply(.keyUp(at: at(3))), .finish(.released))
+        XCTAssertFalse(gesture.isLocked)
+    }
+
+    /// The key went down to stop and became a shortcut instead: keep going.
+    func testAnAbandonedPressDoesNotStopALockedDictation() {
+        var gesture = HoldGesture(locksOnTap: true)
+        gesture.apply(.keyDown(at: at(0)))
+        gesture.apply(.keyUp(at: at(0.1)))
+        gesture.apply(.keyDown(at: at(5)))
+        XCTAssertNil(gesture.apply(.pressAbandoned))
+        XCTAssertNil(gesture.apply(.keyUp(at: at(5.3))))
+        XCTAssertTrue(gesture.isLocked)
+        // And the next clean tap still stops it.
+        gesture.apply(.keyDown(at: at(8)))
+        XCTAssertEqual(gesture.apply(.keyUp(at: at(8.1))), .finish(.released))
+    }
+
+    /// ⌃-scroll is the screen zoom. A quick one is not a tap: it must not
+    /// leave the microphone on, and a long one is still a hold.
+    func testAPressSharedWithAScrollNeverLocks() {
+        var gesture = HoldGesture(locksOnTap: true)
+        gesture.apply(.keyDown(at: at(0)))
+        XCTAssertNil(gesture.apply(.pressAbandoned))
+        XCTAssertEqual(gesture.apply(.keyUp(at: at(0.2))), .discard(.tooShort))
+        XCTAssertFalse(gesture.isRecording)
+
+        gesture.apply(.keyDown(at: at(5)))
+        gesture.apply(.pressAbandoned)
+        XCTAssertEqual(gesture.apply(.keyUp(at: at(8))), .finish(.released))
+
+        // And it does not carry over to the next, clean tap.
+        gesture.apply(.keyDown(at: at(10)))
+        XCTAssertEqual(gesture.apply(.keyUp(at: at(10.1))), .lock)
+    }
+
+    func testCancelEndsALockedDictationWithNothing() {
+        var gesture = HoldGesture(locksOnTap: true)
+        gesture.apply(.keyDown(at: at(0)))
+        gesture.apply(.keyUp(at: at(0.1)))
+        XCTAssertEqual(gesture.apply(.cancel), .discard(.cancelled))
+        XCTAssertFalse(gesture.isLocked)
+        XCTAssertFalse(gesture.isRecording)
+    }
+
+    func testLockedRunsToTenMinutesAndHoldingToFive() {
+        var locked = HoldGesture(locksOnTap: true)
+        locked.apply(.keyDown(at: at(0)))
+        locked.apply(.keyUp(at: at(0.1)))
+        XCTAssertEqual(locked.limit, HoldGesture.maximumLocked)
+        XCTAssertNil(locked.apply(.tick(at: at(HoldGesture.maximumHold + 1), isPhysicallyDown: false)))
+        XCTAssertEqual(locked.apply(.tick(at: at(HoldGesture.maximumLocked), isPhysicallyDown: false)),
+                       .finish(.reachedLimit))
+        XCTAssertFalse(locked.isLocked)
+
+        var held = HoldGesture(locksOnTap: true)
+        held.apply(.keyDown(at: at(0)))
+        XCTAssertEqual(held.limit, HoldGesture.maximumHold)
+        XCTAssertEqual(HoldGesture.maximumHold, 300)
+        XCTAssertEqual(HoldGesture.maximumLocked, 600)
+    }
+
+    /// A release we never saw is not a tap anybody chose.
+    func testALostReleaseNeverLocks() {
+        var gesture = HoldGesture(locksOnTap: true)
+        gesture.apply(.keyDown(at: at(0)))
+        XCTAssertEqual(gesture.apply(.tick(at: at(0.1), isPhysicallyDown: false)), .discard(.tooShort))
+        XCTAssertFalse(gesture.isLocked)
+    }
+
+    func testASilentLockIsTakenForAStrayTap() {
+        let window = HoldGesture.strayLockWindow
+        XCTAssertFalse(HoldGesture.lockLooksStray(runningFor: window - 1, heardWords: false, peak: 0))
+        XCTAssertTrue(HoldGesture.lockLooksStray(runningFor: window, heardWords: false, peak: 0.001))
+        XCTAssertFalse(HoldGesture.lockLooksStray(runningFor: window, heardWords: true, peak: 0))
+        XCTAssertFalse(HoldGesture.lockLooksStray(runningFor: window, heardWords: false,
+                                                  peak: HoldInterruption.voiceLevel))
+    }
+
     func testCancelDiscards() {
         var gesture = HoldGesture()
         gesture.apply(.keyDown(at: at(0)))

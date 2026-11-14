@@ -57,7 +57,31 @@ public struct PolicyRule: Sendable, Equatable, Hashable {
         guard tool == request.toolName else { return false }
         guard let pattern else { return true } // tool-only rule
         guard let subject = Self.subject(of: request) else { return false }
+        if Self.isWildcard(pattern), Self.escapesWildcard(request) { return false }
         return fnmatch(pattern, subject, 0) == 0
+    }
+
+    /// Whether a pattern can match more than one subject.
+    static func isWildcard(_ pattern: String) -> Bool {
+        pattern.contains { "*?[".contains($0) }
+    }
+
+    /// A subject no wildcard rule may approve, so it falls through to asking.
+    ///
+    /// `fnmatch` with no flags lets `*` match anything, `;` and `/` included,
+    /// so `Bash(git log *)` would also approve `git log; anything`, and
+    /// `Write(/proj/*)` would approve `/proj/../../elsewhere`. A command that
+    /// chains, pipes, redirects or substitutes, or a path that climbs with
+    /// `..`, is only ever approved by a rule that names it exactly. Read from
+    /// the raw request, before `normalize` turns a newline (which also ends a
+    /// shell command) into a space.
+    static func escapesWildcard(_ request: PermissionRequest) -> Bool {
+        let isCommand = request.toolName == "Bash" || request.target == nil
+        if isCommand {
+            let lines = [request.command, request.target].compactMap { $0 }
+            return lines.contains { line in RuleGeneralizer.compoundMarkers.contains(where: line.contains) }
+        }
+        return request.target?.split(separator: "/").contains("..") ?? false
     }
 
     /// The string a pattern is matched against.

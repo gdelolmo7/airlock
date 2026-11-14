@@ -124,6 +124,9 @@ actor CallVoiceListener {
     /// What it heard and what that cost, for the numbering and the log.
     struct Report: Sendable {
         var spans: [CallVoices.Span]
+        /// How loud it was, a figure every tenth of a second: in the room,
+        /// what tells the voice nearest the Mac from the others.
+        var loudness: CallVoices.Loudness?
         /// Seconds of call audio the model was given.
         var audioSeconds: Double
         /// Seconds the model spent on it: divided by `audioSeconds`, how
@@ -137,6 +140,7 @@ actor CallVoiceListener {
     private let offset: TimeInterval
     private var diarizer: Nemotron3Diarizer?
     private var tracker: CallVoices.Tracker?
+    private var loudness: CallVoices.Loudness?
     private var samples = 0
     private var computeSeconds = 0.0
     private var loadSeconds = 0.0
@@ -167,16 +171,17 @@ actor CallVoiceListener {
         }
         tracker?.finish()
         diarizer = nil
-        return Report(spans: tracker?.spans ?? [], audioSeconds: Double(samples) / 16_000,
+        return Report(spans: tracker?.spans ?? [], loudness: loudness, audioSeconds: Double(samples) / 16_000,
                       computeSeconds: computeSeconds, loadSeconds: loadSeconds, stopped: stopped)
     }
 
     /// What it has heard so far, and how far into the meeting: for
     /// numbering the lines while the call goes on. Nil before the model
     /// has heard anything.
-    func soFar() -> (spans: [CallVoices.Span], through: TimeInterval)? {
+    func soFar() -> (spans: [CallVoices.Span], through: TimeInterval, loudness: CallVoices.Loudness?)? {
         guard let tracker, tracker.frames > 0 else { return nil }
-        return tracker.soFar
+        let heard = tracker.soFar
+        return (heard.spans, heard.through, loudness)
     }
 
     /// Stops listening and forgets everything: a call too short to keep.
@@ -184,6 +189,7 @@ actor CallVoiceListener {
         running?.cancel()
         diarizer = nil
         tracker = nil
+        loudness = nil
     }
 
     private func listen(to input: AsyncStream<AnalyzerInput>) async {
@@ -207,9 +213,11 @@ actor CallVoiceListener {
             if tracker == nil {
                 let start = item.bufferStartTime.map(\.seconds).flatMap { $0.isFinite ? $0 : nil } ?? 0
                 tracker = CallVoices.Tracker(origin: offset + start)
+                loudness = CallVoices.Loudness(origin: offset + start)
             }
             guard let floats = mono16k(item.buffer), !floats.isEmpty else { continue }
             samples += floats.count
+            loudness?.add(floats)
             diarizer.appendAudio(floats)
             do {
                 try step { try diarizer.processBufferedAudio() }

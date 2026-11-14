@@ -161,7 +161,13 @@ private enum Git {
             DispatchQueue.global(qos: .utility).async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-                process.arguments = arguments
+                // The folder comes from an agent's session, so its repository
+                // is not necessarily one the user trusts. A repo's own config
+                // can name a program for `core.fsmonitor`, which `git status`
+                // runs; switching it off keeps a status read a read.
+                // `--no-optional-locks` keeps it from writing the index while
+                // the user's own git is working.
+                process.arguments = ["-c", "core.fsmonitor=false", "--no-optional-locks"] + arguments
                 process.currentDirectoryURL = URL(fileURLWithPath: directory)
                 // A repository on a stalled network mount can hang git forever,
                 // and this runs off session activity — so the pipe is drained

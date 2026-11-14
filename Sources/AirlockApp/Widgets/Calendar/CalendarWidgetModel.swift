@@ -44,7 +44,7 @@ final class CalendarWidgetModel {
         didSet {
             guard isEnabled != oldValue else { return }
             toggle.value = isEnabled
-            if !isEnabled { upcoming = [] }
+            if !isEnabled { upcoming = []; onUpcomingChanged?() }
             onChange?()
             if isEnabled { Task { await refresh() } }
         }
@@ -70,6 +70,9 @@ final class CalendarWidgetModel {
     }
 
     @ObservationIgnored var onChange: (() -> Void)?
+    /// Told whenever `upcoming` changes: the desktop widget's publisher.
+    /// Apart from `onChange`, which the notch owns.
+    @ObservationIgnored var onUpcomingChanged: (() -> Void)?
     /// Set by the controller: opening a link or Calendar.app leaves the notch.
     @ObservationIgnored var onNavigateAway: (() -> Void)?
     /// Lazy so that only a model that reads or asks ever opens the store — the
@@ -374,6 +377,7 @@ final class CalendarWidgetModel {
             // put a dialog on screen returns in milliseconds, and only the clock
             // tells it apart from someone clicking "Don't Allow".
             let started = Date()
+            SystemQuestionWatch.shared.begin()
             do {
                 _ = try await store.requestFullAccessToEvents()
             } catch {
@@ -440,7 +444,7 @@ final class CalendarWidgetModel {
     func refresh() async {
         authStatus = EKEventStore.authorizationStatus(for: .event)
         guard isEnabled, authStatus == .fullAccess else {
-            if !upcoming.isEmpty { upcoming = []; onChange?() }
+            if !upcoming.isEmpty { upcoming = []; onChange?(); onUpcomingChanged?() }
             return
         }
 
@@ -460,9 +464,11 @@ final class CalendarWidgetModel {
         let next = Array(events)
         let glanceNow = glanceEventWould(be: next)
         if next != upcoming || glanceNow != lastGlance {
+            let changed = next != upcoming
             upcoming = next
             lastGlance = glanceNow
             onChange?()
+            if changed { onUpcomingChanged?() }
         }
     }
 

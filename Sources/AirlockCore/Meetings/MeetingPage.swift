@@ -23,46 +23,88 @@ public enum MeetingPage {
     }
 
     public static func blocks(of page: String) -> [Block] {
-        var blocks: [Block] = []
+        sourced(page).map(\.block)
+    }
+
+    /// The page's lines, as every edit counts them (`MeetingPageEdit`).
+    public static func lines(of page: String) -> [String] {
+        page.components(separatedBy: .newlines)
+    }
+
+    /// Each block with the lines of the page it was read from, counted from
+    /// 0 as `lines(of:)` splits them: one for most, several for a
+    /// paragraph written over more than one line.
+    public static func sourced(_ page: String) -> [(block: Block, lines: Range<Int>)] {
+        var blocks: [(block: Block, lines: Range<Int>)] = []
         var paragraph: [String] = []
-        func flush() {
-            if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined(separator: " "))) }
+        var paragraphStart = 0
+        func flush(at end: Int) {
+            if !paragraph.isEmpty {
+                blocks.append((.paragraph(paragraph.joined(separator: " ")), paragraphStart..<end))
+            }
             paragraph = []
         }
-        for raw in page.components(separatedBy: .newlines) {
+        let all = lines(of: page)
+        for (index, raw) in all.enumerated() {
             let line = raw.trimmingCharacters(in: .whitespaces)
+            let here = index..<(index + 1)
             if line.isEmpty {
-                flush()
+                flush(at: index)
             } else if let heading = heading(line) {
-                flush()
+                flush(at: index)
                 // A section title in either language the page may be written
                 // in reads as Airlock's English name (`MeetingFiles.canonicalHeading`).
                 let text = heading.level == 2 ? MeetingFiles.canonicalHeading(heading.text) : heading.text
-                blocks.append(.heading(text, level: heading.level))
+                blocks.append((.heading(text, level: heading.level), here))
             } else if line == "---" || line == "***" {
-                flush()
-                blocks.append(.rule)
+                flush(at: index)
+                blocks.append((.rule, here))
             } else if let item = item(line) {
-                flush()
-                blocks.append(.item(item.text, checked: item.checked, owner: item.owner, at: item.at))
+                flush(at: index)
+                blocks.append((.item(item.text, checked: item.checked, owner: item.owner, at: item.at), here))
             } else if let stretch = unwritten(line) {
-                flush()
-                blocks.append(.unwritten(from: stretch.start, to: stretch.end))
+                flush(at: index)
+                blocks.append((.unwritten(from: stretch.start, to: stretch.end), here))
             } else {
+                if paragraph.isEmpty { paragraphStart = index }
                 paragraph.append(line)
             }
         }
-        flush()
+        flush(at: all.count)
         return blocks
     }
 
     /// The page without what the window already shows above it: the title
     /// and, when it is the very next thing, the date line.
     public static func body(of page: String, header: String) -> [Block] {
-        var blocks = blocks(of: page)
-        if case .heading(_, level: 1)? = blocks.first { blocks.removeFirst() }
-        if case .paragraph(let text)? = blocks.first, text == header { blocks.removeFirst() }
+        sourcedBody(of: page, header: header).map(\.block)
+    }
+
+    static func sourcedBody(of page: String, header: String) -> [(block: Block, lines: Range<Int>)] {
+        var blocks = sourced(page)
+        if case .heading(_, level: 1)? = blocks.first?.block { blocks.removeFirst() }
+        if case .paragraph(let text)? = blocks.first?.block, text == header { blocks.removeFirst() }
         return blocks
+    }
+
+    /// `placed(body(of:header:))` with each line's place on the page, for
+    /// editing it, and whether the person changed it or typed it in:
+    /// a line `written` (the page as Airlock wrote it, names put in) does
+    /// not have. Without `written`, no line is theirs.
+    public static func placed(page: String, header: String, written: String? = nil) -> [Placed] {
+        let sourced = sourcedBody(of: page, header: header)
+        let pageLines = lines(of: page)
+        let airlock = written.map { Set(lines(of: $0).map { $0.trimmingCharacters(in: .whitespaces) }) }
+        var placed = placed(sourced.map(\.block))
+        for index in placed.indices {
+            let span = sourced[index].lines
+            let changed = airlock.map { airlock in
+                span.contains { !airlock.contains(pageLines[$0].trimmingCharacters(in: .whitespaces)) }
+            } ?? false
+            placed[index] = Placed(block: placed[index].block, section: placed[index].section,
+                                   closing: placed[index].closing, lines: span, changed: changed)
+        }
+        return placed
     }
 
     /// A block and where it sits on the page.
@@ -73,11 +115,20 @@ public enum MeetingPage {
         public let section: String?
         /// Below the rule: the closing line about how the notes were made.
         public let closing: Bool
+        /// The lines of the page it was read from (`sourced`), when known:
+        /// what an edit of it changes.
+        public let lines: Range<Int>?
+        /// Changed by the person or typed in by them, after Airlock wrote
+        /// the page (`placed(page:header:written:)`).
+        public let changed: Bool
 
-        public init(block: Block, section: String?, closing: Bool) {
+        public init(block: Block, section: String?, closing: Bool,
+                    lines: Range<Int>? = nil, changed: Bool = false) {
             self.block = block
             self.section = section
             self.closing = closing
+            self.lines = lines
+            self.changed = changed
         }
 
         /// The person's own words, typed during the call ("Your notes"),
@@ -112,11 +163,14 @@ public enum MeetingPage {
         /// The heading's level: 2 for "## To-dos", 3 for a topic's
         /// "### 1. Price". 0 above the first heading.
         public let level: Int
+        /// The page line its heading is on, when known (`Placed.lines`).
+        public let headingLine: Int?
 
-        public init(heading: String?, lines: [Placed], level: Int? = nil) {
+        public init(heading: String?, lines: [Placed], level: Int? = nil, headingLine: Int? = nil) {
             self.heading = heading
             self.lines = lines
             self.level = level ?? (heading == nil ? 0 : 2)
+            self.headingLine = headingLine
         }
     }
 
@@ -128,11 +182,14 @@ public enum MeetingPage {
         var sections: [Section] = []
         var heading: String?
         var level = 0
+        var headingLine: Int?
         var lines: [Placed] = []
         var started = false
         var closing: [Placed] = []
         func flush() {
-            if started || !lines.isEmpty { sections.append(Section(heading: heading, lines: lines, level: level)) }
+            if started || !lines.isEmpty {
+                sections.append(Section(heading: heading, lines: lines, level: level, headingLine: headingLine))
+            }
         }
         for line in placed {
             if line.closing {
@@ -143,6 +200,7 @@ public enum MeetingPage {
                 flush()
                 heading = text
                 level = depth
+                headingLine = line.lines?.lowerBound
                 lines = []
                 started = true
             } else {
@@ -268,13 +326,13 @@ public enum MeetingPage {
         return cards
     }
 
-    private static func heading(_ line: String) -> (text: String, level: Int)? {
+    static func heading(_ line: String) -> (text: String, level: Int)? {
         let hashes = line.prefix { $0 == "#" }.count
         guard (1...6).contains(hashes), line.dropFirst(hashes).first == " " else { return nil }
         return (String(line.dropFirst(hashes + 1)).trimmingCharacters(in: .whitespaces), hashes)
     }
 
-    private static func item(_ line: String) -> (text: String, checked: Bool?, owner: String?, at: TimeInterval?)? {
+    static func item(_ line: String) -> (text: String, checked: Bool?, owner: String?, at: TimeInterval?)? {
         guard let marker = line.first, "-*•".contains(marker), line.dropFirst().first == " " else { return nil }
         var text = String(line.dropFirst(2))
         var checked: Bool?

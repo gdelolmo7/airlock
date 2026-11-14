@@ -82,11 +82,15 @@ final class SystemStatsWidgetModel {
     /// anything is drawn.
     private(set) var cpuByApp: CPUByApp = .hidden
 
-    @ObservationIgnored private let toggle = WidgetToggle(key: "widget.system.enabled", defaultValue: false)
+    /// Off by default for installs that never chose it; a new Mac has it
+    /// switched on by `AddOnSwitches.seedAtLaunch`.
+    static let enabledKey = "widget.system.enabled"
+
+    @ObservationIgnored private let toggle = WidgetToggle(key: enabledKey, defaultValue: false)
     /// Stored, not computed over UserDefaults: `@Observable` cannot track a
     /// computed property reading `@ObservationIgnored` storage, so toggling this
     /// in settings wrote the value without invalidating anything that reads it.
-    var isEnabled: Bool = WidgetToggle.stored("widget.system.enabled", default: false) {
+    var isEnabled: Bool = WidgetToggle.stored(SystemStatsWidgetModel.enabledKey, default: false) {
         didSet {
             guard isEnabled != oldValue else { return }
             toggle.value = isEnabled

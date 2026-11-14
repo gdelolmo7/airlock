@@ -50,12 +50,14 @@ enum InlineMarkdown {
 
     private static func parse(_ raw: String, size: CGFloat) -> AttributedString {
         let cleaned = raw
-        guard var attributed = try? AttributedString(
+        guard let parsed = try? AttributedString(
             markdown: cleaned,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         ) else {
             return AttributedString(cleaned)
         }
+        // Agent text: only web and mail links stay clickable.
+        var attributed = LinkPolicy.strippingDisallowedLinks(parsed)
 
         for run in attributed.runs where run.inlinePresentationIntent?.contains(.code) == true {
             // Scaled HERE rather than at the three call sites, because each of
