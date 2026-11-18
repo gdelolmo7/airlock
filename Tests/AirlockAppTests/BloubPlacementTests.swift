@@ -23,6 +23,7 @@ final class BloubPlacementTests: XCTestCase {
             .microphoneAllowed(key: "⌃ Control"),
             .copiedNowhereToType,
             .copiedAfterKeyOrClick,
+            .copiedNotSeenLanding,
             .copiedCantTypeYet,
             .reachedLimit(minutes: 5),
             .tidyingFailed,

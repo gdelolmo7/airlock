@@ -147,12 +147,12 @@ struct NextCallView: View {
             linked(url) {
                 Text(event.join ?? DeskCallWords.join)
                     .font(DeskType.text(12.5, weight: .semibold))
-                    .foregroundStyle(look.on)
+                    .foregroundStyle(look.pillText)
                     .lineLimit(1)
                     .padding(.horizontal, 14)
                     .frame(maxWidth: wide ? .infinity : nil)
                     .frame(height: 28)
-                    .background(look.accent, in: Capsule())
+                    .background(look.pill, in: Capsule())
             }
             .widgetAccentable()
         }

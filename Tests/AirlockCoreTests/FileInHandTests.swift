@@ -176,4 +176,29 @@ final class FileInHandTests: XCTestCase {
         hand.dragged(now: at(1), changeCount: { 2 }, types: { self.file })
         XCTAssertFalse(hand.isHeld, "the same drag's count is the new baseline")
     }
+
+    /// A file from outside dragged into the open panel turns it to the shelf,
+    /// whatever page it was on: before, the call stayed under the pointer
+    /// until the drop.
+    func testAFileDraggedIntoTheOpenPanelTurnsItToTheShelf() {
+        XCTAssertTrue(FileInHand.turnsOpenPanelToShelf(held: true, draggingOut: false,
+                                                       panelIsTaken: false, arranging: false))
+    }
+
+    /// Never for a drag that began inside Airlock, nor over a panel something
+    /// else owns, nor while arranging.
+    func testThePanelStaysPutForItsOwnDragsAndWhenTaken() {
+        XCTAssertFalse(FileInHand.turnsOpenPanelToShelf(held: false, draggingOut: false,
+                                                        panelIsTaken: false, arranging: false),
+                       "a clipboard row dragged inside the panel")
+        XCTAssertFalse(FileInHand.turnsOpenPanelToShelf(held: true, draggingOut: true,
+                                                        panelIsTaken: false, arranging: false),
+                       "an item dragged off the shelf")
+        XCTAssertFalse(FileInHand.turnsOpenPanelToShelf(held: true, draggingOut: false,
+                                                        panelIsTaken: true, arranging: false),
+                       "setup or a question owns the panel")
+        XCTAssertFalse(FileInHand.turnsOpenPanelToShelf(held: true, draggingOut: false,
+                                                        panelIsTaken: false, arranging: true),
+                       "the blocks are being arranged")
+    }
 }

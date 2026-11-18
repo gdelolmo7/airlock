@@ -49,6 +49,11 @@ struct TrayPanelDropTarget: DropDelegate {
     func validateDrop(info: DropInfo) -> Bool { tray.isEnabled }
 
     func dropEntered(info: DropInfo) {
+        if FileInHand.turnsOpenPanelToShelf(held: uiState.fileInHand, draggingOut: uiState.isDraggingOut,
+                                            panelIsTaken: uiState.panelIsTaken,
+                                            arranging: uiState.isArranging) {
+            uiState.selectedTab = .tray
+        }
         uiState.isDropTargeted = !uiState.isDraggingOut
         uiState.dropRejection = kind(of: info).flatMap { $0.isSupported ? nil : $0.explanation }
         // Providers cannot say what they hold without loading it, so the format

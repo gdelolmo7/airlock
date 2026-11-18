@@ -7,7 +7,7 @@ final class DictationHoldNoticeTests: XCTestCase {
     private static let every: [DictationHoldNotice] = [
         .microphoneDenied, .noSpeechModel(locale: "en_US"), .notBundled, .microphoneFailedToStart,
         .microphoneAllowed(key: "⌃ Control"), .nothingCaught(key: "⌃ Control"), .copiedNowhereToType,
-        .copiedAfterKeyOrClick, .reachedLimit(minutes: 5), .reachedLimit(minutes: 10), .tidyingFailed, .secureInput(holder: "1Password"), .secureInput(holder: nil),
+        .copiedAfterKeyOrClick, .copiedNotSeenLanding, .reachedLimit(minutes: 5), .reachedLimit(minutes: 10), .tidyingFailed, .secureInput(holder: "1Password"), .secureInput(holder: nil),
     ]
 
     func testTheSentencesTheNotchShows() {
@@ -119,6 +119,18 @@ final class DictationHoldNoticeTests: XCTestCase {
         // Copying is the one thing the flag changes: nothing copied, nothing said about it.
         XCTAssertNil(DictationHoldNotice.afterDelivery(copied: false, afterKeyOrClick: true,
                                                        reachedLimit: false, tidyingFailed: false))
+    }
+
+    /// Words typed that nothing visibly took are copied too, and the notch
+    /// says so in plain words, calmly: nothing is broken and nothing is lost.
+    func testWordsNotSeenLandingSaySoCalmly() {
+        let notice = DictationHoldNotice.copiedNotSeenLanding
+        XCTAssertEqual(notice.sentence,
+                       "Your words didn't seem to land in a text box, so they're on the clipboard too.")
+        XCTAssertEqual(notice.tone, .note)
+        XCTAssertNil(notice.fix)
+        XCTAssertEqual(notice.icon, "doc.on.clipboard")
+        XCTAssertEqual(notice.closesAfter, 4)
     }
 
     /// Words copied because Airlock may not type yet say why, and the button

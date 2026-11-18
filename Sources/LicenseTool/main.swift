@@ -52,10 +52,10 @@ guard let command = arguments.first else {
     usage:
       new-key                                  create a signing key pair
       pubkey                                   print the public half of $AIRLOCK_LICENSE_KEY
-      issue <email> <monthly|yearly> [grace] [--plan plus|pro]
+      issue <email> <monthly|yearly> [grace] [--plan plus|pro|lifetime]
                                                mint a licence, grace in days (default \(Int(defaultGraceDays))),
                                                plan Plus unless named
-      reissue <token> [--plan plus|pro]        the same licence signed again, plan changed if named:
+      reissue <token> [--plan plus|pro|lifetime]        the same licence signed again, plan changed if named:
                                                same id, email, dates, key and Mac
       check <token>                            verify against the public key
 
@@ -116,7 +116,7 @@ case "pubkey":
     print(signerFromEnvironment().publicKey.rawRepresentation.base64EncodedString())
 
 case "issue":
-    guard arguments.count >= 3 else { fail("usage: issue <email> <monthly|yearly> [grace days] [--plan plus|pro]") }
+    guard arguments.count >= 3 else { fail("usage: issue <email> <monthly|yearly> [grace days] [--plan plus|pro|lifetime]") }
     let signer = signerFromEnvironment()
 
     let email = arguments[1]
@@ -144,7 +144,7 @@ case "reissue":
     // the id: the licence server matches licences by id (ADMIN_LICENCES, the
     // online-notes ledger), so a fresh `issue` would be a different licence
     // there. Everything but `issued` and the plan is carried across.
-    guard arguments.count >= 2 else { fail("usage: reissue <token> [--plan plus|pro]") }
+    guard arguments.count >= 2 else { fail("usage: reissue <token> [--plan plus|pro|lifetime]") }
     let signer = signerFromEnvironment()
     // Only a genuine key is signed again, so this can never launder an edited
     // one. Checked against the public key on disk, like `check`.

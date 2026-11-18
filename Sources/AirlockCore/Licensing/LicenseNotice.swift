@@ -28,6 +28,11 @@ public enum LicenseNotice: Equatable, Sendable {
 
     public static func forIsland(_ entitlement: Entitlement) -> LicenseNotice {
         switch entitlement {
+        case .overdue(let license) where license.plan == .lifetime:
+            // Paid once: nothing is owed, so the island never says a payment
+            // is late. Its key only waits for a check after the refund
+            // window, and Settings › Plans says that.
+            return .none
         case .overdue:
             return .overdue
         case .trialing(let days) where days <= warningWindow:

@@ -17,7 +17,7 @@ public struct WelcomeCard: Equatable, Sendable {
         public let sentence: String
     }
 
-    /// Plus or Pro.
+    /// Plus, Pro or Lifetime.
     public let plan: AirlockPlan
 
     /// The plan before, so the rows are what changed: Pro over Plus lists
@@ -44,6 +44,12 @@ public struct WelcomeCard: Equatable, Sendable {
             return [clipboard, agents,
                     Row(symbol: "waveform", sentence: String(localized: "Notes cover the whole call, written online by a better model.")),
                     Row(symbol: "laptopcomputer", sentence: String(localized: "Works on every Mac, with or without Apple Intelligence.")),
+                    dropBox]
+        case .lifetime:
+            // Nothing about notes online: Lifetime writes them on the Mac.
+            return [clipboard, agents,
+                    Row(symbol: "person.2", sentence: String(localized: "Calls tell each voice on the other side apart.")),
+                    Row(symbol: "rectangle.split.2x1", sentence: String(localized: "Drag a window to the notch to put it in place.")),
                     dropBox]
         case .pro where from == .plus:
             return [Row(symbol: "sparkles", sentence: String(localized: "Call notes are written by the best model we've tested.")),

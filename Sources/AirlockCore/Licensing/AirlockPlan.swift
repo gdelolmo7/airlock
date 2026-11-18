@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which plan this copy of Airlock is on: Free, Plus or Pro.
+/// Which plan this copy of Airlock is on: Free, Plus, Pro or Lifetime.
 ///
 /// **Free is a plan, not a lock.** Until plans existed, a trial that ran out
 /// stopped the app. Now nobody is stopped: a new install starts on Free, and a
@@ -11,12 +11,17 @@ public enum AirlockPlan: String, Codable, Sendable, CaseIterable {
     case free
     case plus
     case pro
+    /// Paid once, sold only through AppSumo: everything Plus does on the Mac,
+    /// with the call's notes written on the Mac rather than online, because
+    /// online notes cost money every month and this was paid for once.
+    case lifetime
 
     /// The plan a licence paid for.
     public init(_ paid: License.Plan) {
         switch paid {
         case .plus: self = .plus
         case .pro: self = .pro
+        case .lifetime: self = .lifetime
         }
     }
 
@@ -26,15 +31,26 @@ public enum AirlockPlan: String, Codable, Sendable, CaseIterable {
         case .free: "Free"
         case .plus: "Plus"
         case .pro: "Pro"
+        case .lifetime: "Lifetime"
         }
     }
 
-    /// Smallest first. Each plan has everything the one below it has.
+    /// Smallest first. Each plan has everything the one below it has, bar
+    /// Lifetime, which sits with Plus: the same on the Mac, without online
+    /// notes. Neither is a step up from the other.
     var rank: Int {
         switch self {
         case .free: 0
-        case .plus: 1
+        case .plus, .lifetime: 1
         case .pro: 2
+        }
+    }
+
+    /// Whether this plan's call notes may be written online, money flowing.
+    public var notesOnline: Bool {
+        switch self {
+        case .plus, .pro: true
+        case .free, .lifetime: false
         }
     }
 }
@@ -202,7 +218,7 @@ public struct PlanSnapshot: Codable, Equatable, Sendable {
     /// need money known to be flowing.
     public var limits: PlanLimits {
         let free = plan == .free
-        return PlanLimits(writesNotesOnline: !free && isPaid,
+        return PlanLimits(writesNotesOnline: plan.notesOnline && isPaid,
                           clipboardShows: free ? PlanLimits.freeClipboard : nil,
                           oneAgentAtATime: free,
                           notesListenFor: free ? PlanLimits.freeNotesListen : nil,

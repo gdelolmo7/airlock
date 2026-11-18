@@ -26,6 +26,15 @@ final class CallMuteLabelsTests: XCTestCase {
         XCTAssertEqual(CallMuteLabels.isMuted(label: "Silenciar", in: .app), false)
     }
 
+    func testInvisibleDirectionMarksAreIgnored() {
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "\u{200E}Mute", in: .app), false)
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "\u{200E}Unmute", in: .app), true)
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "\u{200E}Mute Microphone", in: .app), false)
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "\u{200E}Mute Microphone", in: .browser), false)
+        XCTAssertEqual(CallMuteLabels.isMuted(label: "\u{2068}Unmute\u{2069}", in: .app), true)
+        XCTAssertNil(CallMuteLabels.isMuted(label: "\u{200E}Microphone", in: .app))
+    }
+
     func testATickedMuteSwitchMeansMuted() {
         XCTAssertEqual(CallMuteLabels.isMuted(label: "Mute", checked: true, in: .app), true)
         XCTAssertEqual(CallMuteLabels.isMuted(label: "Mute", checked: false, in: .app), false)

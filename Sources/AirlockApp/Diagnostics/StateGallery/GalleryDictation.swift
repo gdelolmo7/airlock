@@ -53,6 +53,7 @@ enum GalleryDictation {
             },
             notice("T22", "A key or click while talking (words copied, not typed)", .copiedAfterKeyOrClick),
             notice("T23", "Can't type yet (no Accessibility): words copied, button to the switch", .copiedCantTypeYet),
+            notice("T23b", "Typed, but not seen landing anywhere: words copied too", .copiedNotSeenLanding),
         ]
     }
 

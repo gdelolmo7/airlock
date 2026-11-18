@@ -112,7 +112,10 @@ public struct CallNotesOffers: Equatable, Sendable {
 
         // Past here, any notes on the page are the Mac's.
         let macNotes = hasNotes
-        let seePlus = !writesOnline && (macNotes || empty == .cantWriteNotes)
+        // Lifetime writes its notes on the Mac by what it is, not for want of
+        // paying, and its Plans page offers nothing: no offer leads there.
+        let lifetime = plan.plan == .lifetime
+        let seePlus = !writesOnline && !lifetime && (macNotes || empty == .cantWriteNotes)
 
         var redo: Redo?
         let enoughSaid = NumberedTranscript(record).wordCount >= MeetingNotes.minimumWords
@@ -120,7 +123,7 @@ public struct CallNotesOffers: Equatable, Sendable {
             if !writesOnline {
                 // The empty card says what Plus does on a Mac that can't
                 // write notes; here only notes there are get the button.
-                if macNotes { redo = .opensPlans }
+                if macNotes, !lifetime { redo = .opensPlans }
             } else if online.settingOn, !online.blocked {
                 // Notes without them too: a call from before this plan, on
                 // a Mac with no model, gets its first notes this way.

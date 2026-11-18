@@ -42,6 +42,10 @@ public enum DictationHoldNotice: Equatable, Sendable {
     /// listening, and the words went to the clipboard rather than to wherever
     /// that key or click left the cursor (`HoldInterruption`).
     case copiedAfterKeyOrClick
+    /// Airlock typed the words but could not see them arrive anywhere — the
+    /// app said a text box had the focus and nothing took them — so they are
+    /// on the clipboard too (`DictationLanding`).
+    case copiedNotSeenLanding
     /// The dictation reached its ceiling and was typed up to there. `minutes`
     /// is that ceiling: five for a hold, ten when locked on by a tap.
     case reachedLimit(minutes: Int)
@@ -117,6 +121,8 @@ public enum DictationHoldNotice: Equatable, Sendable {
             return String(localized: "Airlock isn't allowed to type yet, so your words are on the clipboard.")
         case .copiedAfterKeyOrClick:
             return String(localized: "You pressed a key or clicked while talking, so your words are on the clipboard.")
+        case .copiedNotSeenLanding:
+            return String(localized: "Your words didn't seem to land in a text box, so they're on the clipboard too.")
         case .reachedLimit(let minutes):
             return String(localized: "Dictation stops at \(minutes) minutes. Everything before that was typed.")
         case .tidyingFailed:
@@ -148,7 +154,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
         switch self {
         case .microphoneDenied, .noSpeechModel, .notBundled, .microphoneFailedToStart, .copiedCantTypeYet:
             return .problem
-        case .microphoneAllowed, .nothingCaught, .copiedNowhereToType, .copiedAfterKeyOrClick,
+        case .microphoneAllowed, .nothingCaught, .copiedNowhereToType, .copiedAfterKeyOrClick, .copiedNotSeenLanding,
              .reachedLimit, .tidyingFailed, .secureInput, .rememberWord, .rememberedWord:
             return .note
         }
@@ -164,7 +170,7 @@ public enum DictationHoldNotice: Equatable, Sendable {
         case .microphoneFailedToStart: return "mic.badge.xmark"
         case .microphoneAllowed: return "mic"
         case .nothingCaught: return "ear"
-        case .copiedNowhereToType, .copiedAfterKeyOrClick: return "doc.on.clipboard"
+        case .copiedNowhereToType, .copiedAfterKeyOrClick, .copiedNotSeenLanding: return "doc.on.clipboard"
         case .copiedCantTypeYet: return "keyboard"
         case .reachedLimit: return "timer"
         case .tidyingFailed: return "wand.and.stars"

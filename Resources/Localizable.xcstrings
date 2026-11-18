@@ -2153,16 +2153,6 @@
         }
       }
     },
-    "%lld to-dos found" : {
-      "localizations" : {
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld tareas encontradas"
-          }
-        }
-      }
-    },
     "%lld waiting" : {
       "localizations" : {
         "es" : {
@@ -26597,6 +26587,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lugar en la página"
+          }
+        }
+      }
+    },
+    "Small fixes" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pequeños arreglos"
+          }
+        }
+      }
+    },
+    "Click something in the Last copied widget and it moves to the top, as it does in the notch." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pulsa algo en el widget de lo último que copiaste y sube arriba del todo, como en el notch."
+          }
+        }
+      }
+    },
+    "Drag a file into the open notch and it turns to the shelf before you let go." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrastra un archivo al notch abierto y pasa al Estante antes de soltarlo."
+          }
+        }
+      }
+    },
+    "Dictation you never lose" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dictado que nunca se pierde"
+          }
+        }
+      }
+    },
+    "Words that land in no text box go on the clipboard, and the notch tells you. Paste them anywhere." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si tus palabras no caen en un cuadro de texto, van al portapapeles y el notch te lo dice. Pégalas donde quieras."
+          }
+        }
+      }
+    },
+    "Your words didn't seem to land in a text box, so they're on the clipboard too." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parece que tus palabras no cayeron en ningún cuadro de texto, así que también están en el portapapeles."
+          }
+        }
+      }
+    },
+    "Mute works on WhatsApp" : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Silenciarte funciona en WhatsApp"
+          }
+        }
+      }
+    },
+    "Mute yourself on a WhatsApp call and what you say stays out of the notes." : {
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si te silencias en una llamada de WhatsApp, lo que digas no entra en las notas."
           }
         }
       }

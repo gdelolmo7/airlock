@@ -195,8 +195,6 @@ private struct NotesComparisonTile: View {
                     .padding(.top, 10)
                 fact(heard, symbol: "waveform")
                     .padding(.top, 5)
-                fact(String(localized: "\(NotesComparisonSample.todos(plan)) to-dos found"), symbol: "checklist")
-                    .padding(.top, 5)
                 fact(voices, symbol: "person.2")
                     .padding(.top, 5)
             }
@@ -236,7 +234,7 @@ private struct NotesComparisonTile: View {
 
     private var written: String {
         switch plan {
-        case .free: String(localized: "On your Mac, basic model")
+        case .free, .lifetime: String(localized: "On your Mac, basic model")
         case .plus: String(localized: "Online, a better model")
         case .pro: String(localized: "Online, the best model")
         }

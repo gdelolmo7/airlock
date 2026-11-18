@@ -193,8 +193,10 @@ public struct PlansPage: Equatable, Sendable {
         }
 
         // Pro has nothing above it, and a sold subscription whose payment
-        // failed is asked to fix that first, not to pay for more.
-        if on == .pro || (current.needsAttention && license?.ref != nil) {
+        // failed is asked to fix that first, not to pay for more. Lifetime is
+        // offered nothing: a subscription's key would take the place of the
+        // one paid once, and end on Free if it were ever cancelled.
+        if on == .pro || on == .lifetime || (current.needsAttention && license?.ref != nil) {
             line = nil
             plansHeading = nil
         } else {
@@ -208,7 +210,9 @@ public struct PlansPage: Equatable, Sendable {
             plansHeading = on == .plus ? String(localized: "Want even better notes?") : String(localized: "Plans")
         }
 
-        if let license, !current.needsAttention {
+        // Lifetime has no way down here: a refund is AppSumo's, and the
+        // licence server hears of it there.
+        if let license, !current.needsAttention, on != .lifetime {
             let steps = Self.stepsDown(from: on, license, now: now, locale: locale, timeZone: timeZone)
             stepsDown = steps
             stepsDownHeading = license.ref != nil ? String(localized: "Change or cancel") : String(localized: "Other plans")
@@ -269,6 +273,10 @@ public struct PlansPage: Equatable, Sendable {
                            price: nil, note: nil, manages: false, needsAttention: false)
         case .licensed(let license), .grace(let license):
             let plan = AirlockPlan(license.plan)
+            if plan == .lifetime {
+                return Current(plan: plan, title: license.plan.label, summary: lifetimeSummary,
+                               price: nil, note: nil, manages: false, needsAttention: false)
+            }
             guard license.ref != nil else {
                 // Issued by hand: no price, never renews, nothing to manage.
                 let until = date(license.checkBy, withYear: true, locale: locale, timeZone: timeZone)
@@ -280,6 +288,12 @@ public struct PlansPage: Equatable, Sendable {
                            price: PlanCatalog.price(plan, license.period),
                            note: plan == .pro ? String(localized: "Change plan or card, or cancel, in your browser") : PlanCatalog.monthlyNotes,
                            manages: true, needsAttention: false)
+        case .overdue(let license) where license.plan == .lifetime:
+            // The first key a code makes is checked once its refund window
+            // closes; this Mac hasn't managed to ask since. Nothing is owed.
+            return Current(plan: .lifetime, title: license.plan.label,
+                           summary: String(localized: "Airlock couldn't check your lifetime deal yet. Everything keeps working; connect to the internet and it checks by itself."),
+                           price: nil, note: nil, manages: false, needsAttention: true)
         case .overdue(let license):
             let summary = license.ref != nil
                 ? String(localized: "The last payment didn't go through. Airlock keeps working while you update it.")
@@ -288,6 +302,10 @@ public struct PlansPage: Equatable, Sendable {
                            price: nil, note: nil, manages: license.ref != nil, needsAttention: true)
         }
     }
+
+    /// Lifetime, under its name. Says what it leaves out, so nobody looks for
+    /// online notes they never bought.
+    static let lifetimeSummary = String(localized: "Paid once, through AppSumo. Everything in Plus, with call notes written on this Mac.")
 
     /// What Free keeps, from the table that enforces it.
     static var freeSummary: String {

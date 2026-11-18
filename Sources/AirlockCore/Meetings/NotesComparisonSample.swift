@@ -66,7 +66,8 @@ public enum NotesComparisonSample {
     /// and Free's read one "Them".
     public static func written(_ plan: AirlockPlan) -> String {
         switch plan {
-        case .free: NotesComparisonPages.free
+        // Lifetime's notes are written on the Mac, as Free's are.
+        case .free, .lifetime: NotesComparisonPages.free
         case .plus: NotesComparisonPages.plus
         case .pro: NotesComparisonPages.pro
         }
@@ -85,13 +86,6 @@ public enum NotesComparisonSample {
         let header = MeetingFiles.header(of: plan == .free ? freeRecord : record, timeZone: timeZone)
         let placed = MeetingPage.placed(MeetingPage.body(of: page(plan), header: header))
         return CallNotesNotice.split(MeetingPage.sections(placed).sections).sections
-    }
-
-    /// How many to-dos `plan`'s notes found, for the window's plan tiles.
-    public static func todos(_ plan: AirlockPlan) -> Int {
-        sections(plan).first { $0.heading == "To-dos" }?.lines.filter { line in
-            if case .item = line.block { true } else { false }
-        }.count ?? 0
     }
 
     // MARK: - What was said

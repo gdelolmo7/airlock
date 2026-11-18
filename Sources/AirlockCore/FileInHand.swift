@@ -118,4 +118,21 @@ public struct FileInHand: Equatable, Sendable {
         isHeld = false
         return true
     }
+
+    /// A drag came into the panel while it was already open, on whatever page
+    /// it was showing. Turns it to the shelf at once, the way a drag arriving
+    /// over the island already does, so the file goes somewhere you can see.
+    /// Before, the page changed only on letting go: the shelf still took the
+    /// file, but with the call or the calendar under the pointer there seemed
+    /// to be nowhere to drop it.
+    ///
+    /// Only for a file the shelf keeps that came from outside Airlock
+    /// (`isHeld`). A drag that starts inside the panel, a clipboard row or an
+    /// item off the shelf, never turns the page out from under its own source.
+    /// Nor while something else owns the panel (setup, a new version's card,
+    /// a question) or the blocks are being arranged.
+    public static func turnsOpenPanelToShelf(held: Bool, draggingOut: Bool,
+                                             panelIsTaken: Bool, arranging: Bool) -> Bool {
+        held && !draggingOut && !panelIsTaken && !arranging
+    }
 }

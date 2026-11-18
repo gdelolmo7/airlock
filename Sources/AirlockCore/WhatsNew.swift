@@ -54,6 +54,16 @@ public enum WhatsNew {
     /// Written for someone who is not technical: what changes for them on the
     /// Mac, never how.
     public static let catalog: [Notes] = [
+        Notes(version: "1.3.3", title: String(localized: "Mute works on WhatsApp"), items: [
+            Item("mic.slash", String(localized: "Mute yourself on a WhatsApp call and what you say stays out of the notes.")),
+        ]),
+        Notes(version: "1.3.2", title: String(localized: "Dictation you never lose"), items: [
+            Item("mic", String(localized: "Words that land in no text box go on the clipboard, and the notch tells you. Paste them anywhere.")),
+        ]),
+        Notes(version: "1.3.1", title: String(localized: "Small fixes"), items: [
+            Item("doc.on.clipboard", String(localized: "Click something in the Last copied widget and it moves to the top, as it does in the notch.")),
+            Item("tray.and.arrow.down", String(localized: "Drag a file into the open notch and it turns to the shelf before you let go.")),
+        ]),
         Notes(version: "1.3.0", title: String(localized: "Add-ons, and notes your way"), items: [
             Item("puzzlepiece.extension", String(localized: "Settings › Add-ons shows what Airlock can do. Remove what you don't use, add it back with the +.")),
             Item("person.2", String(localized: "In meetings in the room, the loudest voice shows as you. Name people from the Calls window too.")),

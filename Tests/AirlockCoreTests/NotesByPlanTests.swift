@@ -394,12 +394,6 @@ final class NotesByPlanTests: XCTestCase {
         XCTAssertEqual(whole.endedAt?.timeIntervalSince(whole.startedAt), 42 * 60)
     }
 
-    /// The window's plan tiles count the to-dos each plan found, and each
-    /// plan up finds more.
-    func testEachPlanUpFindsMoreToDos() {
-        XCTAssertEqual(AirlockPlan.allCases.map(NotesComparisonSample.todos), [9, 12, 18])
-    }
-
     /// Free's page is what the Mac's model wrote of the first 30 minutes,
     /// said at the top and the foot, from a call whose other side is one
     /// "Them": telling voices apart is Plus's, and Free's example never

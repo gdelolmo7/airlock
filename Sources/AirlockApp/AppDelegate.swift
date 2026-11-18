@@ -112,13 +112,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // A copy on the Last copied widget: copied again only if it is in
         // the history and shown on this plan, so a link from anywhere else
-        // can only put back something you copied yourself.
+        // can only put back something you copied yourself. Copying it again
+        // makes it the newest, as picking it in the notch does: `copy(_:)`
+        // alone claims the change, so the poller never moves it up.
         if let id = urls.lazy.compactMap(DeskClips.clipID(from:)).first {
             Task { @MainActor [weak self] in
                 guard let clipboard = self?.clipboardWidget, clipboard.isEnabled,
-                      let item = DeskClips.shown(clipboard.history.items, planShows: clipboard.planShows)
-                        .first(where: { $0.id == id }) else { return }
-                clipboard.copy(item)
+                      DeskClips.shown(clipboard.history.items, planShows: clipboard.planShows)
+                        .contains(where: { $0.id == id }) else { return }
+                clipboard.recopy(id: id)
             }
             return
         }

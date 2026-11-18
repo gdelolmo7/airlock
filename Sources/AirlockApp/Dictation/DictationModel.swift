@@ -304,6 +304,11 @@ final class DictationModel {
     /// clipboard instead — safe in that direction, because nothing gets typed.
     @ObservationIgnored private var destinationPID: pid_t?
     @ObservationIgnored private var probeTask: Task<Void, Never>?
+    /// Whether the probe actually SAW a text box at key-down, as opposed to
+    /// `.type` by default (no answer yet, or an app it could not read). Only a
+    /// box that was seen lets an unreadable one after typing go unchecked —
+    /// see `DictationLanding.copiesToo`.
+    @ObservationIgnored private var targetWasConfirmed = false
 
     /// Puts a transcript on the clipboard when there is nowhere to type it.
     /// Wired by AppDelegate, so history suppression stays in one place.
@@ -1390,6 +1395,8 @@ final class DictationModel {
         let delivery = DictationDelivery.decide(route: settled,
                                                 isAccessibilityTrusted: TypeService.isTrusted)
         let copies = delivery == .copy && settled == .copy
+        // Read now: the next hold resets it, and this delivery runs after.
+        let targetWasConfirmed = self.targetWasConfirmed
 
         // The panel closes here as it always did — unless there is something
         // to say about this hold, which takes the panel's place instead of
@@ -1416,6 +1423,9 @@ final class DictationModel {
         }
 
         dictationLog("typing \(logged(text)) axTrusted=\(TypeService.isTrusted)")
+        // What the box held before, so the look after typing can tell
+        // whether anything took the words. See `DictationLanding`.
+        let before = await LandingCheck.look()
         guard await TypeService.type(text) else {
             // THE SAME FALLBACK THE `.copy` ROUTE ABOVE GETS, and it was
             // missing here. Without Accessibility the words were
@@ -1471,6 +1481,29 @@ final class DictationModel {
             self.refreshReadiness()
             return
         }
+        // Posting the keystrokes is not the words arriving. An app can say a
+        // text box has the focus while nothing on screen has the cursor, and
+        // then the words went nowhere and, before this, not to the clipboard
+        // either: lost. So look, and when they can't be seen landing, copy
+        // them too and say so in the notch.
+        let landing = await LandingCheck.verdict(typed: text, before: before)
+        // A password box is never put on the clipboard, whatever the look said.
+        let copiesToo = !keeping.secure
+            && DictationLanding.copiesToo(landing, targetWasConfirmed: targetWasConfirmed)
+        if copiesToo {
+            dictationLog("  typed, but not seen landing (\(landing.rawValue), before=\(before.shortDescription), "
+                         + "confirmed=\(targetWasConfirmed)) — copying too")
+            self.onCopyTranscript?(text)
+            self.showNotice(.copiedNotSeenLanding)
+            self.statusMessage = DictationHoldNotice.copiedNotSeenLanding.sentence
+            guard landing == .cannotTell else {
+                // Visibly not typed: not a dictation the app did for you.
+                finish(.copied)
+                return
+            }
+        } else {
+            dictationLog("  landing: \(landing.rawValue)")
+        }
         // Counted where the text actually LANDED, not where the hold
         // ended: a transcript that failed to type is not a dictation the
         // app did for you, and the trial card must not claim it.
@@ -1478,8 +1511,10 @@ final class DictationModel {
         self.tally?.recordDictation()
         UsageCounts.shared.record(.used(.dictation))
         FirstStepsModel.shared.note(.dictate)
-        self.statusMessage = reason == .reachedLimit
-            ? String(localized: "Stopped at the \(finishedLimitMinutes)-minute limit.") : nil
+        if !copiesToo {
+            self.statusMessage = reason == .reachedLimit
+                ? String(localized: "Stopped at the \(finishedLimitMinutes)-minute limit.") : nil
+        }
         lastTyped = keeping.secure ? nil : text
         // Only after Airlock typed, and only into where it typed. A saved
         // text is the person's own words already: nothing to learn from it.
@@ -1536,6 +1571,7 @@ final class DictationModel {
     /// Work out where this hold is going, without holding anything up.
     private func startFocusProbe() {
         route = .type
+        targetWasConfirmed = false
         destinationName = NSWorkspace.shared.frontmostApplication?.localizedName
         destinationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         probeTask?.cancel()
@@ -1544,6 +1580,7 @@ final class DictationModel {
             let probe = await FocusProbe.current()
             guard let self, !Task.isCancelled else { return }
             self.route = DictationRoute.decide(probe)
+            if case .focused = probe { self.targetWasConfirmed = self.route == .type }
             dictationLog("  focus probe → \(probe.shortDescription) route=\(self.route.rawValue)")
             if case .focused(let snapshot) = probe, FocusTarget.containsPasswordField(snapshot) {
                 dictationLog("  password field — this dictation is not kept")

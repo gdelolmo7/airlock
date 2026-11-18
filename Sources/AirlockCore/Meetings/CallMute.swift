@@ -72,7 +72,11 @@ public enum CallMuteLabels {
     /// Lower case, accents folded, the keyboard shortcut in brackets and any
     /// closing full stop dropped, spaces collapsed.
     static func normalized(_ label: String) -> String {
-        var text = label.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased()
+        // Some apps put invisible direction marks around their button names
+        // (WhatsApp's "Mute" starts with U+200E). Drop every format character
+        // so the name matches the words it shows.
+        let visible = String(String.UnicodeScalarView(label.unicodeScalars.filter { $0.properties.generalCategory != .format }))
+        var text = visible.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased()
         while let open = text.lastIndex(of: "("), text[open...].contains(")") {
             text = String(text[..<open])
         }

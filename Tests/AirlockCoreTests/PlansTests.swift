@@ -25,7 +25,8 @@ final class PlansTests: XCTestCase {
     func testAPlanIsWhatTheLicencePaidFor() {
         XCTAssertEqual(AirlockPlan(License.Plan.plus), .plus)
         XCTAssertEqual(AirlockPlan(License.Plan.pro), .pro)
-        XCTAssertEqual(AirlockPlan.allCases.map(\.label), ["Free", "Plus", "Pro"])
+        XCTAssertEqual(AirlockPlan(License.Plan.lifetime), .lifetime)
+        XCTAssertEqual(AirlockPlan.allCases.map(\.label), ["Free", "Plus", "Pro", "Lifetime"])
     }
 
     /// Notes go online only on a paid plan with money known to be flowing.

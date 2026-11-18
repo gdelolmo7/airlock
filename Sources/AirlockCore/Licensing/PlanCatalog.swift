@@ -14,10 +14,11 @@ import Foundation
 /// the customer is charged there, not here.
 public enum PlanCatalog {
     /// What a plan costs for one period, in euro cents. Free costs nothing
-    /// either way.
+    /// either way, and neither does Lifetime here: it is paid once, at
+    /// AppSumo, in dollars, and the app never sells it or prices it.
     public static func cents(_ plan: AirlockPlan, _ period: License.Period) -> Int {
         switch (plan, period) {
-        case (.free, _): 0
+        case (.free, _), (.lifetime, _): 0
         case (.plus, .monthly): 399
         case (.plus, .yearly): 3599
         case (.pro, .monthly): 799
@@ -68,7 +69,7 @@ public enum PlanCatalog {
     public static func lead(_ plan: AirlockPlan) -> String? {
         switch plan {
         case .free: nil
-        case .plus: String(localized: "Everything in Free, and:")
+        case .plus, .lifetime: String(localized: "Everything in Free, and:")
         case .pro: String(localized: "Everything in Plus, and:")
         }
     }
@@ -107,6 +108,10 @@ public enum PlanCatalog {
         switch plan {
         case .free:
             return []
+        case .lifetime:
+            // Plus's list without what is written online.
+            let online: Set<String> = ["waveform", "arrow.clockwise", "laptopcomputer"]
+            return features(.plus).filter { !online.contains($0.symbol) }
         case .plus:
             let clipboard = String(localized: "Clipboard keeps \(thousands(ClipboardHistory.capacityRange.upperBound))")
             return [Feature(symbol: "waveform", title: String(localized: "The whole call"),
@@ -164,7 +169,7 @@ public enum PlanCatalog {
     public static func checkoutURL(_ plan: AirlockPlan, _ period: License.Period) -> URL? {
         let variant: String
         switch (plan, period) {
-        case (.free, _): return nil
+        case (.free, _), (.lifetime, _): return nil
         case (.plus, .monthly): variant = "3ac38a46-f154-4a79-b872-0fbae892c873"
         case (.plus, .yearly): variant = "93a5fdb0-4670-40cf-9057-827f8ffe454f"
         case (.pro, .monthly): variant = "af3006f2-d7d9-4201-a23f-bc5f68179bb2"

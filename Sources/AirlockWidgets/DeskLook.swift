@@ -26,6 +26,15 @@ struct DeskLook: Equatable {
     var accent: Color
     /// The check drawn on a filled circle.
     var on: Color
+    /// A button: its fill and its words. In full colour, words in `on` on
+    /// the accent. In faded the desktop draws the widget as one tint, where
+    /// dark words on a light pill are not drawn at all and the button reads
+    /// as a blank white bar, so the pill is a soft tint and the words the
+    /// tint itself.
+    var buttonFill: Color? = nil
+    var buttonText: Color? = nil
+    var pill: Color { buttonFill ?? accent }
+    var pillText: Color { buttonText ?? on }
     var bloub: Color
     var bloubEyes: Color
     /// The notch's warm "needs you" and green "finished" (Theme.needs,
@@ -50,6 +59,7 @@ struct DeskLook: Equatable {
                 glass: false,
                 fg: tint, fg2: tint.opacity(0.7), fg3: tint.opacity(0.5), well: tint.opacity(0.1),
                 accent: tint, on: under,
+                buttonFill: tint.opacity(0.18), buttonText: tint,
                 bloub: tint, bloubEyes: under, needs: tint, done: tint)
         }
         switch surface {

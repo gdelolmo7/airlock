@@ -26,10 +26,11 @@ struct PlanTag: View {
     }
 
     /// Each plan's colour: Plus blue, Pro gold, Free the resting grey.
+    /// Lifetime is Plus's blue: the same things on the Mac.
     static func tint(_ plan: AirlockPlan) -> Color {
         switch plan {
         case .free: Theme.textSecondary
-        case .plus: plus
+        case .plus, .lifetime: plus
         case .pro: pro
         }
     }
@@ -38,7 +39,7 @@ struct PlanTag: View {
     static func text(_ plan: AirlockPlan) -> Color {
         switch plan {
         case .free: Theme.textSecondary
-        case .plus: plusText
+        case .plus, .lifetime: plusText
         case .pro: pro
         }
     }

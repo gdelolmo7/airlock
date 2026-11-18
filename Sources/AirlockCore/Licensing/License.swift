@@ -74,6 +74,12 @@ public struct License: Equatable, Sendable, Codable {
     public enum Plan: String, Sendable, Codable, CaseIterable {
         case plus
         case pro
+        /// Paid once, through AppSumo: everything Plus does on the Mac, and no
+        /// online notes. Its key says `period: yearly` so that an app from
+        /// before Lifetime, which reads this plan as Plus, still accepts it;
+        /// nothing bills. The licence server refuses it online notes whatever
+        /// the app thinks.
+        case lifetime
 
         /// For Settings. A name, never a price, for the same reason as
         /// `Period.label`.
@@ -81,6 +87,7 @@ public struct License: Equatable, Sendable, Codable {
             switch self {
             case .plus: return "Plus"
             case .pro: return "Pro"
+            case .lifetime: return "Lifetime"
             }
         }
     }
